@@ -43,6 +43,18 @@ The main response flow is:
 
 The initial domain folders are prepared for Auth, Students, Subjects, Exams, Collaborators, Eligibility, Entries, Infractions, and Reports, without implementing business logic or database models yet.
 
+## Base de datos
+
+El backend esta preparado para PostgreSQL 15. El nombre local sugerido para la base de datos es `oidevs_examenes`.
+
+El esquema propio del dominio utiliza nombres en espanol y tablas en singular. Las migrations son la fuente de verdad del esquema; no edites manualmente las tablas desde pgAdmin.
+
+Despues de configurar `.env`, aplica el esquema con:
+
+```bash
+php artisan migrate
+```
+
 ## Learning Laravel
 
 Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
