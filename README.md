@@ -43,16 +43,24 @@ The main response flow is:
 
 The initial domain folders are prepared for Auth, Students, Subjects, Exams, Collaborators, Eligibility, Entries, Infractions, and Reports, without implementing business logic or database models yet.
 
-## Base de datos
+## Database
 
-El backend esta preparado para PostgreSQL 15. El nombre local sugerido para la base de datos es `oidevs_examenes`.
+The backend is prepared for PostgreSQL 15.
 
-El esquema propio del dominio utiliza nombres en espanol y tablas en singular. Las migrations son la fuente de verdad del esquema; no edites manualmente las tablas desde pgAdmin.
+The database schema uses technical English names, Laravel/Eloquent naming conventions, plural table names where appropriate, snake_case columns, and Laravel timestamps (`created_at`, `updated_at`) where the table needs both lifecycle timestamps.
 
-Despues de configurar `.env`, aplica el esquema con:
+Migrations are the source of truth for the schema. Do not modify tables manually from pgAdmin.
+
+During initial setup, after configuring `.env`, apply the schema with:
 
 ```bash
 php artisan migrate
+```
+
+Once the initial migration has been shared and used by the team, do not modify it for later schema changes. Every later schema change must be introduced with a new migration, for example:
+
+```bash
+php artisan make:migration add_institutional_code_to_users_table
 ```
 
 ## Learning Laravel
