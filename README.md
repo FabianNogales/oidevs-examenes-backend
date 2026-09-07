@@ -93,6 +93,27 @@ FRONTEND_URL=http://127.0.0.1:5173
 SANCTUM_STATEFUL_DOMAINS=127.0.0.1:5173,localhost:5173
 ```
 
+### Local Login Test User
+
+Public registration is disabled, so local login testing requires an existing user.
+For local development only, create one manually with Tinker:
+
+```bash
+php artisan tinker
+```
+
+```php
+$user = new App\Models\User();
+$user->email = 'login.test@oipass.local';
+$user->password = 'Test12345!';
+$user->status = 'ACTIVE';
+$user->save();
+```
+
+The `User` model currently casts `password` as `hashed`, so do not wrap the
+password with `Hash::make()` here. Delete this development-only user when it is
+no longer needed.
+
 ## User Domain
 
 The user model is organized around authentication accounts plus role-specific profile tables:

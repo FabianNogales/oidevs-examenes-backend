@@ -1,6 +1,9 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Auth\CurrentUserController;
 use App\Http\Controllers\Api\V1\Health\HealthCheckController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('health', HealthCheckController::class)->name('health');
+
+Route::middleware('auth:sanctum')->get('me', CurrentUserController::class)->name('me');
