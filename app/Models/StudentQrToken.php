@@ -12,6 +12,7 @@ class StudentQrToken extends Model
 
     protected $fillable = [
         'student_id',
+        'subject_id',
         'token',
         'status',
         'generated_at',
@@ -20,11 +21,16 @@ class StudentQrToken extends Model
 
     protected $casts = [
         'generated_at' => 'datetime',
-        'revoked_at' => 'datetime',
+        'revoked_at'   => 'datetime',
     ];
 
     public function student(): BelongsTo
     {
-        return $this->belongsTo(Student::class);
+        return $this->belongsTo(Student::class, 'student_id');
+    }
+
+    public function subject(): BelongsTo
+    {
+        return $this->belongsTo(Subject::class, 'subject_id');
     }
 }

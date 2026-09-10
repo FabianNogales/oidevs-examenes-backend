@@ -3,10 +3,10 @@
 namespace App\Http\Controllers\Api\V1\Students;
 
 use App\Http\Controllers\Controller;
-use App\Http\Resources\Students\QrTokenResource;
-use App\Models\Student;
 use App\Services\Students\StudentQrService;
+use App\Http\Resources\Students\QrTokenResource;
 use Illuminate\Http\JsonResponse;
+use Exception;
 
 class StudentQrController extends Controller
 {
@@ -14,13 +14,20 @@ class StudentQrController extends Controller
         protected StudentQrService $qrService
     ) {}
 
-    public function generate(Student $student): JsonResponse
+    public function show(int $studentId, int $subjectId): JsonResponse
     {
-        $qrToken = $this->qrService->generateTokenForStudent($student);
+        try {
+            $qrToken = $this->qrService->getOrGenerateForSubject($studentId, $subjectId);
 
-        return response()->json([
-            'message' => 'Código QR generado exitosamente.',
-            'data' => new QrTokenResource($qrToken),
-        ], 201);
+            return response()->json([
+                'message' => 'QR obtenido exitosamente',
+                'data'    => new QrTokenResource($qrToken)
+            ], 200);
+
+        } catch (Exception $e) {
+            return response()->json([
+                'message' => $e->getMessage()
+            ], 400);
+        }
     }
 }
