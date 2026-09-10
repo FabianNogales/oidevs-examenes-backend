@@ -32,6 +32,7 @@ class CurrentUserTest extends TestCase
             ->assertJsonPath('data.id', $user->id)
             ->assertJsonPath('data.email', 'login.test@oipass.local')
             ->assertJsonPath('data.status', 'ACTIVE')
+            ->assertJsonPath('data.must_change_password', false)
             ->assertJsonPath('data.roles', []);
     }
 

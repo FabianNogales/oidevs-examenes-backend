@@ -18,6 +18,7 @@ class CurrentUserResource extends JsonResource
             'id' => $this->id,
             'email' => $this->email,
             'status' => $this->status,
+            'must_change_password' => $this->must_change_password,
             'roles' => $this->whenLoaded(
                 'activeRoles',
                 fn () => $this->activeRoles->pluck('name')->values()->all(),
