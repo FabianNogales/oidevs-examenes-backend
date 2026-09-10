@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\Auth\AuthController;
 use App\Http\Controllers\Api\V1\Health\HealthCheckController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\TeacherDashboard\TeacherDashboardController;
+use App\Http\Controllers\Api\V1\Enrollments\StudentEnrollmentController;
 
 Route::get('health', HealthCheckController::class)->name('health');
 
@@ -25,4 +26,11 @@ Route::prefix('teacher/dashboard')
     ->group(function () {
         Route::get('/subjects', [TeacherDashboardController::class, 'getAssignedSubjects']);
         Route::get('/upcoming-exams', [TeacherDashboardController::class, 'getUpcomingExams']);
+    });
+
+Route::prefix('course-offerings/{courseOffering}')
+    ->middleware(['auth:sanctum']) 
+    ->group(function () {
+        Route::post('/enrollments/manual', [StudentEnrollmentController::class, 'storeManual']);
+        Route::post('/enrollments/bulk', [StudentEnrollmentController::class, 'storeBulk']);
     });
