@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\NormalizeLoginIdentifier;
 use Laravel\Fortify\Features;
 
 return [
@@ -45,7 +46,7 @@ return [
     |
     */
 
-    'username' => 'email',
+    'username' => 'identifier',
 
     'email' => 'email',
 
@@ -101,7 +102,7 @@ return [
     |
     */
 
-    'middleware' => ['web'],
+    'middleware' => ['web', NormalizeLoginIdentifier::class],
 
     /*
     |--------------------------------------------------------------------------

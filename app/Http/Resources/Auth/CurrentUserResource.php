@@ -18,6 +18,11 @@ class CurrentUserResource extends JsonResource
             'id' => $this->id,
             'email' => $this->email,
             'status' => $this->status,
+            'roles' => $this->whenLoaded(
+                'activeRoles',
+                fn () => $this->activeRoles->pluck('name')->values()->all(),
+                [],
+            ),
         ];
     }
 }

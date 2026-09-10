@@ -11,9 +11,11 @@ class CurrentUserController extends Controller
 {
     public function __invoke(Request $request): JsonResponse
     {
+        $user = $request->user()->loadMissing('activeRoles');
+
         return response()->json([
             'success' => true,
-            'data' => CurrentUserResource::make($request->user())->resolve(),
+            'data' => CurrentUserResource::make($user)->resolve(),
         ]);
     }
 }
