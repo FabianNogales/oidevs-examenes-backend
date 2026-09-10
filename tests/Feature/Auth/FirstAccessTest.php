@@ -113,12 +113,13 @@ class FirstAccessTest extends TestCase
     {
         $user = $this->createFirstAccessUser(email: 'change.password@umss.edu.bo');
 
-        $this->actingAs($user)
-            ->putJson('/user/password', [
-                'current_password' => self::INITIAL_PASSWORD,
-                'password' => self::NEW_PASSWORD,
-                'password_confirmation' => self::NEW_PASSWORD,
-            ])
+        $this->loginAndUseSession($user, self::INITIAL_PASSWORD);
+
+        $this->putJson('/user/password', [
+            'current_password' => self::INITIAL_PASSWORD,
+            'password' => self::NEW_PASSWORD,
+            'password_confirmation' => self::NEW_PASSWORD,
+        ])
             ->assertOk();
 
         $this->assertTrue(Hash::check(self::NEW_PASSWORD, $user->refresh()->password));
@@ -128,12 +129,13 @@ class FirstAccessTest extends TestCase
     {
         $user = $this->createFirstAccessUser(email: 'clear.flag@umss.edu.bo');
 
-        $this->actingAs($user)
-            ->putJson('/user/password', [
-                'current_password' => self::INITIAL_PASSWORD,
-                'password' => self::NEW_PASSWORD,
-                'password_confirmation' => self::NEW_PASSWORD,
-            ])
+        $this->loginAndUseSession($user, self::INITIAL_PASSWORD);
+
+        $this->putJson('/user/password', [
+            'current_password' => self::INITIAL_PASSWORD,
+            'password' => self::NEW_PASSWORD,
+            'password_confirmation' => self::NEW_PASSWORD,
+        ])
             ->assertOk();
 
         $this->assertFalse($user->refresh()->must_change_password);
@@ -143,12 +145,13 @@ class FirstAccessTest extends TestCase
     {
         $user = $this->createFirstAccessUser(email: 'future.auth@umss.edu.bo');
 
-        $this->actingAs($user)
-            ->putJson('/user/password', [
-                'current_password' => self::INITIAL_PASSWORD,
-                'password' => self::NEW_PASSWORD,
-                'password_confirmation' => self::NEW_PASSWORD,
-            ])
+        $this->loginAndUseSession($user, self::INITIAL_PASSWORD);
+
+        $this->putJson('/user/password', [
+            'current_password' => self::INITIAL_PASSWORD,
+            'password' => self::NEW_PASSWORD,
+            'password_confirmation' => self::NEW_PASSWORD,
+        ])
             ->assertOk();
 
         $this->postJson('/logout')->assertNoContent();
@@ -173,12 +176,13 @@ class FirstAccessTest extends TestCase
         $user = $this->createFirstAccessUser(email: 'wrong.current@umss.edu.bo');
         $originalHash = $user->password;
 
-        $this->actingAs($user)
-            ->putJson('/user/password', [
-                'current_password' => 'WrongPass1',
-                'password' => self::NEW_PASSWORD,
-                'password_confirmation' => self::NEW_PASSWORD,
-            ])
+        $this->loginAndUseSession($user, self::INITIAL_PASSWORD);
+
+        $this->putJson('/user/password', [
+            'current_password' => 'WrongPass1',
+            'password' => self::NEW_PASSWORD,
+            'password_confirmation' => self::NEW_PASSWORD,
+        ])
             ->assertUnprocessable();
 
         $user->refresh();
@@ -192,12 +196,13 @@ class FirstAccessTest extends TestCase
         $user = $this->createFirstAccessUser(email: 'invalid.new@umss.edu.bo');
         $originalHash = $user->password;
 
-        $this->actingAs($user)
-            ->putJson('/user/password', [
-                'current_password' => self::INITIAL_PASSWORD,
-                'password' => 'short',
-                'password_confirmation' => 'short',
-            ])
+        $this->loginAndUseSession($user, self::INITIAL_PASSWORD);
+
+        $this->putJson('/user/password', [
+            'current_password' => self::INITIAL_PASSWORD,
+            'password' => 'short',
+            'password_confirmation' => 'short',
+        ])
             ->assertUnprocessable();
 
         $user->refresh();
@@ -215,12 +220,13 @@ class FirstAccessTest extends TestCase
             'must_change_password' => false,
         ]);
 
-        $this->actingAs($user)
-            ->putJson('/user/password', [
-                'current_password' => 'RegularPass1',
-                'password' => self::NEW_PASSWORD,
-                'password_confirmation' => self::NEW_PASSWORD,
-            ])
+        $this->loginAndUseSession($user, 'RegularPass1');
+
+        $this->putJson('/user/password', [
+            'current_password' => 'RegularPass1',
+            'password' => self::NEW_PASSWORD,
+            'password_confirmation' => self::NEW_PASSWORD,
+        ])
             ->assertOk();
 
         $this->assertFalse($user->refresh()->must_change_password);
@@ -231,7 +237,7 @@ class FirstAccessTest extends TestCase
     {
         $user = $this->createFirstAccessUser(email: 'sensitive.me@umss.edu.bo');
 
-        $this->actingAs($user)
+        $this->actingAsCurrentSession($user)
             ->getJson('/api/v1/me')
             ->assertOk()
             ->assertJsonPath('data.must_change_password', true)
@@ -245,7 +251,7 @@ class FirstAccessTest extends TestCase
     {
         $user = $this->createFirstAccessUser(email: 'blocked.middleware@umss.edu.bo');
 
-        $this->actingAs($user)
+        $this->actingAsCurrentSession($user)
             ->getJson('/test/password-ready')
             ->assertForbidden()
             ->assertJsonPath('success', false)
@@ -261,7 +267,7 @@ class FirstAccessTest extends TestCase
             'must_change_password' => false,
         ]);
 
-        $this->actingAs($user)
+        $this->actingAsCurrentSession($user)
             ->getJson('/test/password-ready')
             ->assertOk()
             ->assertJsonPath('success', true);
@@ -276,5 +282,34 @@ class FirstAccessTest extends TestCase
         ]);
 
         return app(InitialPasswordService::class)->initialize($user, self::INITIAL_PASSWORD);
+    }
+
+    private function actingAsCurrentSession(User $user): self
+    {
+        $this->startSession();
+
+        $user->forceFill([
+            'active_session_id' => $this->app['session']->getId(),
+        ])->save();
+
+        return $this->actingAs($user);
+    }
+
+    private function loginAndUseSession(User $user, string $password): void
+    {
+        $this->postJson('/login', [
+            'identifier' => $user->email,
+            'password' => $password,
+        ])->assertOk();
+
+        $this->useSessionCookie($user->refresh()->active_session_id);
+    }
+
+    private function useSessionCookie(string $sessionId): self
+    {
+        return $this
+            ->withCredentials()
+            ->withHeader('Origin', 'http://127.0.0.1:5173')
+            ->withCookie(config('session.cookie'), $sessionId);
     }
 }

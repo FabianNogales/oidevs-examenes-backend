@@ -25,7 +25,7 @@ class CurrentUserTest extends TestCase
             'status' => 'ACTIVE',
         ]);
 
-        $this->actingAs($user)
+        $this->actingAsCurrentSession($user)
             ->getJson('/api/v1/me')
             ->assertOk()
             ->assertJsonPath('success', true)
@@ -50,7 +50,7 @@ class CurrentUserTest extends TestCase
             'status' => UserStatus::ACTIVE->value,
         ]);
 
-        $this->actingAs($user)
+        $this->actingAsCurrentSession($user)
             ->getJson('/api/v1/me')
             ->assertOk()
             ->assertJsonPath('data.roles', [
@@ -81,7 +81,7 @@ class CurrentUserTest extends TestCase
             'status' => UserStatus::ACTIVE->value,
         ]);
 
-        $this->actingAs($user)
+        $this->actingAsCurrentSession($user)
             ->getJson('/api/v1/me')
             ->assertOk()
             ->assertJsonPath('data.roles', [
@@ -97,7 +97,7 @@ class CurrentUserTest extends TestCase
             'remember_token' => 'remember-token',
         ]);
 
-        $this->actingAs($user)
+        $this->actingAsCurrentSession($user)
             ->getJson('/api/v1/me')
             ->assertOk()
             ->assertJsonMissingPath('data.password')
@@ -140,11 +140,22 @@ class CurrentUserTest extends TestCase
         $this->assertFalse($user->hasRole(RoleName::DOCENTE));
         $this->assertFalse($user->hasRole(RoleName::ESTUDIANTE));
 
-        $this->actingAs($user)
+        $this->actingAsCurrentSession($user)
             ->getJson('/api/v1/me')
             ->assertOk()
             ->assertJsonPath('data.roles', [
                 RoleName::ADMINISTRADOR->value,
             ]);
+    }
+
+    private function actingAsCurrentSession(User $user): self
+    {
+        $this->startSession();
+
+        $user->forceFill([
+            'active_session_id' => $this->app['session']->getId(),
+        ])->save();
+
+        return $this->actingAs($user);
     }
 }

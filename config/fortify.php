@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Middleware\ClearActiveSessionOnLogout;
+use App\Http\Middleware\EnsureCurrentSession;
 use App\Http\Middleware\NormalizeLoginIdentifier;
 use Laravel\Fortify\Features;
 
@@ -102,7 +104,12 @@ return [
     |
     */
 
-    'middleware' => ['web', NormalizeLoginIdentifier::class],
+    'middleware' => [
+        'web',
+        NormalizeLoginIdentifier::class,
+        EnsureCurrentSession::class,
+        ClearActiveSessionOnLogout::class,
+    ],
 
     /*
     |--------------------------------------------------------------------------

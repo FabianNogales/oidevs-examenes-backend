@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsureCurrentSession;
 use App\Http\Middleware\EnsurePasswordHasBeenChanged;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -16,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->statefulApi();
         $middleware->alias([
             'password.changed' => EnsurePasswordHasBeenChanged::class,
+            'session.current' => EnsureCurrentSession::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

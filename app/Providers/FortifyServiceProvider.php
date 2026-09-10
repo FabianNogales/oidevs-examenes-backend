@@ -41,8 +41,8 @@ class FortifyServiceProvider extends ServiceProvider
             config('fortify.lowercase_usernames') ? CanonicalizeUsername::class : null,
             ValidateLoginIdentifier::class,
             AttemptToAuthenticate::class,
-            RecordLastLogin::class,
             PrepareAuthenticatedSession::class,
+            RecordLastLogin::class,
         ]));
 
         Fortify::authenticateUsing(function (Request $request) {

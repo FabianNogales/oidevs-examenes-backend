@@ -6,4 +6,4 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('health', HealthCheckController::class)->name('health');
 
-Route::middleware('auth:sanctum')->get('me', CurrentUserController::class)->name('me');
+Route::middleware(['auth:sanctum', 'session.current'])->get('me', CurrentUserController::class)->name('me');

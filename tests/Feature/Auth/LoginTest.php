@@ -4,6 +4,7 @@ namespace Tests\Feature\Auth;
 
 use App\Enums\RoleName;
 use App\Enums\UserStatus;
+use App\Models\AuditLog;
 use App\Models\Role;
 use App\Models\Student;
 use App\Models\User;
@@ -241,6 +242,33 @@ class LoginTest extends TestCase
         }
     }
 
+    public function test_successful_login_records_login_audit_data(): void
+    {
+        Carbon::setTestNow($now = Carbon::parse('2026-09-09 12:15:00'));
+        $user = $this->createUser(email: 'audit.login@umss.edu.bo');
+
+        try {
+            $this->withServerVariables([
+                'REMOTE_ADDR' => '192.0.2.10',
+                'HTTP_USER_AGENT' => 'EIDA Test Browser',
+            ])->postJson('/login', [
+                'identifier' => 'audit.login@umss.edu.bo',
+                'password' => self::PASSWORD,
+            ])->assertOk();
+
+            $auditLog = AuditLog::query()->where('action', 'LOGIN')->firstOrFail();
+
+            $this->assertSame($user->id, $auditLog->user_id);
+            $this->assertSame(User::class, $auditLog->entity_type);
+            $this->assertSame($user->id, $auditLog->entity_id);
+            $this->assertSame('192.0.2.10', $auditLog->ip_address);
+            $this->assertSame('EIDA Test Browser', $auditLog->user_agent);
+            $this->assertTrue($auditLog->created_at->equalTo($now));
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
     public function test_failed_login_does_not_update_last_login_at(): void
     {
         $user = $this->createUser(email: 'failed.login@umss.edu.bo');
@@ -251,6 +279,10 @@ class LoginTest extends TestCase
         ])->assertUnprocessable();
 
         $this->assertNull($user->refresh()->last_login_at);
+        $this->assertDatabaseMissing('audit_logs', [
+            'action' => 'LOGIN',
+            'user_id' => $user->id,
+        ]);
     }
 
     public function test_inactive_account_login_does_not_update_last_login_at(): void
@@ -266,6 +298,10 @@ class LoginTest extends TestCase
         ])->assertUnprocessable();
 
         $this->assertNull($user->refresh()->last_login_at);
+        $this->assertDatabaseMissing('audit_logs', [
+            'action' => 'LOGIN',
+            'user_id' => $user->id,
+        ]);
     }
 
     public function test_current_user_endpoint_works_after_login(): void
@@ -276,6 +312,7 @@ class LoginTest extends TestCase
             'identifier' => 'me.after.login@umss.edu.bo',
             'password' => self::PASSWORD,
         ])->assertOk();
+        $this->useSessionCookie($user->refresh()->active_session_id);
 
         $this->getJson('/api/v1/me')
             ->assertOk()
@@ -300,6 +337,7 @@ class LoginTest extends TestCase
             'identifier' => 'roles.after.login@umss.edu.bo',
             'password' => self::PASSWORD,
         ])->assertOk();
+        $this->useSessionCookie($user->refresh()->active_session_id);
 
         $this->getJson('/api/v1/me')
             ->assertOk()
@@ -310,12 +348,13 @@ class LoginTest extends TestCase
 
     public function test_logout_invalidates_authentication(): void
     {
-        $this->createUser(email: 'logout@umss.edu.bo');
+        $user = $this->createUser(email: 'logout@umss.edu.bo');
 
         $this->postJson('/login', [
             'identifier' => 'logout@umss.edu.bo',
             'password' => self::PASSWORD,
         ])->assertOk();
+        $this->useSessionCookie($user->refresh()->active_session_id);
 
         $this->postJson('/logout')->assertNoContent();
 
@@ -324,12 +363,13 @@ class LoginTest extends TestCase
 
     public function test_current_user_endpoint_returns_unauthorized_after_logout(): void
     {
-        $this->createUser(email: 'me.after.logout@umss.edu.bo');
+        $user = $this->createUser(email: 'me.after.logout@umss.edu.bo');
 
         $this->postJson('/login', [
             'identifier' => 'me.after.logout@umss.edu.bo',
             'password' => self::PASSWORD,
         ])->assertOk();
+        $this->useSessionCookie($user->refresh()->active_session_id);
 
         $this->postJson('/logout')->assertNoContent();
 
@@ -372,6 +412,14 @@ class LoginTest extends TestCase
             'password' => self::PASSWORD,
             'status' => $status,
         ]);
+    }
+
+    private function useSessionCookie(string $sessionId): self
+    {
+        return $this
+            ->withCredentials()
+            ->withHeader('Origin', 'http://127.0.0.1:5173')
+            ->withCookie(config('session.cookie'), $sessionId);
     }
 
     /**
