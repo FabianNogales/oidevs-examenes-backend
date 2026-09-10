@@ -39,11 +39,10 @@ class TeacherDashboardTest extends TestCase
 
     public function testTeacherCanGetAssignedSubjectsAndPreventsIdor(): void
     {
-        // 1. Crear dos usuarios docentes distintos
         $teacherA = User::factory()->create(['status' => 'ACTIVE']);
         $teacherB = User::factory()->create(['status' => 'ACTIVE']);
 
-        // 2. Asignar una materia EXCLUSIVAMENTE al Teacher A en la tabla course_offerings
+        //Asignar una materia EXCLUSIVAMENTE al Teacher A en la tabla course_offerings
         DB::table('course_offerings')->insert([
             'subject_id' => 1,
             'academic_term_id' => 1,
@@ -53,22 +52,22 @@ class TeacherDashboardTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        // 3. Autenticamos al Teacher B (Simulando un posible atacante IDOR)
+        //Autenticamos al Teacher B (Simulando un posible atacante IDOR)
         Sanctum::actingAs($teacherB, ['*']);
 
-        // 4. Consumimos el endpoint
+        //Consumimos el endpoint
         $response = $this->getJson('/api/v1/teacher/dashboard/subjects');
 
-        // 5. Validamos respuesta exitosa pero arreglo VACÍO (Prevención IDOR exitosa)
+        //Validamos respuesta exitosa pero arreglo VACÍO (Prevención IDOR exitosa)
         $response->assertStatus(200)
                  ->assertJsonCount(0, 'data');
 
-        // 6. Ahora autenticamos al Teacher A (El dueño real)
+        //Autenticamos al Teacher A (El dueño real)
         Sanctum::actingAs($teacherA, ['*']);
         
         $responseA = $this->getJson('/api/v1/teacher/dashboard/subjects');
 
-        // 7. Validamos que el Teacher A sí vea su materia con Eager Loading (subject y academicTerm)
+        //Validamos que el Teacher A sí vea su materia con Eager Loading (subject y academicTerm)
         $responseA->assertStatus(200)
                   ->assertJsonCount(1, 'data')
                   ->assertJsonPath('data.0.subject.name', 'Introduction to Programming')

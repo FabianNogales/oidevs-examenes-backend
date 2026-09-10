@@ -18,3 +18,11 @@ Route::prefix('teacher/dashboard')
         Route::get('/subjects', [TeacherDashboardController::class, 'getAssignedSubjects']);
         Route::get('/upcoming-exams', [TeacherDashboardController::class, 'getUpcomingExams']);
     });
+
+//seguridad de rutas del panel
+Route::prefix('teacher/dashboard')
+    ->middleware(['auth:sanctum', 'throttle:60,1', 'teacher.role', 'block.mutations', 'audit.logger'])
+    ->group(function () {
+        Route::get('/subjects', [TeacherDashboardController::class, 'getAssignedSubjects']);
+        Route::get('/upcoming-exams', [TeacherDashboardController::class, 'getUpcomingExams']);
+    });
