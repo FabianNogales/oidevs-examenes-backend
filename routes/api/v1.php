@@ -18,7 +18,7 @@ Route::prefix('teacher/dashboard')
     ->group(function () {
         Route::get('/subjects', [TeacherDashboardController::class, 'getAssignedSubjects']);
         Route::get('/upcoming-exams', [TeacherDashboardController::class, 'getUpcomingExams']);
-    });
+});
 
 //seguridad de rutas del panel
 Route::prefix('teacher/dashboard')
@@ -26,11 +26,19 @@ Route::prefix('teacher/dashboard')
     ->group(function () {
         Route::get('/subjects', [TeacherDashboardController::class, 'getAssignedSubjects']);
         Route::get('/upcoming-exams', [TeacherDashboardController::class, 'getUpcomingExams']);
-    });
+});
 
 Route::prefix('course-offerings/{courseOffering}')
     ->middleware(['auth:sanctum']) 
     ->group(function () {
         Route::post('/enrollments/manual', [StudentEnrollmentController::class, 'storeManual']);
         Route::post('/enrollments/bulk', [StudentEnrollmentController::class, 'storeBulk']);
-    });
+});
+
+//Bloquear a usuarios sin permisos (RBAC)
+Route::prefix('course-offerings/{courseOffering}')
+    ->middleware(['auth:sanctum', 'teacher.role'])
+    ->group(function () {
+        Route::post('/enrollments/manual', [StudentEnrollmentController::class, 'storeManual']);
+        Route::post('/enrollments/bulk', [StudentEnrollmentController::class, 'storeBulk']);
+});

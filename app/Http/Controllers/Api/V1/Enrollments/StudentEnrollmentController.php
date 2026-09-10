@@ -13,6 +13,14 @@ class StudentEnrollmentController extends Controller
 {
     public function storeManual(StoreManualEnrollmentRequest $request, int $courseOfferingId): JsonResponse
     {
+        $userId = $request->user()->id;
+
+        // 1. Prevención IDOR
+        $courseOffering = DB::table('course_offerings')->find($courseOfferingId);
+        if (!$courseOffering || $courseOffering->teacher_user_id !== $userId) {
+            return response()->json(['message' => 'Forbidden - You do not own this course offering.'], 403);
+        }
+
         $sisCode = $request->input('sisCode');
         $student = DB::table('students')->where('sis_code', $sisCode)->first();
 
@@ -29,20 +37,45 @@ class StudentEnrollmentController extends Controller
             return response()->json(['message' => 'The student is already enrolled in this course offering.'], 422);
         }
 
-        DB::table('enrollments')->insert([
-            'course_offering_id' => $courseOfferingId,
-            'student_id' => $student->id,
-            'status' => 'ACTIVE',
-            'registered_by' => $request->user()->id, // <-- Corrección añadida
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        DB::beginTransaction();
+        try {
+            DB::table('enrollments')->insert([
+                'course_offering_id' => $courseOfferingId,
+                'student_id' => $student->id,
+                'status' => 'ACTIVE',
+                'registered_by' => $userId,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            // 2. Auditoría adaptada al esquema real (Sin columna 'details')
+            DB::table('audit_logs')->insert([
+                'user_id' => $userId,
+                'action' => 'WRITE',
+                'entity_type' => 'Enrollment',
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'created_at' => now(),
+            ]);
+
+            DB::commit();
+        } catch (Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'A critical error occurred.'], 500);
+        }
 
         return response()->json(['message' => 'Student enrolled successfully.'], 201);
     }
 
     public function storeBulk(StoreBulkEnrollmentRequest $request, int $courseOfferingId): JsonResponse
     {
+        $userId = $request->user()->id;
+
+        $courseOffering = DB::table('course_offerings')->find($courseOfferingId);
+        if (!$courseOffering || $courseOffering->teacher_user_id !== $userId) {
+            return response()->json(['message' => 'Forbidden - You do not own this course offering.'], 403);
+        }
+
         $file = $request->file('file');
         $handle = fopen($file->getRealPath(), 'r');
         
@@ -102,7 +135,7 @@ class StudentEnrollmentController extends Controller
                     'course_offering_id' => $courseOfferingId,
                     'student_id' => $student->id,
                     'status' => 'ACTIVE',
-                    'registered_by' => $request->user()->id,
+                    'registered_by' => $userId,
                     'created_at' => now(),
                     'updated_at' => now(),
                 ];
@@ -111,6 +144,15 @@ class StudentEnrollmentController extends Controller
 
             if (!empty($studentsToInsert)) {
                 DB::table('enrollments')->insert($studentsToInsert);
+                
+                DB::table('audit_logs')->insert([
+                    'user_id' => $userId,
+                    'action' => 'WRITE',
+                    'entity_type' => 'Enrollment',
+                    'ip_address' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
+                    'created_at' => now(),
+                ]);
             }
 
             DB::commit();
