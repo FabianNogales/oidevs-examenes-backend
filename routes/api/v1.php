@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\Health\HealthCheckController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\TeacherDashboard\TeacherDashboardController;
 use App\Http\Controllers\Api\V1\Enrollments\StudentEnrollmentController;
+use App\Http\Controllers\Api\V1\Exams\ExamSchedulingController;
 
 Route::get('health', HealthCheckController::class)->name('health');
 
@@ -41,4 +42,5 @@ Route::prefix('course-offerings/{courseOffering}')
     ->group(function () {
         Route::post('/enrollments/manual', [StudentEnrollmentController::class, 'storeManual']);
         Route::post('/enrollments/bulk', [StudentEnrollmentController::class, 'storeBulk']);
+        Route::post('/exams', [ExamSchedulingController::class, 'store']);
 });
