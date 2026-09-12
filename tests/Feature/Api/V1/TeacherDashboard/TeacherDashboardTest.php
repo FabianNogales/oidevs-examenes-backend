@@ -12,11 +12,12 @@ class TeacherDashboardTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected int $roleId;
+
     protected function setUp(): void
     {
         parent::setUp();
         
-        // Preparar datos base necesarios para las llaves foráneas
         DB::table('academic_terms')->insert([
             'id' => 1,
             'name' => '2026-I',
@@ -35,6 +36,14 @@ class TeacherDashboardTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+
+        // Creamos el rol "Docente" que ahora exige nuestro middleware
+        $this->roleId = DB::table('roles')->insertGetId([
+            'name' => 'Docente',
+            'status' => 'ACTIVE',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     public function testTeacherCanGetAssignedSubjectsAndPreventsIdor(): void
@@ -42,7 +51,12 @@ class TeacherDashboardTest extends TestCase
         $teacherA = User::factory()->create(['status' => 'ACTIVE']);
         $teacherB = User::factory()->create(['status' => 'ACTIVE']);
 
-        //Asignar una materia EXCLUSIVAMENTE al Teacher A en la tabla course_offerings
+        // Asignamos el rol a ambos usuarios
+        DB::table('role_user')->insert([
+            ['user_id' => $teacherA->id, 'role_id' => $this->roleId, 'status' => 'ACTIVE', 'assigned_at' => now()],
+            ['user_id' => $teacherB->id, 'role_id' => $this->roleId, 'status' => 'ACTIVE', 'assigned_at' => now()]
+        ]);
+
         DB::table('course_offerings')->insert([
             'subject_id' => 1,
             'academic_term_id' => 1,
@@ -52,22 +66,15 @@ class TeacherDashboardTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        //Autenticamos al Teacher B (Simulando un posible atacante IDOR)
         Sanctum::actingAs($teacherB, ['*']);
-
-        //Consumimos el endpoint
         $response = $this->getJson('/api/v1/teacher/dashboard/subjects');
-
-        //Validamos respuesta exitosa pero arreglo VACÍO (Prevención IDOR exitosa)
+        
         $response->assertStatus(200)
                  ->assertJsonCount(0, 'data');
 
-        //Autenticamos al Teacher A (El dueño real)
         Sanctum::actingAs($teacherA, ['*']);
-        
         $responseA = $this->getJson('/api/v1/teacher/dashboard/subjects');
 
-        //Validamos que el Teacher A sí vea su materia con Eager Loading (subject y academicTerm)
         $responseA->assertStatus(200)
                   ->assertJsonCount(1, 'data')
                   ->assertJsonPath('data.0.subject.name', 'Introduction to Programming')
@@ -77,8 +84,15 @@ class TeacherDashboardTest extends TestCase
     public function testTeacherCanGetUpcomingExams(): void
     {
         $teacher = User::factory()->create(['status' => 'ACTIVE']);
+        
+        // Asignamos el rol al docente
+        DB::table('role_user')->insert([
+            'user_id' => $teacher->id,
+            'role_id' => $this->roleId,
+            'status' => 'ACTIVE',
+            'assigned_at' => now(),
+        ]);
 
-        // Insertar oferta de curso para este docente
         $courseOfferingId = DB::table('course_offerings')->insertGetId([
             'subject_id' => 1,
             'academic_term_id' => 1,
@@ -88,7 +102,6 @@ class TeacherDashboardTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        // Preparar ambiente (room) para el examen
         DB::table('rooms')->insert([
             'id' => 1,
             'code' => 'AUD-1',
@@ -98,7 +111,6 @@ class TeacherDashboardTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        // Insertar examen programado a futuro
         DB::table('exams')->insert([
             'course_offering_id' => $courseOfferingId,
             'room_id' => 1,
