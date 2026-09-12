@@ -14,7 +14,10 @@ class ExamSchedulingController extends Controller
     public function store(StoreExamRequest $request, int $courseOfferingId): JsonResponse
     {
         $courseOffering = CourseOffering::findOrFail($courseOfferingId);
-        if ($courseOffering->teacher_user_id !== $request->user()->id) {
+        $teacher = DB::table('teachers')->where('user_id', $request->user()->id)->first();
+
+        // Prevención IDOR actualizada
+        if (!$teacher || $courseOffering->teacher_id !== $teacher->id) {
             return response()->json(['message' => 'Forbidden - You do not own this course offering.'], 403);
         }
 
@@ -32,7 +35,6 @@ class ExamSchedulingController extends Controller
             'created_by' => $request->user()->id,
         ]);
 
-        // Registro de auditoría automatizado e inmutable
         DB::table('audit_logs')->insert([
             'user_id' => $request->user()->id,
             'action' => 'WRITE',

@@ -12,8 +12,8 @@ class ExamSchedulingTest extends TestCase
 {
     use RefreshDatabase;
 
-    protected int $ownerTeacherId;
-    protected int $otherTeacherId;
+    protected int $ownerUserId;
+    protected int $otherUserId;
     protected int $courseOfferingId;
     protected int $roomId;
 
@@ -21,35 +21,54 @@ class ExamSchedulingTest extends TestCase
     {
         parent::setUp();
 
-        // 1. Configurar Roles
         $roleId = DB::table('roles')->insertGetId([
             'name' => 'Docente', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()
         ]);
 
-        // 2. Docente Titular (Dueño de la materia)
-        $ownerTeacher = User::factory()->create(['status' => 'ACTIVE']);
-        $this->ownerTeacherId = $ownerTeacher->id;
-        DB::table('role_user')->insert(['user_id' => $this->ownerTeacherId, 'role_id' => $roleId, 'status' => 'ACTIVE', 'assigned_at' => now()]);
+        // Docente Titular
+        $ownerTeacher = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);
+        $this->ownerUserId = $ownerTeacher->id;
+        DB::table('role_user')->insert(['user_id' => $this->ownerUserId, 'role_id' => $roleId, 'status' => 'ACTIVE']);
+        
+        $ownerTeacherId = DB::table('teachers')->insertGetId([
+            'user_id' => $this->ownerUserId,
+            'institutional_code' => 'DOC-001',
+            'identity_number' => '12345678',
+            'first_names' => 'John',
+            'last_names' => 'Doe',
+            'status' => 'ACTIVE',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
-        // 3. Docente Ajeno (Para probar vulnerabilidad IDOR)
-        $otherTeacher = User::factory()->create(['status' => 'ACTIVE']);
-        $this->otherTeacherId = $otherTeacher->id;
-        DB::table('role_user')->insert(['user_id' => $this->otherTeacherId, 'role_id' => $roleId, 'status' => 'ACTIVE', 'assigned_at' => now()]);
+        // Docente Ajeno (Para IDOR)
+        $otherTeacher = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);
+        $this->otherUserId = $otherTeacher->id;
+        DB::table('role_user')->insert(['user_id' => $this->otherUserId, 'role_id' => $roleId, 'status' => 'ACTIVE']);
+        
+        DB::table('teachers')->insertGetId([
+            'user_id' => $this->otherUserId,
+            'institutional_code' => 'DOC-002',
+            'identity_number' => '87654321',
+            'first_names' => 'Jane',
+            'last_names' => 'Smith',
+            'status' => 'ACTIVE',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
-        // 4. Base Académica y Oferta de Materia
         DB::table('academic_terms')->insert(['id' => 1, 'name' => '2026-I', 'start_date' => '2026-02-01', 'end_date' => '2026-07-01', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()]);
         DB::table('subjects')->insert(['id' => 1, 'code' => 'CS101', 'name' => 'Software Engineering', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()]);
 
         $this->courseOfferingId = DB::table('course_offerings')->insertGetId([
             'subject_id' => 1,
             'academic_term_id' => 1,
-            'teacher_user_id' => $this->ownerTeacherId,
+            'teacher_id' => $ownerTeacherId,
             'status' => 'ACTIVE',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
 
-        // 5. Ambiente institucional
         $this->roomId = DB::table('rooms')->insertGetId([
             'code' => 'AUD-1', 'name' => 'Main Auditorium', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()
         ]);
@@ -57,16 +76,15 @@ class ExamSchedulingTest extends TestCase
 
     public function test_it_validates_required_fields_and_business_rules(): void
     {
-        $ownerTeacher = User::find($this->ownerTeacherId);
+        $ownerTeacher = User::find($this->ownerUserId);
         Sanctum::actingAs($ownerTeacher, ['*']);
 
-        // Enviamos fecha en el pasado, duración inválida y ambiente inexistente
         $response = $this->postJson("/api/v1/course-offerings/{$this->courseOfferingId}/exams", [
-            'name' => '', // Obligatorio vacío
-            'exam_date' => now()->subDay()->format('Y-m-d'), // Fecha pasada
+            'name' => '', 
+            'exam_date' => now()->subDay()->format('Y-m-d'), 
             'start_time' => '08:00:00',
-            'duration_minutes' => -10, // Menor a cero
-            'room_id' => 999, // No existe
+            'duration_minutes' => -10, 
+            'room_id' => 999, 
             'rules' => 'No calculators allowed.'
         ]);
 
@@ -76,8 +94,7 @@ class ExamSchedulingTest extends TestCase
 
     public function test_it_prevents_idor_when_scheduling_exam(): void
     {
-        // Autenticamos al docente ajeno intentando programar en la materia del titular
-        $otherTeacher = User::find($this->otherTeacherId);
+        $otherTeacher = User::find($this->otherUserId);
         Sanctum::actingAs($otherTeacher, ['*']);
 
         $response = $this->postJson("/api/v1/course-offerings/{$this->courseOfferingId}/exams", [
@@ -95,7 +112,7 @@ class ExamSchedulingTest extends TestCase
 
     public function test_teacher_can_schedule_exam_successfully_with_default_status(): void
     {
-        $ownerTeacher = User::find($this->ownerTeacherId);
+        $ownerTeacher = User::find($this->ownerUserId);
         Sanctum::actingAs($ownerTeacher, ['*']);
 
         $futureDate = now()->addDays(5)->format('Y-m-d');
@@ -112,7 +129,6 @@ class ExamSchedulingTest extends TestCase
         $response->assertStatus(201)
                  ->assertJson(['message' => 'Exam scheduled successfully.']);
 
-        // Verificamos que se guardó en BD con el estado inicial automático 'SCHEDULED'
         $this->assertDatabaseHas('exams', [
             'course_offering_id' => $this->courseOfferingId,
             'room_id' => $this->roomId,

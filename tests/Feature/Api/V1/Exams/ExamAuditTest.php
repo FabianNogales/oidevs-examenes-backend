@@ -14,21 +14,31 @@ class ExamAuditTest extends TestCase
 
     public function test_scheduling_exam_generates_audit_log(): void
     {
-        // 1. Preparar base de datos
         $roleId = DB::table('roles')->insertGetId([
             'name' => 'Docente', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()
         ]);
 
-        $teacher = User::factory()->create(['status' => 'ACTIVE']);
-        DB::table('role_user')->insert(['user_id' => $teacher->id, 'role_id' => $roleId, 'status' => 'ACTIVE', 'assigned_at' => now()]);
+        $teacherUser = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);
+        DB::table('role_user')->insert(['user_id' => $teacherUser->id, 'role_id' => $roleId, 'status' => 'ACTIVE', 'assigned_at' => now()]);
 
-        DB::table('academic_terms')->insert(['id' => 1, 'name' => '2026-I', 'start_date' => '2026-02-01', 'end_date' => '2026-07-01', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()]);
-        DB::table('subjects')->insert(['id' => 1, 'code' => 'CS101', 'name' => 'Software Engineering', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()]);
+        $teacherId = DB::table('teachers')->insertGetId([
+            'user_id' => $teacherUser->id,
+            'institutional_code' => 'DOC-003',
+            'identity_number' => '99999999',
+            'first_names' => 'Carlos',
+            'last_names' => 'Perez',
+            'status' => 'ACTIVE',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('academic_terms')->insert(['id' => 1, 'name' => '2026-I', 'start_date' => '2026-02-01', 'end_date' => '2026-07-01', 'status' => 'ACTIVE']);
+        DB::table('subjects')->insert(['id' => 1, 'code' => 'CS101', 'name' => 'Software Engineering', 'status' => 'ACTIVE']);
 
         $courseOfferingId = DB::table('course_offerings')->insertGetId([
             'subject_id' => 1,
             'academic_term_id' => 1,
-            'teacher_user_id' => $teacher->id,
+            'teacher_id' => $teacherId,
             'status' => 'ACTIVE',
             'created_at' => now(),
             'updated_at' => now(),
@@ -38,9 +48,8 @@ class ExamAuditTest extends TestCase
             'code' => 'AUD-1', 'name' => 'Main Auditorium', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()
         ]);
 
-        Sanctum::actingAs($teacher, ['*']);
+        Sanctum::actingAs($teacherUser, ['*']);
 
-        // 2. Programar el examen
         $this->postJson("/api/v1/course-offerings/{$courseOfferingId}/exams", [
             'name' => 'Final Exam',
             'exam_date' => now()->addDays(10)->format('Y-m-d'),
@@ -50,9 +59,8 @@ class ExamAuditTest extends TestCase
             'rules' => 'No devices allowed.'
         ])->assertStatus(201);
 
-        // 3. Verificar que se creó el registro de auditoría (Entity: Exam)
         $this->assertDatabaseHas('audit_logs', [
-            'user_id' => $teacher->id,
+            'user_id' => $teacherUser->id,
             'action' => 'WRITE',
             'entity_type' => 'Exam'
         ]);

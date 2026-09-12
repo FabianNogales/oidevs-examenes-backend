@@ -14,10 +14,11 @@ class StudentEnrollmentController extends Controller
     public function storeManual(StoreManualEnrollmentRequest $request, int $courseOfferingId): JsonResponse
     {
         $userId = $request->user()->id;
+        $teacher = DB::table('teachers')->where('user_id', $userId)->first();
 
-        // 1. Prevención IDOR
+        // 1. Prevención IDOR actualizada a la nueva estructura
         $courseOffering = DB::table('course_offerings')->find($courseOfferingId);
-        if (!$courseOffering || $courseOffering->teacher_user_id !== $userId) {
+        if (!$courseOffering || !$teacher || $courseOffering->teacher_id !== $teacher->id) {
             return response()->json(['message' => 'Forbidden - You do not own this course offering.'], 403);
         }
 
@@ -48,7 +49,6 @@ class StudentEnrollmentController extends Controller
                 'updated_at' => now(),
             ]);
 
-            // 2. Auditoría
             DB::table('audit_logs')->insert([
                 'user_id' => $userId,
                 'action' => 'WRITE',
@@ -70,9 +70,11 @@ class StudentEnrollmentController extends Controller
     public function storeBulk(StoreBulkEnrollmentRequest $request, int $courseOfferingId): JsonResponse
     {
         $userId = $request->user()->id;
+        $teacher = DB::table('teachers')->where('user_id', $userId)->first();
 
+        // 1. Prevención IDOR actualizada
         $courseOffering = DB::table('course_offerings')->find($courseOfferingId);
-        if (!$courseOffering || $courseOffering->teacher_user_id !== $userId) {
+        if (!$courseOffering || !$teacher || $courseOffering->teacher_id !== $teacher->id) {
             return response()->json(['message' => 'Forbidden - You do not own this course offering.'], 403);
         }
 
