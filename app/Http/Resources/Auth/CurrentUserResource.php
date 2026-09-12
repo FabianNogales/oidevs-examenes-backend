@@ -8,7 +8,9 @@ use Illuminate\Http\Resources\Json\JsonResource;
 class CurrentUserResource extends JsonResource
 {
     /**
-     * Transform the resource into an array.
+     * Contrato publico del usuario autenticado.
+     *
+     * No debe exponer password, active_session_id ni datos internos de sesion.
      *
      * @return array<string, mixed>
      */

@@ -43,6 +43,10 @@ The main response flow is:
 
 The initial domain folders are prepared for Auth, Students, Subjects, Exams, Collaborators, Eligibility, Entries, Infractions, and Reports, without implementing business logic or database models yet.
 
+## Documentación técnica
+
+- [HU02 — Autenticación y sesión](docs/HU02_AUTH_API.md)
+
 ## Database
 
 The backend is prepared for PostgreSQL 15.

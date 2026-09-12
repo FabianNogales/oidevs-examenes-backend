@@ -22,6 +22,8 @@ class ClearActiveSessionOnLogout
         $response = $next($request);
 
         if ($userId && $sessionId) {
+            // Solo la sesion actual puede limpiar su active_session_id; una
+            // sesion reemplazada no debe cerrar la sesion nueva.
             User::query()
                 ->whereKey($userId)
                 ->where('active_session_id', $sessionId)
