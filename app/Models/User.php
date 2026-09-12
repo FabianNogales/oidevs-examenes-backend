@@ -60,6 +60,14 @@ class User extends Authenticatable
     }
 
     /**
+     * The teacher profile linked to the user.
+     */
+    public function teacher(): HasOne
+    {
+        return $this->hasOne(Teacher::class);
+    }
+
+    /**
      * The roles assigned to the user.
      */
     public function roles(): BelongsToMany
