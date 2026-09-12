@@ -29,10 +29,11 @@ class StudentQrService
                     : substr((string)$exam->exam_date, 0, 10);
 
                 $examStart = Carbon::parse("{$examDateStr} {$exam->start_time}");
+                $examEnd   = $examStart->copy()->addMinutes($exam->duration_minutes);
                 
                 // Regla de 24 horas: Habilitado desde 24h antes hasta que finalice el examen
                 $isAvailable = now()->gte($examStart->copy()->subHours(24)) 
-                    && now()->lte($examStart->copy()->addMinutes($exam->duration_minutes));
+                    && now()->lte($examEnd);
 
                 $qrData = null;
                 if ($isAvailable) {
@@ -56,30 +57,38 @@ class StudentQrService
     }
 
     /**
-     * Genera u obtiene el QR del examen si faltan <= 24 horas.
+     * Genera u obtiene el QR del examen si faltan <= 24 horas y el alumno está inscrito.
      */
     public function getOrGenerateForExam(int $studentId, int $examId): array
     {
-        $exam = Exam::with(['courseOffering.subject'])->findOrFail($examId);
+        // 1. Validar que el examen exista y que el estudiante esté inscrito (status ACTIVE)
+        $exam = Exam::with(['courseOffering.subject'])
+            ->where('status', 'ACTIVE')
+            ->whereHas('courseOffering.enrollments', function ($query) use ($studentId) {
+                $query->where('student_id', $studentId)
+                    ->where('status', 'ACTIVE');
+            })
+            ->findOrFail($examId);
 
-        // 1. Validar regla de 24 horas previas
+        // 2. Validar ventana de tiempo (24h previas hasta fin del examen)
         $examDateStr = $exam->exam_date instanceof Carbon 
             ? $exam->exam_date->format('Y-m-d') 
             : substr((string)$exam->exam_date, 0, 10);
 
-        $examStart = Carbon::parse("{$examDateStr} {$exam->start_time}");
-        $now = now();
+        $examStart     = Carbon::parse("{$examDateStr} {$exam->start_time}");
+        $examEnd       = $examStart->copy()->addMinutes($exam->duration_minutes);
+        $now           = now();
         $availableFrom = $examStart->copy()->subHours(24);
 
         if ($now->lt($availableFrom)) {
             throw new Exception("El código QR aún no está disponible. Se habilitará 24 horas antes del examen.");
         }
 
-        if ($now->gt($examStart->copy()->addMinutes($exam->duration_minutes))) {
+        if ($now->gt($examEnd)) {
             throw new Exception("El examen ya ha finalizado.");
         }
 
-        // 2. Buscar token activo existente
+        // 3. Buscar token activo existente
         $existingToken = StudentQrToken::where('student_id', $studentId)
             ->where('exam_id', $examId)
             ->where('status', 'ACTIVE')
@@ -103,13 +112,13 @@ class StudentQrService
             ]);
         }
 
-        // 3. Generar JWT/Hash firmado
-        $expTimestamp = $examStart->timestamp;
-        $signedToken = $this->generateSignedToken($studentId, $examId, $tokenValue, $expTimestamp);
+        // 4. Expiración del JWT fijada AL FINALIZAR el examen (para atrasados)
+        $expTimestamp = $examEnd->timestamp;
+        $signedToken  = $this->generateSignedToken($studentId, $examId, $tokenValue, $expTimestamp);
 
-        // 4. Formatear Base64 SVG simulación de QR
+        // 5. Formatear Base64 SVG (soporta paquetes QR como SimpleSoftwareIO o SVG firmado)
         $qrBase64 = "data:image/svg+xml;base64," . base64_encode(
-            '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="100%" height="100%" fill="#eee"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="12">QR EXAM #'.$examId.'</text></svg>'
+            '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="100%" height="100%" fill="#eee"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="10">'.substr($signedToken, 0, 25).'...</text></svg>'
         );
 
         return [

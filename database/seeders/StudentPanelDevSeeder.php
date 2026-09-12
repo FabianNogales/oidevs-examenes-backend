@@ -9,7 +9,6 @@ use Illuminate\Support\Str;
 
 class StudentPanelDevSeeder extends Seeder
 {
-    // Cuántos estudiantes de prueba quieres para tu panel
     private int $studentCount = 5;
 
     public function run(): void
@@ -25,7 +24,7 @@ class StudentPanelDevSeeder extends Seeder
             'updated_at' => now(),
         ]);
 
-        // ---------- 2. Catálogos mínimos que exige el esquema ----------
+        // ---------- 2. Catálogos mínimos ----------
         $careerId = DB::table('careers')->insertGetId([
             'code' => 'DEV-SIS',
             'name' => '[DEV-TEST] Ingeniería de Sistemas',
@@ -43,7 +42,8 @@ class StudentPanelDevSeeder extends Seeder
             'updated_at' => now(),
         ]);
 
-        $subjectId = DB::table('subjects')->insertGetId([
+        // Materia 1: Base de Datos
+        $subjectId1 = DB::table('subjects')->insertGetId([
             'code' => 'DEV-101',
             'name' => '[DEV-TEST] Base de Datos',
             'status' => 'ACTIVE',
@@ -51,8 +51,17 @@ class StudentPanelDevSeeder extends Seeder
             'updated_at' => now(),
         ]);
 
+        // Materia 2: Sistemas Operativos (para probar el selector de materias)
+        $subjectId2 = DB::table('subjects')->insertGetId([
+            'code' => 'DEV-102',
+            'name' => '[DEV-TEST] Sistemas Operativos',
+            'status' => 'ACTIVE',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
         $roomId = DB::table('rooms')->insertGetId([
-            'code' => 'DEV-AULA-1', // <- este campo era el que te faltaba
+            'code' => 'DEV-AULA-1',
             'name' => 'Aula 617',
             'location' => 'Módulo DEV',
             'status' => 'AVAILABLE',
@@ -60,9 +69,9 @@ class StudentPanelDevSeeder extends Seeder
             'updated_at' => now(),
         ]);
 
-        // ---------- 3. Oferta académica + examen ----------
-        $offeringId = DB::table('course_offerings')->insertGetId([
-            'subject_id' => $subjectId,
+        // ---------- 3. Ofertas académicas ----------
+        $offeringId1 = DB::table('course_offerings')->insertGetId([
+            'subject_id' => $subjectId1,
             'academic_term_id' => $termId,
             'teacher_user_id' => $teacherId,
             'status' => 'ACTIVE',
@@ -70,20 +79,48 @@ class StudentPanelDevSeeder extends Seeder
             'updated_at' => now(),
         ]);
 
-        $examId = DB::table('exams')->insertGetId([
-            'course_offering_id' => $offeringId,
+        $offeringId2 = DB::table('course_offerings')->insertGetId([
+            'subject_id' => $subjectId2,
+            'academic_term_id' => $termId,
+            'teacher_user_id' => $teacherId,
+            'status' => 'ACTIVE',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        // Examen 1: Disponible AHORA (Inicia en 1 hora dinámicamente)
+        $examId1 = DB::table('exams')->insertGetId([
+            'id'                 => 2,
+            'course_offering_id' => $offeringId1,
             'room_id'            => $roomId,
             'name'               => '[DEV-TEST] Examen Parcial de Prueba',
             'exam_date'          => now()->toDateString(),
-            'start_time'         => now()->addHours(2)->format('H:i:s'),
+            'start_time'         => now()->addHour()->format('H:i:s'),
             'duration_minutes'   => 90,
             'rules'              => 'Portar carnet de identidad.',
-            'status'             => 'ACTIVE', 
+            'status'             => 'ACTIVE',
             'created_by'         => $teacherId,
             'created_at'         => now(),
             'updated_at'         => now(),
         ]);
-        // ---------- 4. Estudiantes de prueba + inscripción + QR ----------
+
+        // Examen 2: Fuera del rango de 24h (Inicia en 3 días)
+        $examId2 = DB::table('exams')->insertGetId([
+            'id'                 => 3,
+            'course_offering_id' => $offeringId2,
+            'room_id'            => $roomId,
+            'name'               => '[DEV-TEST] Examen Final',
+            'exam_date'          => now()->addDays(3)->toDateString(),
+            'start_time'         => '10:00:00',
+            'duration_minutes'   => 90,
+            'rules'              => 'Portar carnet de identidad.',
+            'status'             => 'ACTIVE',
+            'created_by'         => $teacherId,
+            'created_at'         => now(),
+            'updated_at'         => now(),
+        ]);
+
+        // ---------- 4. Estudiantes de prueba + inscripciones ----------
         for ($i = 1; $i <= $this->studentCount; $i++) {
             $studentUserId = DB::table('users')->insertGetId([
                 'email' => "estudiante.dev{$i}@test.local",
@@ -105,59 +142,65 @@ class StudentPanelDevSeeder extends Seeder
                 'updated_at' => now(),
             ]);
 
+            // Inscripción a ambas materias
             DB::table('enrollments')->insert([
-                'course_offering_id' => $offeringId,
-                'student_id'         => $studentId,
-                'status'             => 'ACTIVE',
-                'registered_by'      => $teacherId,
-                'created_at'         => now(),
-                'updated_at'         => now(),
+                [
+                    'course_offering_id' => $offeringId1,
+                    'student_id'         => $studentId,
+                    'status'             => 'ACTIVE',
+                    'registered_by'      => $teacherId,
+                    'created_at'         => now(),
+                    'updated_at'         => now(),
+                ],
+                [
+                    'course_offering_id' => $offeringId2,
+                    'student_id'         => $studentId,
+                    'status'             => 'ACTIVE',
+                    'registered_by'      => $teacherId,
+                    'created_at'         => now(),
+                    'updated_at'         => now(),
+                ]
             ]);
 
+            // Token para el Examen 1
             DB::table('student_qr_tokens')->insert([
-                'student_id' => $studentId,
-                'exam_id' => $examId,
-                'token' => Str::uuid(),
-                'status' => 'ACTIVE',
+                'student_id'   => $studentId,
+                'exam_id'      => $examId1,
+                'token'        => Str::uuid(),
+                'status'       => 'ACTIVE',
                 'generated_at' => now(),
-                'created_at' => now(),
-                'updated_at' => now(),
+                'created_at'   => now(),
+                'updated_at'   => now(),
             ]);
         }
 
-        $this->command?->info("Listo: {$this->studentCount} estudiantes de prueba con QR generado para el examen #{$examId}.");
+        $this->command?->info("Seeder ejecutado con éxito: {$this->studentCount} estudiantes inscritos en 2 exámenes de prueba.");
     }
 
-    /**
-     * Borra SOLO lo que este seeder crea (marcado con 'DEV-TEST' / 'DEV-'),
-     * en orden inverso de dependencia, para poder re-correr limpio.
-     */
     private function cleanPreviousRun(): void
-{
-    $devStudentIds = DB::table('students')->where('sis_code', 'like', 'DEV%')->pluck('id');
-    $devUserIds = DB::table('students')->where('sis_code', 'like', 'DEV%')->pluck('user_id')
-        ->merge(DB::table('users')->where('email', 'like', '%.dev%@test.local')->pluck('id'))
-        ->unique();
-    $devExamIds = DB::table('exams')->where('name', 'like', '[DEV-TEST]%')->pluck('id');
-    $devOfferingIds = DB::table('course_offerings')
-        ->whereIn('id', DB::table('exams')->where('name', 'like', '[DEV-TEST]%')->pluck('course_offering_id'))
-        ->pluck('id');
+    {
+        $devStudentIds = DB::table('students')->where('sis_code', 'like', 'DEV%')->pluck('id');
+        $devUserIds = DB::table('students')->where('sis_code', 'like', 'DEV%')->pluck('user_id')
+            ->merge(DB::table('users')->where('email', 'like', '%.dev%@test.local')->pluck('id'))
+            ->unique();
+        $devExamIds = DB::table('exams')->where('name', 'like', '[DEV-TEST]%')->pluck('id');
+        $devOfferingIds = DB::table('course_offerings')
+            ->whereIn('id', DB::table('exams')->where('name', 'like', '[DEV-TEST]%')->pluck('course_offering_id'))
+            ->pluck('id');
 
-    // 1. Borrar dependencias hijas primero
-    if (DB::getSchemaBuilder()->hasTable('exam_eligibilities')) {
-        DB::table('exam_eligibilities')->whereIn('exam_id', $devExamIds)->delete();
+        if (DB::getSchemaBuilder()->hasTable('exam_eligibilities')) {
+            DB::table('exam_eligibilities')->whereIn('exam_id', $devExamIds)->delete();
+        }
+        DB::table('student_qr_tokens')->whereIn('student_id', $devStudentIds)->delete();
+        DB::table('enrollments')->whereIn('student_id', $devStudentIds)->delete();
+
+        DB::table('exams')->whereIn('id', $devExamIds)->delete();
+        DB::table('course_offerings')->whereIn('id', $devOfferingIds)->delete();
+        DB::table('students')->whereIn('id', $devStudentIds)->delete();
+        DB::table('users')->whereIn('id', $devUserIds)->delete();
+        DB::table('rooms')->where('code', 'like', 'DEV-%')->delete();
+        DB::table('subjects')->where('code', 'like', 'DEV-%')->delete();
+        DB::table('academic_terms')->where('name', 'like', '[DEV-TEST]%')->delete();
+        DB::table('careers')->where('code', 'like', 'DEV-%')->delete();
     }
-    DB::table('student_qr_tokens')->whereIn('student_id', $devStudentIds)->delete();
-    DB::table('enrollments')->whereIn('student_id', $devStudentIds)->delete();
-
-    // 2. Borrar padres
-    DB::table('exams')->whereIn('id', $devExamIds)->delete();
-    DB::table('course_offerings')->whereIn('id', $devOfferingIds)->delete();
-    DB::table('students')->whereIn('id', $devStudentIds)->delete();
-    DB::table('users')->whereIn('id', $devUserIds)->delete();
-    DB::table('rooms')->where('code', 'like', 'DEV-%')->delete();
-    DB::table('subjects')->where('code', 'like', 'DEV-%')->delete();
-    DB::table('academic_terms')->where('name', 'like', '[DEV-TEST]%')->delete();
-    DB::table('careers')->where('code', 'like', 'DEV-%')->delete();
-}
 }

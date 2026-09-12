@@ -15,5 +15,5 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Rutas de Exámenes y QR del Estudiante (HU-11)
     Route::get('/students/exams', [StudentQrController::class, 'index']);
-    Route::get('/students/exams/{exam}', [StudentQrController::class, 'show']);
+    Route::get('/students/exams/{exam_id}/qr', [StudentQrController::class, 'show']);
 });
