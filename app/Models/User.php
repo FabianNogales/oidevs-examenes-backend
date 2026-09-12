@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\RoleName;
 use App\Enums\UserStatus;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -98,5 +99,28 @@ class User extends Authenticatable
     public function isActive(): bool
     {
         return $this->status === UserStatus::ACTIVE->value;
+    }
+
+    protected function displayName(): Attribute
+    {
+        return Attribute::get(function (): string {
+            foreach ([$this->teacher, $this->student] as $profile) {
+                if (! $profile) {
+                    continue;
+                }
+
+                $name = trim((string) preg_replace(
+                    '/\s+/',
+                    ' ',
+                    trim((string) $profile->first_names).' '.trim((string) $profile->last_names),
+                ));
+
+                if ($name !== '') {
+                    return $name;
+                }
+            }
+
+            return $this->email;
+        });
     }
 }

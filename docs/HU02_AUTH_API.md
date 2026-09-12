@@ -11,7 +11,7 @@ Frontend
   -> GET /sanctum/csrf-cookie
   -> POST /login
   -> GET /api/v1/me
-  -> usuario + roles + first access
+  -> usuario + display_name + roles + first access
 ```
 
 Axios debe enviar credenciales/cookies en las peticiones a Sanctum, Fortify y `/api/v1`.
@@ -149,6 +149,8 @@ GET /api/v1/me
 ```
 
 Es el endpoint principal para conocer usuario actual, estado, roles y primer acceso.
+`display_name` es una representacion para interfaz: no sustituye los endpoints
+de perfil ni expone CI, SIS u otros datos especificos.
 
 Contrato real:
 
@@ -161,6 +163,7 @@ HTTP 200 OK
   "success": true,
   "data": {
     "id": 1,
+    "display_name": "Juan Perez",
     "email": "usuario@umss.edu.bo",
     "status": "ACTIVE",
     "must_change_password": false,
@@ -171,7 +174,16 @@ HTTP 200 OK
 }
 ```
 
-Actualmente `/api/v1/me` no devuelve el nombre completo del usuario. Si una HU futura lo necesita, el contrato debera extenderse explicitamente.
+Regla de `display_name`:
+
+| Perfil disponible | Valor |
+| --- | --- |
+| Teacher | `teacher.first_names + teacher.last_names` |
+| Student | `student.first_names + student.last_names` |
+| Sin perfil nominal | `user.email` |
+
+Si existen Teacher y Student para el mismo usuario, Teacher tiene precedencia.
+Si el nombre calculado queda vacio, se usa `user.email`.
 
 ## Roles
 
@@ -416,7 +428,7 @@ La autorizacion ADMIN definitiva pertenece a HU03.
 | `InitialPasswordService` | Crea password inicial basada en CI, hasheada y con primer acceso obligatorio |
 | `LoginUserResolver` | Resuelve correo institucional o SIS hacia `User` |
 | `AuditLog` | Infraestructura de auditoria |
-| `GET /api/v1/me` | Identidad y roles de la sesion |
+| `GET /api/v1/me` | Identidad, display_name y roles de la sesion |
 
 HU04 y HU05 deben reutilizar `InitialPasswordService`; no duplicar esa logica en docentes o estudiantes.
 
@@ -475,6 +487,7 @@ El texto de `message` cambia segun la regla que falle.
 
 - `password` nunca se devuelve.
 - `active_session_id` nunca se devuelve.
+- `identity_number`, `sis_code` e `institutional_code` nunca se devuelven en `/api/v1/me`.
 - Las credenciales no van a `localStorage` ni `sessionStorage`.
 - Las cookies administran la sesion.
 - La password se almacena hasheada.

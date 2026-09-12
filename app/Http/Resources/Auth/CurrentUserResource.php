@@ -18,6 +18,7 @@ class CurrentUserResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'display_name' => $this->display_name,
             'email' => $this->email,
             'status' => $this->status,
             'must_change_password' => $this->must_change_password,

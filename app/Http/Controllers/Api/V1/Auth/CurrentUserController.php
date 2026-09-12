@@ -13,11 +13,11 @@ class CurrentUserController extends Controller
      * HU02: devuelve la identidad y el estado de autenticacion del usuario actual.
      *
      * Este endpoint es la fuente de verdad del frontend para restaurar la sesion
-     * y conocer roles y must_change_password.
+     * y conocer nombre visible, roles y must_change_password.
      */
     public function __invoke(Request $request): JsonResponse
     {
-        $user = $request->user()->loadMissing('activeRoles');
+        $user = $request->user()->loadMissing('activeRoles', 'teacher', 'student');
 
         return response()->json([
             'success' => true,
