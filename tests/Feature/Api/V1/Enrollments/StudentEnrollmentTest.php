@@ -114,6 +114,7 @@ class StudentEnrollmentTest extends TestCase
         $this->assertDatabaseHas('enrollments', [
             'course_offering_id' => $this->courseOfferingId,
             'student_id' => $this->studentId,
+            'registered_by' => $this->teacherId,
             'status' => 'ACTIVE',
         ]);
 
@@ -162,6 +163,7 @@ class StudentEnrollmentTest extends TestCase
         $this->assertDatabaseHas('enrollments', [
             'course_offering_id' => $this->courseOfferingId,
             'student_id' => $student2Id,
+            'registered_by' => $this->teacherId,
             'status' => 'ACTIVE',
         ]);
     }

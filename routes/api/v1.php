@@ -13,34 +13,19 @@ Route::prefix('auth')->middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'revokeSessionToken']);
 });
 
-//Limitación de Peticiones (Rate Limiting)
-Route::prefix('teacher/dashboard')
-    ->middleware(['auth:sanctum', 'throttle:60,1'])
-    ->group(function () {
-        Route::get('/subjects', [TeacherDashboardController::class, 'getAssignedSubjects']);
-        Route::get('/upcoming-exams', [TeacherDashboardController::class, 'getUpcomingExams']);
-});
-
-//seguridad de rutas del panel
+// Seguridad de rutas del panel (HU 06)
 Route::prefix('teacher/dashboard')
     ->middleware(['auth:sanctum', 'throttle:60,1', 'teacher.role', 'block.mutations', 'audit.logger'])
     ->group(function () {
         Route::get('/subjects', [TeacherDashboardController::class, 'getAssignedSubjects']);
         Route::get('/upcoming-exams', [TeacherDashboardController::class, 'getUpcomingExams']);
-});
+    });
 
-Route::prefix('course-offerings/{courseOffering}')
-    ->middleware(['auth:sanctum']) 
-    ->group(function () {
-        Route::post('/enrollments/manual', [StudentEnrollmentController::class, 'storeManual']);
-        Route::post('/enrollments/bulk', [StudentEnrollmentController::class, 'storeBulk']);
-});
-
-//Bloquear a usuarios sin permisos (RBAC)
+// Bloquear a usuarios sin permisos (RBAC) (HU 07 y HU 08)
 Route::prefix('course-offerings/{courseOffering}')
     ->middleware(['auth:sanctum', 'teacher.role'])
     ->group(function () {
         Route::post('/enrollments/manual', [StudentEnrollmentController::class, 'storeManual']);
         Route::post('/enrollments/bulk', [StudentEnrollmentController::class, 'storeBulk']);
         Route::post('/exams', [ExamSchedulingController::class, 'store']);
-});
+    });

@@ -45,7 +45,7 @@ class EnrollmentSecurityTest extends TestCase
         $this->courseOfferingId = DB::table('course_offerings')->insertGetId([
             'subject_id' => 1,
             'academic_term_id' => 1,
-            'teacher_user_id' => $this->ownerTeacherId, // Solo pertenece al Titular
+            'teacher_user_id' => $this->ownerTeacherId,
             'status' => 'ACTIVE',
             'created_at' => now(),
             'updated_at' => now(),
@@ -78,14 +78,14 @@ class EnrollmentSecurityTest extends TestCase
             'sisCode' => '202600001'
         ]);
 
-        // Si el usuario no es docente, se bloquea (Este middleware ya existe de la HU anterior, pero probamos su integración)
+        // Si el usuario no es docente, se bloquea
         $response->assertStatus(403);
     }
 
     public function testEnrollmentIsPreventedByIdorIfTeacherDoesNotOwnCourse(): void
     {
         $otherTeacher = User::find($this->otherTeacherId);
-        Sanctum::actingAs($otherTeacher, ['*']); // Autenticamos al docente ajeno
+        Sanctum::actingAs($otherTeacher, ['*']);
 
         $response = $this->postJson("/api/v1/course-offerings/{$this->courseOfferingId}/enrollments/manual", [
             'sisCode' => '202600001'

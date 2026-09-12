@@ -15,19 +15,9 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->alias([
             'verify.admin' => \App\Http\Middleware\VerifyAdminRole::class,
-        ]);
-
-        $middleware->alias([
             'teacher.role' => \App\Http\Middleware\VerifyTeacherRole::class,
             'block.mutations' => \App\Http\Middleware\BlockMutations::class,
-        ]);
-    })
-    //Registrar el Alias
-    ->withMiddleware(function (Middleware $middleware) {
-        $middleware->alias([
-            'teacher.role' => \App\Http\Middleware\VerifyTeacherRole::class,
-            'block.mutations' => \App\Http\Middleware\BlockMutations::class,
-            'audit.logger' => \App\Http\Middleware\ActionAuditLogger::class, // <-- Nuevo
+            'audit.logger' => \App\Http\Middleware\ActionAuditLogger::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

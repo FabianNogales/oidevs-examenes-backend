@@ -48,7 +48,7 @@ class StudentEnrollmentController extends Controller
                 'updated_at' => now(),
             ]);
 
-            // 2. Auditoría adaptada al esquema real (Sin columna 'details')
+            // 2. Auditoría
             DB::table('audit_logs')->insert([
                 'user_id' => $userId,
                 'action' => 'WRITE',
