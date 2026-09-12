@@ -10,6 +10,12 @@ use Illuminate\Validation\ValidationException;
 
 class LoginUserResolver
 {
+    /**
+     * Resuelve el identificador de HU02 hacia un User autenticable.
+     *
+     * Con @ se interpreta como correo institucional; sin @ se interpreta como
+     * codigo SIS asociado a un estudiante.
+     */
     public function resolve(string $identifier, string $password): ?User
     {
         $user = $this->findUser($identifier);

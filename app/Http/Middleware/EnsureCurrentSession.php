@@ -20,10 +20,14 @@ class EnsureCurrentSession
 
         $sessionId = $request->session()->getId();
 
+        // HU02 permite una sola sesion activa: la cookie actual debe coincidir
+        // con users.active_session_id; una sesion anterior recibe SESSION_REPLACED.
         if ($user->active_session_id && hash_equals($user->active_session_id, $sessionId)) {
             return $next($request);
         }
 
+        // No se limpia active_session_id aqui porque puede pertenecer a una
+        // sesion nueva que reemplazo a la cookie antigua.
         Auth::guard(config('fortify.guard', 'web'))->logoutCurrentDevice();
 
         if ($request->hasSession()) {

@@ -6,4 +6,5 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('health', HealthCheckController::class)->name('health');
 
+// HU02 Auth: devuelve usuario, roles y estado de primer acceso de la sesion actual.
 Route::middleware(['auth:sanctum', 'session.current'])->get('me', CurrentUserController::class)->name('me');

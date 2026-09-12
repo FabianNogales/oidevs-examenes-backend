@@ -10,6 +10,11 @@ class RecordLastLogin
 {
     public function __construct(private readonly LoginAuditService $loginAuditService) {}
 
+    /**
+     * Registra el acceso exitoso despues de que Fortify regenera la sesion.
+     *
+     * Persiste last_login_at, active_session_id y la auditoria LOGIN.
+     */
     public function handle(Request $request, Closure $next): mixed
     {
         if ($user = $request->user()) {

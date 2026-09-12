@@ -11,6 +11,8 @@ class EnsurePasswordHasBeenChanged
 {
     public function handle(Request $request, Closure $next): Response|JsonResponse
     {
+        // Flujo de primer acceso: las rutas protegidas pueden exigir cambio de
+        // password, mientras login, /me, logout y /user/password siguen disponibles.
         if ($request->user()?->must_change_password) {
             return response()->json([
                 'success' => false,
