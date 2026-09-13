@@ -53,6 +53,7 @@ Route::prefix('teacher/dashboard')
 Route::prefix('course-offerings/{courseOffering}')
     ->middleware(['auth:sanctum', 'teacher.role'])
     ->group(function () {
+        Route::get('/enrollments', [StudentEnrollmentController::class, 'index']);
         Route::post('/enrollments/manual', [StudentEnrollmentController::class, 'storeManual']);
         Route::post('/enrollments/bulk', [StudentEnrollmentController::class, 'storeBulk']);
         Route::post('/exams', [ExamSchedulingController::class, 'store']);

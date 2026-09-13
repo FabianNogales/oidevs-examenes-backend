@@ -163,8 +163,10 @@ class StudentEnrollmentTest extends TestCase
                      'data' => [
                          'totalProcessed',
                          'successfulRecords',
+                         'duplicateRecords',
+                         'failedCount',
                          'failedRecords' => [
-                             '*' => ['row', 'sisCode', 'reason']
+                             '*' => ['row', 'sisCode', 'status', 'reason']
                          ]
                      ]
                  ]);
