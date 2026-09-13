@@ -17,27 +17,12 @@ Route::prefix('auth')->middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'revokeSessionToken']);
 });
 
-// HU02 Auth: Perfil de usuario actual
-Route::middleware(['auth:sanctum', 'session.current'])->get('me', CurrentUserController::class)->name('me');
+// HU02 Auth: Desbloqueo de la ruta /me quitando password.changed
+Route::middleware(['auth:sanctum', 'session.current'])->group(function () {
+    Route::get('me', CurrentUserController::class)->name('me');
+});
 
-// HU 06: Seguridad de rutas del panel docente
-Route::prefix('teacher/dashboard')
-    ->middleware(['auth:sanctum', 'throttle:60,1', 'teacher.role', 'block.mutations', 'audit.logger'])
-    ->group(function () {
-        Route::get('/subjects', [TeacherDashboardController::class, 'getAssignedSubjects']);
-        Route::get('/upcoming-exams', [TeacherDashboardController::class, 'getUpcomingExams']);
-    });
-
-// HU 07 y HU 08: Bloquear a usuarios sin permisos (RBAC) para inscripciones y exámenes
-Route::prefix('course-offerings/{courseOffering}')
-    ->middleware(['auth:sanctum', 'teacher.role'])
-    ->group(function () {
-        Route::post('/enrollments/manual', [StudentEnrollmentController::class, 'storeManual']);
-        Route::post('/enrollments/bulk', [StudentEnrollmentController::class, 'storeBulk']);
-        Route::post('/exams', [ExamSchedulingController::class, 'store']);
-    });
-
-// HU 01: Acceso administrativo (Corregido a verify.admin)
+// HU 01: Acceso Administrativo protegido estrictamente
 Route::middleware(['auth:sanctum', 'session.current', 'password.changed', 'verify.admin'])
     ->prefix('admin')
     ->group(function () {
@@ -54,4 +39,21 @@ Route::middleware(['auth:sanctum', 'session.current', 'password.changed', 'verif
         Route::get('teachers/{teacher}', [TeacherController::class, 'show'])->name('teachers.show');
         Route::put('teachers/{teacher}', [TeacherController::class, 'update'])->name('teachers.update');
         Route::patch('teachers/{teacher}/status', [TeacherController::class, 'updateStatus'])->name('teachers.status');
+    });
+
+// HU 06: Seguridad de rutas del panel docente
+Route::prefix('teacher/dashboard')
+    ->middleware(['auth:sanctum', 'throttle:60,1', 'teacher.role', 'block.mutations', 'audit.logger'])
+    ->group(function () {
+        Route::get('/subjects', [TeacherDashboardController::class, 'getAssignedSubjects']);
+        Route::get('/upcoming-exams', [TeacherDashboardController::class, 'getUpcomingExams']);
+    });
+
+// HU 07 y HU 08: Bloquear a usuarios sin permisos (RBAC) para inscripciones y exámenes
+Route::prefix('course-offerings/{courseOffering}')
+    ->middleware(['auth:sanctum', 'teacher.role'])
+    ->group(function () {
+        Route::post('/enrollments/manual', [StudentEnrollmentController::class, 'storeManual']);
+        Route::post('/enrollments/bulk', [StudentEnrollmentController::class, 'storeBulk']);
+        Route::post('/exams', [ExamSchedulingController::class, 'store']);
     });

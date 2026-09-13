@@ -17,6 +17,7 @@ class TeacherDashboardController extends Controller
             ->join('subjects', 'course_offerings.subject_id', '=', 'subjects.id')
             ->join('academic_terms', 'course_offerings.academic_term_id', '=', 'academic_terms.id')
             ->where('course_offerings.teacher_id', $teacher->id)
+            ->where('course_offerings.status', 'ACTIVE')
             ->select('course_offerings.id', 'subjects.name as subject_name', 'academic_terms.name as term_name')
             ->get()
             ->map(function($item) {
