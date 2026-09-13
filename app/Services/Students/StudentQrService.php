@@ -7,6 +7,7 @@ use App\Models\StudentQrToken;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use SimpleSoftwareIO\QrCode\Facades\QrCode;
 use Exception;
 
 class StudentQrService
@@ -20,7 +21,10 @@ class StudentQrService
             ->where('status', 'ACTIVE')
             ->whereHas('courseOffering.enrollments', function ($query) use ($studentId) {
                 $query->where('student_id', $studentId)
-                    ->where('status', 'ACTIVE');
+                    ->where('status', 'ACTIVE')
+                    ->whereHas('student', function ($sQuery) {
+                        $sQuery->where('status', 'ACTIVE');
+                    });
             })
             ->get()
             ->map(function ($exam) use ($studentId) {
@@ -31,7 +35,6 @@ class StudentQrService
                 $examStart = Carbon::parse("{$examDateStr} {$exam->start_time}");
                 $examEnd   = $examStart->copy()->addMinutes($exam->duration_minutes);
                 
-                // Regla de 24 horas: Habilitado desde 24h antes hasta que finalice el examen
                 $isAvailable = now()->gte($examStart->copy()->subHours(24)) 
                     && now()->lte($examEnd);
 
@@ -57,16 +60,19 @@ class StudentQrService
     }
 
     /**
-     * Genera u obtiene el QR del examen si faltan <= 24 horas y el alumno está inscrito.
+     * Genera u obtiene el QR del examen si el estudiante y la inscripción están en status ACTIVE.
      */
     public function getOrGenerateForExam(int $studentId, int $examId): array
     {
-        // 1. Validar que el examen exista y que el estudiante esté inscrito (status ACTIVE)
+        // 1. Validar que el examen exista y que el estudiante esté inscrito y activo
         $exam = Exam::with(['courseOffering.subject'])
             ->where('status', 'ACTIVE')
             ->whereHas('courseOffering.enrollments', function ($query) use ($studentId) {
                 $query->where('student_id', $studentId)
-                    ->where('status', 'ACTIVE');
+                    ->where('status', 'ACTIVE')
+                    ->whereHas('student', function ($sQuery) {
+                        $sQuery->where('status', 'ACTIVE');
+                    });
             })
             ->findOrFail($examId);
 
@@ -88,7 +94,7 @@ class StudentQrService
             throw new Exception("El examen ya ha finalizado.");
         }
 
-        // 3. Buscar token activo existente
+        // 3. Buscar o crear token en BD
         $existingToken = StudentQrToken::where('student_id', $studentId)
             ->where('exam_id', $examId)
             ->where('status', 'ACTIVE')
@@ -98,7 +104,6 @@ class StudentQrService
         $tokenValue = $existingToken ? $existingToken->token : (string) Str::uuid();
 
         if (!$existingToken) {
-            // Revocar previos y crear uno nuevo
             StudentQrToken::where('student_id', $studentId)
                 ->where('exam_id', $examId)
                 ->update(['status' => 'REVOKED', 'revoked_at' => $now]);
@@ -112,14 +117,13 @@ class StudentQrService
             ]);
         }
 
-        // 4. Expiración del JWT fijada AL FINALIZAR el examen (para atrasados)
+        // 4. Generar JWT Estándar HS256 (3 partes)
         $expTimestamp = $examEnd->timestamp;
-        $signedToken  = $this->generateSignedToken($studentId, $examId, $tokenValue, $expTimestamp);
+        $signedToken  = $this->generateStandardJwt($studentId, $examId, $tokenValue, $expTimestamp);
 
-        // 5. Formatear Base64 SVG (soporta paquetes QR como SimpleSoftwareIO o SVG firmado)
-        $qrBase64 = "data:image/svg+xml;base64," . base64_encode(
-            '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="100%" height="100%" fill="#eee"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="10">'.substr($signedToken, 0, 25).'...</text></svg>'
-        );
+        // 5. Generar Matriz QR SVG Real escaneable mediante la librería
+        $svgQr    = QrCode::format('svg')->size(200)->errorCorrection('H')->generate($signedToken);
+        $qrBase64 = "data:image/svg+xml;base64," . base64_encode($svgQr);
 
         return [
             'exam_id'        => $exam->id,
@@ -131,18 +135,30 @@ class StudentQrService
         ];
     }
 
-    private function generateSignedToken(int $studentId, int $examId, string $uuid, int $expTimestamp): string
+    /**
+     * Genera un JWT Estándar con algoritmo HS256 (Header.Payload.Signature)
+     */
+    private function generateStandardJwt(int $studentId, int $examId, string $uuid, int $expTimestamp): string
     {
-        $payloadData = [
+        $header = ['alg' => 'HS256', 'typ' => 'JWT'];
+        $payload = [
             'std' => $studentId,
             'exm' => $examId,
             'exp' => $expTimestamp,
             'jti' => $uuid,
         ];
 
-        $payloadJson = json_encode($payloadData);
-        $signature   = hash_hmac('sha256', $payloadJson, config('app.key'));
+        $base64UrlHeader  = $this->base64UrlEncode(json_encode($header));
+        $base64UrlPayload = $this->base64UrlEncode(json_encode($payload));
 
-        return base64_encode($payloadJson) . '.' . $signature;
+        $signature = hash_hmac('sha256', $base64UrlHeader . "." . $base64UrlPayload, config('app.key'), true);
+        $base64UrlSignature = $this->base64UrlEncode($signature);
+
+        return $base64UrlHeader . "." . $base64UrlPayload . "." . $base64UrlSignature;
+    }
+
+    private function base64UrlEncode(string $data): string
+    {
+        return str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($data));
     }
 }
