@@ -15,12 +15,12 @@ class EnrollmentSecurityTest extends TestCase
     protected int $ownerTeacherId;
     protected int $otherTeacherId;
     protected int $courseOfferingId;
+    protected int $ownerTeacherProfileId;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        // 1. Roles
         $roleId = DB::table('roles')->insertGetId([
             'name' => 'Docente', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()
         ]);
@@ -28,32 +28,50 @@ class EnrollmentSecurityTest extends TestCase
             'name' => 'Estudiante', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()
         ]);
 
-        // 2. Docente Titular (Dueño de la materia)
-        $ownerTeacher = User::factory()->create(['status' => 'ACTIVE']);
+        $ownerTeacher = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);
         $this->ownerTeacherId = $ownerTeacher->id;
         DB::table('role_user')->insert(['user_id' => $this->ownerTeacherId, 'role_id' => $roleId, 'status' => 'ACTIVE', 'assigned_at' => now()]);
 
-        // 3. Docente Ajeno (Para probar el IDOR)
-        $otherTeacher = User::factory()->create(['status' => 'ACTIVE']);
+        $this->ownerTeacherProfileId = DB::table('teachers')->insertGetId([
+            'user_id' => $this->ownerTeacherId,
+            'institutional_code' => 'DOC-001',
+            'identity_number' => '111111',
+            'first_names' => 'Owner',
+            'last_names' => 'Teacher',
+            'status' => 'ACTIVE',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $otherTeacher = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);
         $this->otherTeacherId = $otherTeacher->id;
         DB::table('role_user')->insert(['user_id' => $this->otherTeacherId, 'role_id' => $roleId, 'status' => 'ACTIVE', 'assigned_at' => now()]);
 
-        // 4. Gestión y Materia
+        $otherTeacherProfileId = DB::table('teachers')->insertGetId([
+            'user_id' => $this->otherTeacherId,
+            'institutional_code' => 'DOC-002',
+            'identity_number' => '222222',
+            'first_names' => 'Other',
+            'last_names' => 'Teacher',
+            'status' => 'ACTIVE',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
         DB::table('academic_terms')->insert(['id' => 1, 'name' => '2026-I', 'start_date' => '2026-02-01', 'end_date' => '2026-07-01', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()]);
         DB::table('subjects')->insert(['id' => 1, 'code' => 'CS101', 'name' => 'Programming', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()]);
 
         $this->courseOfferingId = DB::table('course_offerings')->insertGetId([
             'subject_id' => 1,
             'academic_term_id' => 1,
-            'teacher_user_id' => $this->ownerTeacherId,
+            'teacher_id' => $this->ownerTeacherProfileId,
             'status' => 'ACTIVE',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
 
-        // 5. Estudiante
         $careerId = DB::table('careers')->insertGetId(['code' => 'SE-101', 'name' => 'Software', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()]);
-        $studentUser = User::factory()->create(['status' => 'ACTIVE']);
+        $studentUser = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);
         DB::table('role_user')->insert(['user_id' => $studentUser->id, 'role_id' => $studentRoleId, 'status' => 'ACTIVE', 'assigned_at' => now()]);
         
         DB::table('students')->insert([
@@ -71,21 +89,20 @@ class EnrollmentSecurityTest extends TestCase
 
     public function testEnrollmentIsRejectedForNonTeachers(): void
     {
-        $student = User::factory()->create(['status' => 'ACTIVE']);
+        $student = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);
         Sanctum::actingAs($student, ['*']);
 
         $response = $this->postJson("/api/v1/course-offerings/{$this->courseOfferingId}/enrollments/manual", [
             'sisCode' => '202600001'
         ]);
 
-        // Si el usuario no es docente, se bloquea
         $response->assertStatus(403);
     }
 
     public function testEnrollmentIsPreventedByIdorIfTeacherDoesNotOwnCourse(): void
     {
         $otherTeacher = User::find($this->otherTeacherId);
-        Sanctum::actingAs($otherTeacher, ['*']);
+        Sanctum::actingAs($otherTeacher, ['*']); 
 
         $response = $this->postJson("/api/v1/course-offerings/{$this->courseOfferingId}/enrollments/manual", [
             'sisCode' => '202600001'

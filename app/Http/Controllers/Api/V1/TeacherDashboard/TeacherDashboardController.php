@@ -3,36 +3,55 @@
 namespace App\Http\Controllers\Api\V1\TeacherDashboard;
 
 use App\Http\Controllers\Controller;
-use App\Models\CourseOffering;
-use App\Models\Exam;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class TeacherDashboardController extends Controller
 {
-    public function getAssignedSubjects(Request $request): JsonResponse
+    public function getAssignedSubjects(Request $request)
     {
-        // Prevención IDOR: Solo filtramos por el ID del usuario autenticado
-        $subjects = CourseOffering::with(['subject', 'academicTerm'])
-            ->where('teacher_user_id', $request->user()->id)
-            ->where('status', 'ACTIVE')
-            ->get();
+        $teacher = DB::table('teachers')->where('user_id', $request->user()->id)->first();
+        if (!$teacher) return response()->json(['data' => []]);
 
-        return response()->json(['data' => $subjects], 200);
+        $subjects = DB::table('course_offerings')
+            ->join('subjects', 'course_offerings.subject_id', '=', 'subjects.id')
+            ->join('academic_terms', 'course_offerings.academic_term_id', '=', 'academic_terms.id')
+            ->where('course_offerings.teacher_id', $teacher->id)
+            ->select('course_offerings.id', 'subjects.name as subject_name', 'academic_terms.name as term_name')
+            ->get()
+            ->map(function($item) {
+                return [
+                    'id' => $item->id,
+                    'subject' => ['name' => $item->subject_name],
+                    'academic_term' => ['name' => $item->term_name]
+                ];
+            });
+
+        return response()->json(['data' => $subjects]);
     }
 
-    public function getUpcomingExams(Request $request): JsonResponse
+    public function getUpcomingExams(Request $request)
     {
-        $exams = Exam::with(['courseOffering.subject'])
-            ->whereHas('courseOffering', function ($query) use ($request) {
-                // Prevención IDOR en tablas relacionadas
-                $query->where('teacher_user_id', $request->user()->id);
-            })
-            ->where('status', 'SCHEDULED')
-            ->where('exam_date', '>=', now()->toDateString())
-            ->orderBy('exam_date', 'asc')
-            ->get();
+        $teacher = DB::table('teachers')->where('user_id', $request->user()->id)->first();
+        if (!$teacher) return response()->json(['data' => []]);
 
-        return response()->json(['data' => $exams], 200);
+        $exams = DB::table('exams')
+            ->join('course_offerings', 'exams.course_offering_id', '=', 'course_offerings.id')
+            ->join('subjects', 'course_offerings.subject_id', '=', 'subjects.id')
+            ->where('course_offerings.teacher_id', $teacher->id)
+            ->select('exams.name', 'subjects.code as subject_code')
+            ->orderBy('exams.exam_date', 'asc')
+            ->orderBy('exams.start_time', 'asc')
+            ->get()
+            ->map(function($item) {
+                return [
+                    'name' => $item->name,
+                    'course_offering' => [
+                        'subject' => ['code' => $item->subject_code]
+                    ]
+                ];
+            });
+
+        return response()->json(['data' => $exams]);
     }
 }

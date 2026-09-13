@@ -18,7 +18,7 @@ Route::prefix('auth')->middleware('auth:sanctum')->group(function () {
 });
 
 // HU02 Auth: Perfil de usuario actual
-Route::middleware(['auth:sanctum'])->get('me', CurrentUserController::class)->name('me');
+Route::middleware(['auth:sanctum', 'session.current'])->get('me', CurrentUserController::class)->name('me');
 
 // HU 06: Seguridad de rutas del panel docente
 Route::prefix('teacher/dashboard')
@@ -38,7 +38,7 @@ Route::prefix('course-offerings/{courseOffering}')
     });
 
 // HU 01: Acceso administrativo (Corregido a verify.admin)
-Route::middleware(['auth:sanctum', 'verify.admin'])
+Route::middleware(['auth:sanctum', 'session.current', 'password.changed', 'verify.admin'])
     ->prefix('admin')
     ->group(function () {
         

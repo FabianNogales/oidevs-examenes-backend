@@ -13,7 +13,8 @@ class StudentEnrollmentTest extends TestCase
 {
     use RefreshDatabase;
 
-    protected int $teacherId;
+    protected int $teacherUserId;
+    protected int $teacherProfileId;
     protected int $courseOfferingId;
     protected int $studentId;
     protected int $careerId;
@@ -22,8 +23,12 @@ class StudentEnrollmentTest extends TestCase
     {
         parent::setUp();
 
-        $teacher = User::factory()->create(['status' => 'ACTIVE']);
-        $this->teacherId = $teacher->id;
+        // 1. Crear el usuario con los middlewares evadidos
+        $teacherUser = User::factory()->create([
+            'status' => 'ACTIVE',
+            'must_change_password' => false
+        ]);
+        $this->teacherUserId = $teacherUser->id;
 
         $roleId = DB::table('roles')->insertGetId([
             'name' => 'Docente',
@@ -33,49 +38,50 @@ class StudentEnrollmentTest extends TestCase
         ]);
 
         DB::table('role_user')->insert([
-            'user_id' => $teacher->id,
+            'user_id' => $teacherUser->id,
             'role_id' => $roleId,
             'status' => 'ACTIVE',
             'assigned_at' => now(),
         ]);
 
-        DB::table('academic_terms')->insert([
-            'id' => 1,
-            'name' => '2026-I',
-            'start_date' => '2026-02-01',
-            'end_date' => '2026-07-01',
+        // 2. Crear el perfil en la nueva tabla teachers
+        $this->teacherProfileId = DB::table('teachers')->insertGetId([
+            'user_id' => $teacherUser->id,
+            'institutional_code' => 'DOC-001',
+            'identity_number' => '12345678',
+            'first_names' => 'Carlos',
+            'last_names' => 'Perez',
             'status' => 'ACTIVE',
             'created_at' => now(),
             'updated_at' => now(),
+        ]);
+
+        DB::table('academic_terms')->insert([
+            'id' => 1, 'name' => '2026-I', 'start_date' => '2026-02-01', 'end_date' => '2026-07-01', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now(),
         ]);
 
         DB::table('subjects')->insert([
-            'id' => 1,
-            'code' => 'CS101',
-            'name' => 'Introduction to Programming',
-            'status' => 'ACTIVE',
-            'created_at' => now(),
-            'updated_at' => now(),
+            'id' => 1, 'code' => 'CS101', 'name' => 'Introduction to Programming', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now(),
         ]);
 
+        // 3. Vincular la materia usando teacher_id
         $this->courseOfferingId = DB::table('course_offerings')->insertGetId([
             'subject_id' => 1,
             'academic_term_id' => 1,
-            'teacher_user_id' => $this->teacherId,
+            'teacher_id' => $this->teacherProfileId,
             'status' => 'ACTIVE',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
 
         $this->careerId = DB::table('careers')->insertGetId([
-            'code' => 'SE-101',
-            'name' => 'Software Engineering',
-            'status' => 'ACTIVE',
-            'created_at' => now(),
-            'updated_at' => now(),
+            'code' => 'SE-101', 'name' => 'Software Engineering', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now(),
         ]);
 
-        $studentUser = User::factory()->create(['status' => 'ACTIVE']);
+        $studentUser = User::factory()->create([
+            'status' => 'ACTIVE',
+            'must_change_password' => false
+        ]);
         
         $this->studentId = DB::table('students')->insertGetId([
             'user_id' => $studentUser->id,
@@ -89,7 +95,7 @@ class StudentEnrollmentTest extends TestCase
             'updated_at' => now(),
         ]);
         
-        Sanctum::actingAs($teacher, ['*']);
+        Sanctum::actingAs($teacherUser, ['*']);
     }
 
     public function testManualEnrollmentRejectsNonExistentSisCode(): void
@@ -114,7 +120,7 @@ class StudentEnrollmentTest extends TestCase
         $this->assertDatabaseHas('enrollments', [
             'course_offering_id' => $this->courseOfferingId,
             'student_id' => $this->studentId,
-            'registered_by' => $this->teacherId,
+            'registered_by' => $this->teacherUserId,
             'status' => 'ACTIVE',
         ]);
 
@@ -128,7 +134,11 @@ class StudentEnrollmentTest extends TestCase
 
     public function testBulkCsvUploadValidatesFormatAndProcessesRecordsInTransaction(): void
     {
-        $studentUser2 = User::factory()->create(['status' => 'ACTIVE']);
+        $studentUser2 = User::factory()->create([
+            'status' => 'ACTIVE',
+            'must_change_password' => false
+        ]);
+        
         $student2Id = DB::table('students')->insertGetId([
             'user_id' => $studentUser2->id,
             'sis_code' => '202600002',
@@ -142,7 +152,6 @@ class StudentEnrollmentTest extends TestCase
         ]);
 
         $csvContent = "sisCode\n202600002\n999999999\n\n202600002";
-        
         $file = UploadedFile::fake()->createWithContent('students.csv', $csvContent);
 
         $response = $this->postJson("/api/v1/course-offerings/{$this->courseOfferingId}/enrollments/bulk", [
@@ -163,7 +172,7 @@ class StudentEnrollmentTest extends TestCase
         $this->assertDatabaseHas('enrollments', [
             'course_offering_id' => $this->courseOfferingId,
             'student_id' => $student2Id,
-            'registered_by' => $this->teacherId,
+            'registered_by' => $this->teacherUserId,
             'status' => 'ACTIVE',
         ]);
     }

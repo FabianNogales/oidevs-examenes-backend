@@ -17,18 +17,38 @@ class VerifyAdminRole
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
-        // Verificamos si el usuario tiene el rol 'Admin' asignado y activo
         $isAdmin = DB::table('role_user')
             ->join('roles', 'role_user.role_id', '=', 'roles.id')
             ->where('role_user.user_id', $user->id)
-            ->where('roles.name', 'Admin')
+            ->whereIn('roles.name', ['Admin', 'Administrador', 'ADMINISTRADOR'])
             ->where('role_user.status', 'ACTIVE')
             ->where('roles.status', 'ACTIVE')
             ->exists();
 
         if (!$isAdmin) {
-            return response()->json(['message' => 'Forbidden - Insufficient permissions'], 403);
+            DB::table('audit_logs')->insert([
+                'user_id' => $user->id,
+                'action' => 'ADMIN_ACCESS_DENIED',
+                'entity_type' => 'ADMIN_PANEL',
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+                'created_at' => now(),
+            ]);
+
+            return response()->json([
+                'code' => 'FORBIDDEN',
+                'message' => 'Forbidden - Insufficient permissions'
+            ], 403);
         }
+
+        DB::table('audit_logs')->insert([
+            'user_id' => $user->id,
+            'action' => 'ADMIN_ACCESS_GRANTED',
+            'entity_type' => 'ADMIN_PANEL',
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+            'created_at' => now(),
+        ]);
 
         return $next($request);
     }
