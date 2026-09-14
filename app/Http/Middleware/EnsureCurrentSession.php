@@ -22,23 +22,23 @@ class EnsureCurrentSession
 
         // HU02 permite una sola sesion activa: la cookie actual debe coincidir
         // con users.active_session_id; una sesion anterior recibe SESSION_REPLACED.
-        if ($user->active_session_id && hash_equals($user->active_session_id, $sessionId)) {
-            return $next($request);
+        if ($user->active_session_id && $user->active_session_id !== $sessionId) {
+            // No se limpia active_session_id aqui porque puede pertenecer a una
+            // sesion nueva que reemplazo a la cookie antigua.
+            Auth::guard(config('fortify.guard', 'web'))->logoutCurrentDevice();
+
+            if ($request->hasSession()) {
+                $request->session()->invalidate();
+                $request->session()->regenerateToken();
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'La sesion fue cerrada porque se inicio sesion en otro dispositivo.',
+                'code' => 'SESSION_REPLACED',
+            ], 401);
         }
 
-        // No se limpia active_session_id aqui porque puede pertenecer a una
-        // sesion nueva que reemplazo a la cookie antigua.
-        Auth::guard(config('fortify.guard', 'web'))->logoutCurrentDevice();
-
-        if ($request->hasSession()) {
-            $request->session()->invalidate();
-            $request->session()->regenerateToken();
-        }
-
-        return response()->json([
-            'success' => false,
-            'message' => 'La sesion fue cerrada porque se inicio sesion en otro dispositivo.',
-            'code' => 'SESSION_REPLACED',
-        ], 401);
+        return $next($request);
     }
 }

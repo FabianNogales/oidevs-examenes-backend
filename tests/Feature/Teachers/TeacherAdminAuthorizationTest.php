@@ -8,6 +8,7 @@ use App\Models\Role;
 use App\Models\Teacher;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -21,7 +22,9 @@ class TeacherAdminAuthorizationTest extends TestCase
 
         config([
             'eida.institutional_email_domains' => ['umss.edu.bo'],
+            'session.driver' => 'file',
         ]);
+        Session::setDefaultDriver('file');
     }
 
     public function test_administrator_can_manage_teacher_endpoints(): void
@@ -116,7 +119,8 @@ class TeacherAdminAuthorizationTest extends TestCase
     {
         $admin = $this->createUserWithRole(
             RoleName::ADMINISTRADOR,
-            email: 'replaced.admin@umss.edu.bo',
+            false,
+            'replaced.admin@umss.edu.bo',
         );
         $sessionA = $this->loginFromNewSession($admin);
         $this->loginFromNewSession($admin);
@@ -205,10 +209,6 @@ class TeacherAdminAuthorizationTest extends TestCase
         return $this->actingAs($user);
     }
 
-    /**
-     * @param  array<string, mixed>  $overrides
-     * @return array<string, mixed>
-     */
     private function teacherPayload(array $overrides = []): array
     {
         return array_merge([
