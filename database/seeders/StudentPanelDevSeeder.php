@@ -270,6 +270,10 @@ class StudentPanelDevSeeder extends Seeder
                 DB::table('exam_eligibilities')->whereIn('exam_id', $devExamIds)->delete();
             }
 
+            if (DB::getSchemaBuilder()->hasTable('audit_logs') && !empty($devUserIds)) {
+                DB::table('audit_logs')->whereIn('user_id', $devUserIds)->delete();
+            }
+
             if (!empty($devUserIds)) {
                 DB::table('role_user')->whereIn('user_id', $devUserIds)->delete();
             }
