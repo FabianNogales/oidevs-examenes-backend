@@ -6,6 +6,7 @@ use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use App\Models\User;
 
 class StudentPanelDevSeeder extends Seeder
 {
@@ -16,13 +17,23 @@ class StudentPanelDevSeeder extends Seeder
         $this->cleanPreviousRun();
 
         // ---------- 1. Docente "dueño" del curso de prueba ----------
-        $teacherId = DB::table('users')->insertGetId([
+        $teacherUserId = DB::table('users')->insertGetId([
             'email' => 'docente.dev@test.local',
             'password' => Hash::make('password'),
             'status' => 'ACTIVE',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+
+        $teacherId = DB::table('teachers')->insertGetId([
+            'user_id' => $teacherUserId,
+            'employee_code' => 'DEV-DOC-01',
+            'status' => 'ACTIVE',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->assignRoleIfExists($teacherUserId, 'DOCENTE');
 
         // ---------- 2. Catálogos mínimos ----------
         $careerId = DB::table('careers')->insertGetId([
@@ -51,7 +62,7 @@ class StudentPanelDevSeeder extends Seeder
             'updated_at' => now(),
         ]);
 
-        // Materia 2: Sistemas Operativos (para probar el selector de materias)
+        // Materia 2: Sistemas Operativos
         $subjectId2 = DB::table('subjects')->insertGetId([
             'code' => 'DEV-102',
             'name' => '[DEV-TEST] Sistemas Operativos',
@@ -69,11 +80,11 @@ class StudentPanelDevSeeder extends Seeder
             'updated_at' => now(),
         ]);
 
-        // ---------- 3. Ofertas académicas ----------
+        // ---------- 3. Ofertas académicas (usando teacher_id) ----------
         $offeringId1 = DB::table('course_offerings')->insertGetId([
             'subject_id' => $subjectId1,
             'academic_term_id' => $termId,
-            'teacher_user_id' => $teacherId,
+            'teacher_id' => $teacherId,
             'status' => 'ACTIVE',
             'created_at' => now(),
             'updated_at' => now(),
@@ -82,13 +93,13 @@ class StudentPanelDevSeeder extends Seeder
         $offeringId2 = DB::table('course_offerings')->insertGetId([
             'subject_id' => $subjectId2,
             'academic_term_id' => $termId,
-            'teacher_user_id' => $teacherId,
+            'teacher_id' => $teacherId,
             'status' => 'ACTIVE',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
 
-        // Examen 1: Disponible AHORA (Inicia en 1 hora dinámicamente)
+        // Examen 1: Disponible AHORA
         $examId1 = DB::table('exams')->insertGetId([
             'id'                 => 2,
             'course_offering_id' => $offeringId1,
@@ -99,12 +110,12 @@ class StudentPanelDevSeeder extends Seeder
             'duration_minutes'   => 90,
             'rules'              => 'Portar carnet de identidad.',
             'status'             => 'ACTIVE',
-            'created_by'         => $teacherId,
+            'created_by'         => $teacherUserId,
             'created_at'         => now(),
             'updated_at'         => now(),
         ]);
 
-        // Examen 2: Fuera del rango de 24h (Inicia en 3 días)
+        // Examen 2: Fuera del rango de 24h
         $examId2 = DB::table('exams')->insertGetId([
             'id'                 => 3,
             'course_offering_id' => $offeringId2,
@@ -115,7 +126,7 @@ class StudentPanelDevSeeder extends Seeder
             'duration_minutes'   => 90,
             'rules'              => 'Portar carnet de identidad.',
             'status'             => 'ACTIVE',
-            'created_by'         => $teacherId,
+            'created_by'         => $teacherUserId,
             'created_at'         => now(),
             'updated_at'         => now(),
         ]);
@@ -129,6 +140,8 @@ class StudentPanelDevSeeder extends Seeder
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+
+            $this->assignRoleIfExists($studentUserId, 'ESTUDIANTE');
 
             $studentId = DB::table('students')->insertGetId([
                 'user_id' => $studentUserId,
@@ -148,7 +161,7 @@ class StudentPanelDevSeeder extends Seeder
                     'course_offering_id' => $offeringId1,
                     'student_id'         => $studentId,
                     'status'             => 'ACTIVE',
-                    'registered_by'      => $teacherId,
+                    'registered_by'      => $teacherUserId,
                     'created_at'         => now(),
                     'updated_at'         => now(),
                 ],
@@ -156,7 +169,7 @@ class StudentPanelDevSeeder extends Seeder
                     'course_offering_id' => $offeringId2,
                     'student_id'         => $studentId,
                     'status'             => 'ACTIVE',
-                    'registered_by'      => $teacherId,
+                    'registered_by'      => $teacherUserId,
                     'created_at'         => now(),
                     'updated_at'         => now(),
                 ]
@@ -177,12 +190,27 @@ class StudentPanelDevSeeder extends Seeder
         $this->command?->info("Seeder ejecutado con éxito: {$this->studentCount} estudiantes inscritos en 2 exámenes de prueba.");
     }
 
+    private function assignRoleIfExists(int $userId, string $roleName): void
+    {
+        $role = DB::table('roles')->where('name', $roleName)->first();
+        if ($role) {
+            DB::table('model_has_roles')->insertOrIgnore([
+                'role_id' => $role->id,
+                'model_type' => User::class,
+                'model_id' => $userId,
+            ]);
+        }
+    }
+
     private function cleanPreviousRun(): void
     {
         $devStudentIds = DB::table('students')->where('sis_code', 'like', 'DEV%')->pluck('id');
+        $devTeacherIds = DB::table('teachers')->where('employee_code', 'like', 'DEV-%')->pluck('id');
         $devUserIds = DB::table('students')->where('sis_code', 'like', 'DEV%')->pluck('user_id')
+            ->merge(DB::table('teachers')->where('employee_code', 'like', 'DEV-%')->pluck('user_id'))
             ->merge(DB::table('users')->where('email', 'like', '%.dev%@test.local')->pluck('id'))
             ->unique();
+
         $devExamIds = DB::table('exams')->where('name', 'like', '[DEV-TEST]%')->pluck('id');
         $devOfferingIds = DB::table('course_offerings')
             ->whereIn('id', DB::table('exams')->where('name', 'like', '[DEV-TEST]%')->pluck('course_offering_id'))
@@ -191,11 +219,14 @@ class StudentPanelDevSeeder extends Seeder
         if (DB::getSchemaBuilder()->hasTable('exam_eligibilities')) {
             DB::table('exam_eligibilities')->whereIn('exam_id', $devExamIds)->delete();
         }
+
+        DB::table('model_has_roles')->whereIn('model_id', $devUserIds)->where('model_type', User::class)->delete();
         DB::table('student_qr_tokens')->whereIn('student_id', $devStudentIds)->delete();
         DB::table('enrollments')->whereIn('student_id', $devStudentIds)->delete();
 
         DB::table('exams')->whereIn('id', $devExamIds)->delete();
         DB::table('course_offerings')->whereIn('id', $devOfferingIds)->delete();
+        DB::table('teachers')->whereIn('id', $devTeacherIds)->delete();
         DB::table('students')->whereIn('id', $devStudentIds)->delete();
         DB::table('users')->whereIn('id', $devUserIds)->delete();
         DB::table('rooms')->where('code', 'like', 'DEV-%')->delete();

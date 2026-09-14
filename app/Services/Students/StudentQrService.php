@@ -7,7 +7,11 @@ use App\Models\StudentQrToken;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
-use SimpleSoftwareIO\QrCode\Facades\QrCode;
+use BaconQrCode\Renderer\ImageRenderer;
+use BaconQrCode\Renderer\Image\SvgImageBackEnd;
+use BaconQrCode\Renderer\RendererStyle\RendererStyle;
+use BaconQrCode\Writer;
+use BaconQrCode\Common\ErrorCorrectionLevel;
 use Exception;
 
 class StudentQrService
@@ -121,8 +125,14 @@ class StudentQrService
         $expTimestamp = $examEnd->timestamp;
         $signedToken  = $this->generateStandardJwt($studentId, $examId, $tokenValue, $expTimestamp);
 
-        // 5. Generar Matriz QR SVG Real escaneable mediante la librería
-        $svgQr    = QrCode::format('svg')->size(200)->errorCorrection('H')->generate($signedToken);
+        // 5. Generar Matriz QR SVG Real escaneable directamente con BaconQrCode v3 (Nivel H, 200px)
+        $renderer = new ImageRenderer(
+            new RendererStyle(200),
+            new SvgImageBackEnd()
+        );
+        $writer = new Writer($renderer);
+        $svgQr  = $writer->writeString($signedToken, 'UTF-8', ErrorCorrectionLevel::H());
+
         $qrBase64 = "data:image/svg+xml;base64," . base64_encode($svgQr);
 
         return [
