@@ -1,5 +1,8 @@
 <?php
 
+use App\Http\Middleware\EnsureCurrentSession;
+use App\Http\Middleware\EnsurePasswordHasBeenChanged;
+use App\Http\Middleware\EnsureUserHasRole;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -12,7 +15,12 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        //
+        $middleware->statefulApi();
+        $middleware->alias([
+            'password.changed' => EnsurePasswordHasBeenChanged::class,
+            'session.current' => EnsureCurrentSession::class,
+            'role' => EnsureUserHasRole::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

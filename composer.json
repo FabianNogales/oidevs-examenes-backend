@@ -10,6 +10,7 @@
     "require": {
         "php": "^8.2",
         "bacon/bacon-qr-code": "^3.0",
+        "laravel/fortify": "^1.39",
         "laravel/framework": "^11.0",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.9"
@@ -70,7 +71,20 @@
         },
         "policy": {
             "advisories": {
-                "block": false
+                "ignore-id": {
+                    "PKSA-m5cs-t1y6-qpcs": {
+                        "on-block": false,
+                        "reason": "Laravel 11 is required by the WebTIS deployment environment"
+                    },
+                    "PKSA-3r5d-mb8f-1qw9": {
+                        "on-block": false,
+                        "reason": "Laravel 11 is required by the WebTIS deployment environment"
+                    },
+                    "PKSA-mdq4-51ck-6kdq": {
+                        "on-block": false,
+                        "reason": "Laravel 11 is required by the WebTIS deployment environment"
+                    }
+                }
             }
         }
     },

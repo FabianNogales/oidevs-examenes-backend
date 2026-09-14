@@ -43,6 +43,10 @@ The main response flow is:
 
 The initial domain folders are prepared for Auth, Students, Subjects, Exams, Collaborators, Eligibility, Entries, Infractions, and Reports, without implementing business logic or database models yet.
 
+## Documentación técnica
+
+- [HU02 — Autenticación y sesión](docs/HU02_AUTH_API.md)
+
 ## Database
 
 The backend is prepared for PostgreSQL 15.
@@ -62,6 +66,76 @@ Once the initial migration has been shared and used by the team, do not modify i
 ```bash
 php artisan make:migration add_institutional_code_to_users_table
 ```
+
+## Authentication
+
+Laravel Fortify manages the backend authentication endpoints. Laravel Sanctum authenticates the first-party React SPA through session cookies.
+
+React is responsible for the full authentication interface. The backend does not render Blade pages for login, registration, password reset, or dashboards.
+
+Current authentication decisions:
+
+- Public registration is disabled.
+- Two-factor authentication is disabled.
+- Passkeys are disabled.
+- Password reset is enabled.
+- Authenticated password updates are enabled.
+- Email verification is pending a product decision.
+
+Before sending login credentials, the React frontend must request:
+
+```http
+GET /sanctum/csrf-cookie
+```
+
+Credentialed frontend requests must be sent with cookies enabled, for example Axios `withCredentials: true`.
+
+Each developer should configure local SPA variables in `.env`:
+
+```dotenv
+FRONTEND_URL=http://127.0.0.1:5173
+SANCTUM_STATEFUL_DOMAINS=127.0.0.1:5173,localhost:5173
+```
+
+### Local Login Test User
+
+Public registration is disabled, so local login testing requires an existing user.
+For local development only, create one manually with Tinker:
+
+```bash
+php artisan tinker
+```
+
+```php
+$user = new App\Models\User();
+$user->email = 'login.test@oipass.local';
+$user->password = 'Test12345!';
+$user->status = 'ACTIVE';
+$user->save();
+```
+
+The `User` model currently casts `password` as `hashed`, so do not wrap the
+password with `Hash::make()` here. Delete this development-only user when it is
+no longer needed.
+
+## User Domain
+
+The user model is organized around authentication accounts plus role-specific profile tables:
+
+```text
+users
+|-- students
+`-- teachers
+```
+
+- `users` stores authentication and account data.
+- `students` stores student-specific information.
+- `teachers` stores teacher-specific information.
+- Administrators are represented only by `users` plus the `ADMINISTRATOR` role.
+
+Authorization roles are handled through `roles` and `role_user`.
+
+Academic course offerings reference teachers through `course_offerings.teacher_id -> teachers.id`, not directly through `users.id`.
 
 ## Learning Laravel
 

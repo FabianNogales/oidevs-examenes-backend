@@ -6,7 +6,6 @@ use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
-use App\Models\User;
 
 class StudentPanelDevSeeder extends Seeder
 {
@@ -27,7 +26,10 @@ class StudentPanelDevSeeder extends Seeder
 
         $teacherId = DB::table('teachers')->insertGetId([
             'user_id' => $teacherUserId,
-            'employee_code' => 'DEV-DOC-01',
+            'institutional_code' => 'DEV-DOC-01',
+            'identity_number' => 'DEV-CI-DOC-01',
+            'first_names' => 'Docente',
+            'last_names' => 'Dev Prueba',
             'status' => 'ACTIVE',
             'created_at' => now(),
             'updated_at' => now(),
@@ -101,7 +103,6 @@ class StudentPanelDevSeeder extends Seeder
 
         // Examen 1: Disponible AHORA
         $examId1 = DB::table('exams')->insertGetId([
-            'id'                 => 2,
             'course_offering_id' => $offeringId1,
             'room_id'            => $roomId,
             'name'               => '[DEV-TEST] Examen Parcial de Prueba',
@@ -117,7 +118,6 @@ class StudentPanelDevSeeder extends Seeder
 
         // Examen 2: Fuera del rango de 24h
         $examId2 = DB::table('exams')->insertGetId([
-            'id'                 => 3,
             'course_offering_id' => $offeringId2,
             'room_id'            => $roomId,
             'name'               => '[DEV-TEST] Examen Final',
@@ -191,24 +191,38 @@ class StudentPanelDevSeeder extends Seeder
     }
 
     private function assignRoleIfExists(int $userId, string $roleName): void
-    {
-        $role = DB::table('roles')->where('name', $roleName)->first();
-        if ($role) {
-            DB::table('model_has_roles')->insertOrIgnore([
-                'role_id' => $role->id,
-                'model_type' => User::class,
-                'model_id' => $userId,
-            ]);
-        }
+{
+    // Buscar el rol o crearlo si no existe para entorno de desarrollo
+    $roleId = DB::table('roles')->where('name', $roleName)->value('id');
+
+    if (! $roleId) {
+        $roleId = DB::table('roles')->insertGetId([
+            'name'        => $roleName,
+            'description' => "Rol de {$roleName} para entorno de pruebas",
+            'status'      => 'ACTIVE',
+            'created_at'  => now(),
+            'updated_at'  => now(),
+        ]);
     }
+
+    DB::table('role_user')->insertOrIgnore([
+        'role_id'     => $roleId,
+        'user_id'     => $userId,
+        'assigned_at' => now(),
+        'status'      => 'ACTIVE',
+    ]);
+}
 
     private function cleanPreviousRun(): void
     {
         $devStudentIds = DB::table('students')->where('sis_code', 'like', 'DEV%')->pluck('id');
-        $devTeacherIds = DB::table('teachers')->where('employee_code', 'like', 'DEV-%')->pluck('id');
-        $devUserIds = DB::table('students')->where('sis_code', 'like', 'DEV%')->pluck('user_id')
-            ->merge(DB::table('teachers')->where('employee_code', 'like', 'DEV-%')->pluck('user_id'))
-            ->merge(DB::table('users')->where('email', 'like', '%.dev%@test.local')->pluck('id'))
+        $devTeacherIds = DB::table('teachers')->where('institutional_code', 'like', 'DEV-%')->pluck('id');
+        
+        $devUserIds = DB::table('users')
+            ->where('email', 'like', '%.dev%@test.local')
+            ->orWhereIn('id', DB::table('students')->whereIn('id', $devStudentIds)->pluck('user_id'))
+            ->orWhereIn('id', DB::table('teachers')->whereIn('id', $devTeacherIds)->pluck('user_id'))
+            ->pluck('id')
             ->unique();
 
         $devExamIds = DB::table('exams')->where('name', 'like', '[DEV-TEST]%')->pluck('id');
@@ -220,7 +234,7 @@ class StudentPanelDevSeeder extends Seeder
             DB::table('exam_eligibilities')->whereIn('exam_id', $devExamIds)->delete();
         }
 
-        DB::table('model_has_roles')->whereIn('model_id', $devUserIds)->where('model_type', User::class)->delete();
+        DB::table('role_user')->whereIn('user_id', $devUserIds)->delete();
         DB::table('student_qr_tokens')->whereIn('student_id', $devStudentIds)->delete();
         DB::table('enrollments')->whereIn('student_id', $devStudentIds)->delete();
 
