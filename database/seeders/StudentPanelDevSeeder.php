@@ -191,61 +191,129 @@ class StudentPanelDevSeeder extends Seeder
     }
 
     private function assignRoleIfExists(int $userId, string $roleName): void
-{
-    // Buscar el rol o crearlo si no existe para entorno de desarrollo
-    $roleId = DB::table('roles')->where('name', $roleName)->value('id');
+    {
+        // Buscar el rol o crearlo si no existe para entorno de desarrollo
+        $roleId = DB::table('roles')->where('name', $roleName)->value('id');
 
-    if (! $roleId) {
-        $roleId = DB::table('roles')->insertGetId([
-            'name'        => $roleName,
-            'description' => "Rol de {$roleName} para entorno de pruebas",
+        if (! $roleId) {
+            $roleId = DB::table('roles')->insertGetId([
+                'name'        => $roleName,
+                'description' => "Rol de {$roleName} para entorno de pruebas",
+                'status'      => 'ACTIVE',
+                'created_at'  => now(),
+                'updated_at'  => now(),
+            ]);
+        }
+
+        DB::table('role_user')->insertOrIgnore([
+            'role_id'     => $roleId,
+            'user_id'     => $userId,
+            'assigned_at' => now(),
             'status'      => 'ACTIVE',
-            'created_at'  => now(),
-            'updated_at'  => now(),
         ]);
     }
 
-    DB::table('role_user')->insertOrIgnore([
-        'role_id'     => $roleId,
-        'user_id'     => $userId,
-        'assigned_at' => now(),
-        'status'      => 'ACTIVE',
-    ]);
-}
-
     private function cleanPreviousRun(): void
     {
-        $devStudentIds = DB::table('students')->where('sis_code', 'like', 'DEV%')->pluck('id');
-        $devTeacherIds = DB::table('teachers')->where('institutional_code', 'like', 'DEV-%')->pluck('id');
-        
-        $devUserIds = DB::table('users')
-            ->where('email', 'like', '%.dev%@test.local')
-            ->orWhereIn('id', DB::table('students')->whereIn('id', $devStudentIds)->pluck('user_id'))
-            ->orWhereIn('id', DB::table('teachers')->whereIn('id', $devTeacherIds)->pluck('user_id'))
-            ->pluck('id')
-            ->unique();
+        DB::transaction(function () {
+            // 1. Obtener IDs de Docentes DEV
+            $devTeacherIds = DB::table('teachers')
+                ->where('institutional_code', 'like', 'DEV-%')
+                ->orWhere('identity_number', 'like', 'DEV-%')
+                ->pluck('id')
+                ->toArray();
 
-        $devExamIds = DB::table('exams')->where('name', 'like', '[DEV-TEST]%')->pluck('id');
-        $devOfferingIds = DB::table('course_offerings')
-            ->whereIn('id', DB::table('exams')->where('name', 'like', '[DEV-TEST]%')->pluck('course_offering_id'))
-            ->pluck('id');
+            // 2. Obtener IDs de Exámenes DEV
+            $devExamIds = DB::table('exams')
+                ->where('name', 'like', '[DEV-TEST]%')
+                ->pluck('id')
+                ->toArray();
 
-        if (DB::getSchemaBuilder()->hasTable('exam_eligibilities')) {
-            DB::table('exam_eligibilities')->whereIn('exam_id', $devExamIds)->delete();
-        }
+            // 3. Obtener IDs de Ofertas DEV (asociadas a exámenes DEV o al docente DEV)
+            $devOfferingIds = DB::table('course_offerings')
+                ->whereIn('id', function ($query) {
+                    $query->select('course_offering_id')
+                        ->from('exams')
+                        ->where('name', 'like', '[DEV-TEST]%');
+                })
+                ->orWhereIn('teacher_id', $devTeacherIds)
+                ->pluck('id')
+                ->toArray();
 
-        DB::table('role_user')->whereIn('user_id', $devUserIds)->delete();
-        DB::table('student_qr_tokens')->whereIn('student_id', $devStudentIds)->delete();
-        DB::table('enrollments')->whereIn('student_id', $devStudentIds)->delete();
+            // 4. Obtener IDs de Estudiantes DEV (por sis_code, CI, o inscritos en las ofertas DEV)
+            $devStudentIds = DB::table('students')
+                ->where('sis_code', 'like', 'DEV%')
+                ->orWhere('identity_number', 'like', 'DEV%')
+                ->orWhereIn('id', function ($query) use ($devOfferingIds) {
+                    $query->select('student_id')
+                        ->from('enrollments')
+                        ->whereIn('course_offering_id', $devOfferingIds);
+                })
+                ->pluck('id')
+                ->toArray();
 
-        DB::table('exams')->whereIn('id', $devExamIds)->delete();
-        DB::table('course_offerings')->whereIn('id', $devOfferingIds)->delete();
-        DB::table('teachers')->whereIn('id', $devTeacherIds)->delete();
-        DB::table('students')->whereIn('id', $devStudentIds)->delete();
-        DB::table('users')->whereIn('id', $devUserIds)->delete();
-        DB::table('rooms')->where('code', 'like', 'DEV-%')->delete();
-        DB::table('subjects')->where('code', 'like', 'DEV-%')->delete();
-        DB::table('academic_terms')->where('name', 'like', '[DEV-TEST]%')->delete();
-        DB::table('careers')->where('code', 'like', 'DEV-%')->delete();
+            // 5. Obtener IDs de Usuarios DEV asociados a estudiantes, docentes o email DEV
+            $studentUserIds = DB::table('students')->whereIn('id', $devStudentIds)->pluck('user_id')->toArray();
+            $teacherUserIds = DB::table('teachers')->whereIn('id', $devTeacherIds)->pluck('user_id')->toArray();
+
+            $devUserIds = DB::table('users')
+                ->where('email', 'like', '%.dev%@test.local')
+                ->orWhere('email', 'docente.dev@test.local')
+                ->orWhereIn('id', array_merge($studentUserIds, $teacherUserIds))
+                ->pluck('id')
+                ->unique()
+                ->toArray();
+
+            // --- ELIMINACIÓN EN ORDEN DE RESTRICCIONES FK ---
+
+            if (DB::getSchemaBuilder()->hasTable('exam_eligibilities') && !empty($devExamIds)) {
+                DB::table('exam_eligibilities')->whereIn('exam_id', $devExamIds)->delete();
+            }
+
+            if (!empty($devUserIds)) {
+                DB::table('role_user')->whereIn('user_id', $devUserIds)->delete();
+            }
+
+            if (!empty($devStudentIds)) {
+                DB::table('student_qr_tokens')->whereIn('student_id', $devStudentIds)->delete();
+            }
+
+            // Eliminar inscripciones vinculadas por estudiante O por oferta académica DEV
+            DB::table('enrollments')
+                ->where(function ($query) use ($devStudentIds, $devOfferingIds) {
+                    if (!empty($devStudentIds)) {
+                        $query->whereIn('student_id', $devStudentIds);
+                    }
+                    if (!empty($devOfferingIds)) {
+                        $query->orWhereIn('course_offering_id', $devOfferingIds);
+                    }
+                })
+                ->delete();
+
+            if (!empty($devExamIds)) {
+                DB::table('exams')->whereIn('id', $devExamIds)->delete();
+            }
+
+            if (!empty($devOfferingIds)) {
+                DB::table('course_offerings')->whereIn('id', $devOfferingIds)->delete();
+            }
+
+            if (!empty($devTeacherIds)) {
+                DB::table('teachers')->whereIn('id', $devTeacherIds)->delete();
+            }
+
+            if (!empty($devStudentIds)) {
+                DB::table('students')->whereIn('id', $devStudentIds)->delete();
+            }
+
+            if (!empty($devUserIds)) {
+                DB::table('users')->whereIn('id', $devUserIds)->delete();
+            }
+
+            DB::table('rooms')->where('code', 'like', 'DEV-%')->delete();
+            DB::table('subjects')->where('code', 'like', 'DEV-%')->delete();
+            DB::table('academic_terms')->where('name', 'like', '[DEV-TEST]%')->delete();
+            DB::table('careers')->where('code', 'like', 'DEV-%')->delete();
+        });
     }
 }

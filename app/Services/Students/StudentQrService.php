@@ -17,10 +17,17 @@ use Exception;
 class StudentQrService
 {
     /**
+     * Zona horaria oficial del sistema de exámenes.
+     */
+    private const TIMEZONE = 'America/La_Paz';
+
+    /**
      * Obtiene los exámenes disponibles para el estudiante junto con su QR (si está en ventana de 24h).
      */
     public function getExamsForStudent(int $studentId): Collection
     {
+        $now = Carbon::now(self::TIMEZONE);
+
         return Exam::with(['courseOffering.subject'])
             ->where('status', 'ACTIVE')
             ->whereHas('courseOffering.enrollments', function ($query) use ($studentId) {
@@ -31,16 +38,17 @@ class StudentQrService
                     });
             })
             ->get()
-            ->map(function ($exam) use ($studentId) {
+            ->map(function ($exam) use ($studentId, $now) {
                 $examDateStr = $exam->exam_date instanceof Carbon 
                     ? $exam->exam_date->format('Y-m-d') 
                     : substr((string)$exam->exam_date, 0, 10);
 
-                $examStart = Carbon::parse("{$examDateStr} {$exam->start_time}");
+                // Forzar la interpretación de la fecha/hora en la zona horaria oficial (America/La_Paz)
+                $examStart = Carbon::parse("{$examDateStr} {$exam->start_time}", self::TIMEZONE);
                 $examEnd   = $examStart->copy()->addMinutes($exam->duration_minutes);
                 
-                $isAvailable = now()->gte($examStart->copy()->subHours(24)) 
-                    && now()->lte($examEnd);
+                $isAvailable = $now->gte($examStart->copy()->subHours(24)) 
+                    && $now->lte($examEnd);
 
                 $qrData = null;
                 if ($isAvailable) {
@@ -80,14 +88,14 @@ class StudentQrService
             })
             ->findOrFail($examId);
 
-        // 2. Validar ventana de tiempo (24h previas hasta fin del examen)
+        // 2. Validar ventana de tiempo (24h previas hasta fin del examen) en America/La_Paz
         $examDateStr = $exam->exam_date instanceof Carbon 
             ? $exam->exam_date->format('Y-m-d') 
             : substr((string)$exam->exam_date, 0, 10);
 
-        $examStart     = Carbon::parse("{$examDateStr} {$exam->start_time}");
+        $examStart     = Carbon::parse("{$examDateStr} {$exam->start_time}", self::TIMEZONE);
         $examEnd       = $examStart->copy()->addMinutes($exam->duration_minutes);
-        $now           = now();
+        $now           = Carbon::now(self::TIMEZONE);
         $availableFrom = $examStart->copy()->subHours(24);
 
         if ($now->lt($availableFrom)) {
@@ -121,7 +129,7 @@ class StudentQrService
             ]);
         }
 
-        // 4. Generar JWT Estándar HS256 (3 partes)
+        // 4. Generar JWT Estándar HS256 (3 partes) con timestamp Unix
         $expTimestamp = $examEnd->timestamp;
         $signedToken  = $this->generateStandardJwt($studentId, $examId, $tokenValue, $expTimestamp);
 
