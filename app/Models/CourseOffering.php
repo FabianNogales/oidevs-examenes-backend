@@ -14,7 +14,7 @@ class CourseOffering extends Model
     protected $fillable = [
         'subject_id',
         'academic_term_id',
-        'teacher_user_id',
+        'teacher_id',
         'status',
     ];
 
@@ -30,7 +30,7 @@ class CourseOffering extends Model
 
     public function teacher(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'teacher_user_id');
+        return $this->belongsTo(Teacher::class, 'teacher_id');
     }
 
     public function exams(): HasMany

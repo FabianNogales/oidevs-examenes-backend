@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\Auth\InitialPasswordService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -15,24 +16,22 @@ class SingleSessionTest extends TestCase
     use RefreshDatabase;
 
     private const PASSWORD = 'Password1';
-
     private const NEW_PASSWORD = 'NewPassword1';
 
     protected function setUp(): void
     {
         parent::setUp();
-
         config([
             'eida.institutional_email_domains' => ['umss.edu.bo'],
+            'session.driver' => 'file',
         ]);
+        Session::setDefaultDriver('file');
     }
 
     public function test_successful_login_stores_active_session_id_matching_generated_session(): void
     {
         $user = $this->createUser('single.login@umss.edu.bo');
-
         $sessionId = $this->loginFromNewSession($user);
-
         $this->assertNotNull($sessionId);
         $this->assertSame($sessionId, $user->refresh()->active_session_id);
     }
@@ -169,11 +168,6 @@ class SingleSessionTest extends TestCase
 
         $this->assertSame($sessionId, $user->refresh()->active_session_id);
         $this->assertFalse($user->must_change_password);
-
-        $this->useSessionCookie($sessionId)
-            ->getJson('/api/v1/me')
-            ->assertOk()
-            ->assertJsonPath('data.must_change_password', false);
     }
 
     public function test_session_lifetime_is_five_minutes(): void

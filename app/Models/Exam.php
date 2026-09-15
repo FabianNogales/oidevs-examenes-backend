@@ -10,21 +10,7 @@ class Exam extends Model
 {
     use HasFactory;
 
-    protected $fillable = [
-        'course_offering_id',
-        'room_id',
-        'name',
-        'exam_date',
-        'start_time',
-        'duration_minutes',
-        'rules',
-        'status',
-        'created_by',
-    ];
-
-    protected $casts = [
-        'exam_date' => 'date',
-    ];
+    protected $guarded = [];
 
     public function courseOffering(): BelongsTo
     {
