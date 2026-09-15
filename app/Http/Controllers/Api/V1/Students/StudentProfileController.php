@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Students\UpdateProfilePhotoRequest;
 use App\Http\Resources\Students\StudentProfileResource;
 use App\Services\Students\StudentProfileService;
-use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Exception;
@@ -20,8 +19,12 @@ class StudentProfileController extends Controller
     public function show(Request $request): JsonResponse
     {
         try {
-            // Usa el usuario autenticado o toma el primero de la BD para pruebas
-            $user = $request->user() ?? User::firstOrFail();
+            $user = $request->user();
+
+            if (! $user) {
+                return response()->json(['message' => 'Usuario no autenticado.'], 401);
+            }
+
             $student = $this->profileService->getProfileForUser($user);
 
             return response()->json([
@@ -36,8 +39,12 @@ class StudentProfileController extends Controller
     public function updatePhoto(UpdateProfilePhotoRequest $request): JsonResponse
     {
         try {
-            $user = $request->user() ?? User::firstOrFail();
-            
+            $user = $request->user();
+
+            if (! $user) {
+                return response()->json(['message' => 'Usuario no autenticado.'], 401);
+            }
+
             $student = $this->profileService->updateProfilePhoto(
                 $user,
                 $request->file('photo'),

@@ -14,9 +14,14 @@ Route::get('health', HealthCheckController::class)->name('health');
 // HU02 Auth: devuelve usuario, roles y estado de primer acceso de la sesion actual.
 Route::middleware(['auth:sanctum', 'session.current'])->get('me', CurrentUserController::class)->name('me');
 
-// Rutas de Estudiantes (HU-11 y Perfil)
-Route::middleware('auth:sanctum')->group(function () {
-    // Rutas de Perfil del Estudiante
+// Rutas de Estudiantes (HU-10 Perfil y HU-11 Exámenes/QR)
+Route::middleware([
+    'auth:sanctum',
+    'session.current',
+    'password.changed',
+    'role:'.RoleName::ESTUDIANTE->value,
+])->group(function () {
+    // Rutas de Perfil del Estudiante (HU-10)
     Route::get('/students/profile', [StudentProfileController::class, 'show']);
     Route::post('/students/profile/photo', [StudentProfileController::class, 'updatePhoto']);
 
