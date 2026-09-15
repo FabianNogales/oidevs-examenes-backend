@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Route;
 Route::get('health', HealthCheckController::class)->name('health');
 
 // Autenticación genérica
-Route::prefix('auth')->middleware('auth:sanctum')->group(function () {
+Route::prefix('auth')->middleware(['auth:sanctum', 'session.current'])->group(function () {
     Route::post('/logout', [AuthController::class, 'revokeSessionToken']);
 });
 
