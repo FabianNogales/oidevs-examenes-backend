@@ -19,6 +19,7 @@ class StoreExamRequest extends FormRequest
             'start_time' => ['required', 'date_format:H:i:s'],
             'duration_minutes' => ['required', 'integer', 'gt:0'],
             'room_id' => ['required', 'integer', 'exists:rooms,id'],
+            'evaluation_type' => ['required', 'string', 'in:partial,final,makeup'],
             'rules' => ['nullable', 'string']
         ];
     }

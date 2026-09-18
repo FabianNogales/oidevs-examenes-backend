@@ -26,6 +26,7 @@ class ExamSchedulingController extends Controller
         $exam = Exam::create([
             'course_offering_id' => $courseOffering->id,
             'room_id' => $request->validated('room_id'),
+            'evaluation_type' => $request->validated('evaluation_type'),
             'name' => $request->validated('name'),
             'exam_date' => $request->validated('exam_date'),
             'start_time' => $request->validated('start_time'),
