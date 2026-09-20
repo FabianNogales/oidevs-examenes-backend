@@ -2,9 +2,12 @@
 
 namespace App\Services\Students;
 
+use App\Enums\RoleName;
 use App\Models\User;
 use App\Models\Student;
+use App\Models\Role;
 use App\Models\Career;
+use App\Services\Auth\InitialPasswordService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 
@@ -21,6 +24,13 @@ class StudentCsvImportService
         'career',
         'profile_photo',
     ];
+
+    private InitialPasswordService $initialPasswordService;
+
+    public function __construct(
+    InitialPasswordService $initialPasswordService){
+        $this->initialPasswordService = $initialPasswordService;
+    }
 
     public function validate(UploadedFile $file): array
     {
@@ -266,39 +276,66 @@ public function import(UploadedFile $file): array
     $validation = $this->validate($file);
 
     $imported = 0;
+    $failed = 0;
 
     foreach ($validation['rows'] as $row) {
-    if (! $row['valid']) {
-        continue;
+        if (! $row['valid']) {
+            continue;
+        }
+
+        try {
+            DB::transaction(function () use ($row) {
+                $data = $row['data'];
+
+                $career = Career::where(
+                    'name',
+                    $data['career']
+                )->firstOrFail();
+
+                $studentRole = Role::where(
+                    'name',
+                    RoleName::ESTUDIANTE->value
+                )->firstOrFail();
+
+                $user = User::forceCreate([
+                    'email' => $data['email'],
+                    'password' => 'temporary',
+                    'status' => 'ACTIVE',
+                    'profile_photo' => $data['profile_photo'],
+                ]);
+
+                $this->initialPasswordService->initialize(
+                    $user,
+                    $data['identity_number']
+                );
+
+                $user->roles()->attach(
+                    $studentRole->id,
+                    [
+                        'assigned_at' => now(),
+                        'status' => 'ACTIVE',
+                    ]
+                );
+
+                Student::create([
+                    'user_id' => $user->id,
+                    'sis_code' => $data['sis_code'],
+                    'identity_number' => $data['identity_number'],
+                    'first_names' => $data['first_names'],
+                    'last_names' => $data['last_names'],
+                    'career_id' => $career->id,
+                    'status' => 'ACTIVE',
+                ]);
+            });
+
+            $imported++;
+        } catch (\Throwable $exception) {
+            $failed++;
+        }
     }
 
-    DB::transaction(function () use ($row, &$imported) {
-        $data = $row['data'];
-
-        $career = Career::where('name', $data['career'])->first();
-
-        $user = User::forceCreate([
-            'email' => $data['email'],
-            'password' => 'Password1',
-            'status' => 'ACTIVE',
-            'profile_photo' => $data['profile_photo'],
-        ]);
-
-        Student::create([
-            'user_id' => $user->id,
-            'sis_code' => $data['sis_code'],
-            'identity_number' => $data['identity_number'],
-            'first_names' => $data['first_names'],
-            'last_names' => $data['last_names'],
-            'career_id' => $career->id,
-            'status' => 'ACTIVE',
-        ]);
-
-        $imported++;
-    });
-}
-
     $validation['imported_rows'] = $imported;
+    $validation['failed_rows'] = $failed;
 
     return $validation;
 }
