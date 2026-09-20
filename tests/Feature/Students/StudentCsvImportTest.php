@@ -5,6 +5,9 @@ namespace Tests\Feature;
 use App\Models\Student;
 use App\Models\User;
 use App\Models\Career;
+use App\Enums\RoleName;
+use App\Enums\UserStatus;
+use App\Models\Role;
 use App\Services\Students\StudentCsvImportService;
 use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
@@ -25,7 +28,7 @@ class StudentCsvImportTest extends TestCase
             $csv
         );
 
-        $service = new StudentCsvImportService();
+        $service = app(StudentCsvImportService::class);
 
         $result = $service->validate($file);
 
@@ -48,7 +51,7 @@ class StudentCsvImportTest extends TestCase
         $csv
     );
 
-    $service = new StudentCsvImportService();
+    $service = app(StudentCsvImportService::class);
 
     $result = $service->validate($file);
 
@@ -73,7 +76,7 @@ public function test_detects_empty_names_and_last_names(): void
         $csv
     );
 
-    $service = new StudentCsvImportService();
+    $service = app(StudentCsvImportService::class);
 
     $result = $service->validate($file);
 
@@ -102,7 +105,7 @@ public function test_detects_invalid_email(): void
         $csv
     );
 
-    $service = new StudentCsvImportService();
+    $service = app(StudentCsvImportService::class);
 
     $result = $service->validate($file);
 
@@ -125,7 +128,7 @@ public function test_detects_non_institutional_email(): void
         $csv
     );
 
-    $service = new StudentCsvImportService();
+    $service = app(StudentCsvImportService::class);
 
     $result = $service->validate($file);
 
@@ -148,7 +151,7 @@ public function test_detects_non_existing_career(): void
         $csv
     );
 
-    $service = new StudentCsvImportService();
+    $service = app(StudentCsvImportService::class);
 
     $result = $service->validate($file);
 
@@ -171,7 +174,7 @@ public function test_detects_empty_profile_photo(): void
         $csv
     );
 
-    $service = new StudentCsvImportService();
+    $service = app(StudentCsvImportService::class);
 
     $result = $service->validate($file);
 
@@ -201,7 +204,7 @@ public function test_detects_duplicate_sis_in_csv(): void
         $csv
     );
 
-    $service = new StudentCsvImportService();
+    $service = app(StudentCsvImportService::class);
 
     $result = $service->validate($file);
 
@@ -232,7 +235,7 @@ public function test_detects_duplicate_identity_number_in_csv(): void
         $csv
     );
 
-    $service = new StudentCsvImportService();
+    $service = app(StudentCsvImportService::class);
 
     $result = $service->validate($file);
 
@@ -263,7 +266,7 @@ public function test_detects_duplicate_email_in_csv(): void
         $csv
     );
 
-    $service = new StudentCsvImportService();
+    $service = app(StudentCsvImportService::class);
 
     $result = $service->validate($file);
 
@@ -309,7 +312,7 @@ public function test_detects_existing_sis_in_database(): void
         $csv
     );
 
-    $service = new StudentCsvImportService();
+    $service = app(StudentCsvImportService::class);
 
     $result = $service->validate($file);
 
@@ -355,7 +358,7 @@ public function test_detects_existing_identity_number_in_database(): void
         $csv
     );
 
-    $service = new StudentCsvImportService();
+    $service = app(StudentCsvImportService::class);
 
     $result = $service->validate($file);
 
@@ -391,7 +394,7 @@ public function test_detects_existing_email_in_database(): void
         $csv
     );
 
-    $service = new StudentCsvImportService();
+    $service = app(StudentCsvImportService::class);
 
     $result = $service->validate($file);
 
@@ -411,6 +414,12 @@ public function test_imports_valid_student(): void
         'status' => 'ACTIVE',
     ]);
 
+    Role::create([
+    'name' => RoleName::ESTUDIANTE->value,
+    'description' => 'Estudiante',
+    'status' => UserStatus::ACTIVE->value,
+    ]);
+
     $csv = implode("\n", [
         'sis_code,identity_number,first_names,last_names,email,career,profile_photo',
         '20260001,1234567,Juan,Perez,juan.perez@umss.edu.bo,Sistemas,20260001.jpg',
@@ -421,7 +430,7 @@ public function test_imports_valid_student(): void
         $csv
     );
 
-    $service = new StudentCsvImportService();
+    $service = app(StudentCsvImportService::class);
 
     $result = $service->import($file);
 
@@ -451,6 +460,12 @@ public function test_imports_multiple_valid_students(): void
         'status' => 'ACTIVE',
     ]);
 
+    Role::create([
+    'name' => RoleName::ESTUDIANTE->value,
+    'description' => 'Estudiante',
+    'status' => UserStatus::ACTIVE->value,
+    ]);
+
     $csv = implode("\n", [
         'sis_code,identity_number,first_names,last_names,email,career,profile_photo',
         '20260001,1234567,Juan,Perez,juan.perez@umss.edu.bo,Sistemas,20260001.jpg',
@@ -462,7 +477,7 @@ public function test_imports_multiple_valid_students(): void
         $csv
     );
 
-    $service = new StudentCsvImportService();
+    $service = app(StudentCsvImportService::class);
 
     $result = $service->import($file);
 
@@ -495,6 +510,12 @@ public function test_imports_valid_rows_and_skips_invalid_rows(): void
         'status' => 'ACTIVE',
     ]);
 
+    Role::create([
+    'name' => RoleName::ESTUDIANTE->value,
+    'description' => 'Estudiante',
+    'status' => UserStatus::ACTIVE->value,
+    ]);
+    
     $csv = implode("\n", [
         'sis_code,identity_number,first_names,last_names,email,career,profile_photo',
         '20260001,1234567,Juan,Perez,juan.perez@umss.edu.bo,Sistemas,20260001.jpg',
@@ -506,7 +527,7 @@ public function test_imports_valid_rows_and_skips_invalid_rows(): void
         $csv
     );
 
-    $service = new StudentCsvImportService();
+    $service = app(StudentCsvImportService::class);
 
     $result = $service->import($file);
 

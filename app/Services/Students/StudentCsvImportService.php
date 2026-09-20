@@ -330,7 +330,7 @@ public function import(UploadedFile $file): array
 
             $imported++;
         } catch (\Throwable $exception) {
-            $failed++;
+            throw $exception;
         }
     }
 
