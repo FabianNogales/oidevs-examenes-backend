@@ -24,6 +24,9 @@ class StudentQrService
     /**
      * Obtiene los exámenes disponibles para el estudiante junto con su QR (si está en ventana de 24h).
      */
+    /**
+     * Obtiene los exámenes disponibles para el estudiante junto con su QR (si está en ventana de 24h).
+     */
     public function getExamsForStudent(int $studentId): Collection
     {
         $now = Carbon::now(self::TIMEZONE);
@@ -44,11 +47,20 @@ class StudentQrService
                     : substr((string)$exam->exam_date, 0, 10);
 
                 // Forzar la interpretación de la fecha/hora en la zona horaria oficial (America/La_Paz)
-                $examStart = Carbon::parse("{$examDateStr} {$exam->start_time}", self::TIMEZONE);
-                $examEnd   = $examStart->copy()->addMinutes($exam->duration_minutes);
+                $examStart     = Carbon::parse("{$examDateStr} {$exam->start_time}", self::TIMEZONE);
+                $availableFrom = $examStart->copy()->subHours(24);
+                $examEnd       = $examStart->copy()->addMinutes($exam->duration_minutes);
                 
-                $isAvailable = $now->gte($examStart->copy()->subHours(24)) 
-                    && $now->lte($examEnd);
+                // Determinar qr_status según reglas requeridas
+                if ($now->lt($availableFrom)) {
+                    $qrStatus = 'UPCOMING';
+                } elseif ($now->lte($examEnd)) {
+                    $qrStatus = 'AVAILABLE';
+                } else {
+                    $qrStatus = 'FINISHED';
+                }
+
+                $isAvailable = ($qrStatus === 'AVAILABLE');
 
                 $qrData = null;
                 if ($isAvailable) {
@@ -64,7 +76,8 @@ class StudentQrService
                     'subject'         => $exam->courseOffering->subject->name ?? 'N/A',
                     'exam_title'      => $exam->name,
                     'scheduled_at'    => $examStart->toDateTimeString(),
-                    'is_qr_available' => $isAvailable,
+                    'qr_status'       => $qrStatus,       // UPCOMING | AVAILABLE | FINISHED
+                    'is_qr_available' => $isAvailable,  // Retrocompatibilidad
                     'qr_code_base64'  => $qrData['qr_code_base64'] ?? null,
                     'token'           => $qrData['token'] ?? null,
                 ];
