@@ -89,7 +89,7 @@ class ExamSchedulingTest extends TestCase
         ]);
 
         $response->assertStatus(422)
-                 ->assertJsonValidationErrors(['name', 'exam_date', 'duration_minutes', 'room_id']);
+                 ->assertJsonValidationErrors(['name', 'exam_date', 'duration_minutes', 'room_id', 'evaluation_type']);
     }
 
     public function test_it_prevents_idor_when_scheduling_exam(): void
@@ -103,6 +103,7 @@ class ExamSchedulingTest extends TestCase
             'start_time' => '10:00:00',
             'duration_minutes' => 90,
             'room_id' => $this->roomId,
+            'evaluation_type' => 'partial',
             'rules' => 'Standard rules apply.'
         ]);
 
@@ -123,6 +124,7 @@ class ExamSchedulingTest extends TestCase
             'start_time' => '10:00:00',
             'duration_minutes' => 90,
             'room_id' => $this->roomId,
+            'evaluation_type' => 'partial',
             'rules' => 'Standard rules apply.'
         ]);
 
@@ -135,6 +137,7 @@ class ExamSchedulingTest extends TestCase
             'name' => 'First Midterm',
             'exam_date' => $futureDate,
             'duration_minutes' => 90,
+            'evaluation_type' => 'partial',
             'rules' => 'Standard rules apply.',
             'status' => 'SCHEDULED'
         ]);

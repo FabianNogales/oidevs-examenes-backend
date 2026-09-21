@@ -12,6 +12,11 @@ use App\Http\Controllers\Api\V1\Students\StudentProfileController;
 use App\Http\Controllers\Api\V1\Students\StudentQrController;
 use App\Http\Controllers\Api\V1\TeacherDashboard\TeacherDashboardController;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\V1\Rooms\RoomController;
+
+Route::middleware(['auth:sanctum', 'session.current'])->group(function () {
+    Route::get('/rooms', [RoomController::class, 'index']);
+});
 
 // Health Check
 Route::get('health', HealthCheckController::class)->name('health');

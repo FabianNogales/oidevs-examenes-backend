@@ -114,6 +114,7 @@ class TeacherDashboardTest extends TestCase
         DB::table('exams')->insert([
             'course_offering_id' => $courseOfferingId,
             'room_id' => 1,
+            'evaluation_type' => 'partial',
             'name' => 'First Midterm',
             'exam_date' => now()->addDays(5)->format('Y-m-d'),
             'start_time' => '10:00:00',
@@ -131,6 +132,7 @@ class TeacherDashboardTest extends TestCase
         $response->assertStatus(200)
                  ->assertJsonCount(1, 'data')
                  ->assertJsonPath('data.0.name', 'First Midterm')
-                 ->assertJsonPath('data.0.course_offering.subject.code', 'CS101');
+                 ->assertJsonPath('data.0.subject_code', 'CS101')
+                 ->assertJsonPath('data.0.room.code', 'AUD-1');
     }
 }

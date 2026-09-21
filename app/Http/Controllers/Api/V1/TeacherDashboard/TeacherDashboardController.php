@@ -48,17 +48,34 @@ class TeacherDashboardController extends Controller
         $exams = DB::table('exams')
             ->join('course_offerings', 'exams.course_offering_id', '=', 'course_offerings.id')
             ->join('subjects', 'course_offerings.subject_id', '=', 'subjects.id')
+            ->join('rooms', 'exams.room_id', '=', 'rooms.id')
             ->where('course_offerings.teacher_id', $teacher->id)
-            ->select('exams.name', 'subjects.code as subject_code')
+            ->where('exams.exam_date', '>=', now()->toDateString())
+            ->select(
+                'exams.id', 'exams.name', 'exams.exam_date', 'exams.start_time', 
+                'exams.duration_minutes', 'exams.evaluation_type', 'exams.status',
+                'subjects.code as subject_code', 'subjects.name as subject_name',
+                'rooms.id as room_id', 'rooms.code as room_code', 'rooms.name as room_name'
+            )
             ->orderBy('exams.exam_date', 'asc')
             ->orderBy('exams.start_time', 'asc')
             ->get()
             ->map(function($item) {
                 return [
+                    'id' => $item->id,
                     'name' => $item->name,
-                    'course_offering' => [
-                        'subject' => ['code' => $item->subject_code]
-                    ]
+                    'subject_code' => $item->subject_code,
+                    'subject_name' => $item->subject_name,
+                    'exam_date' => $item->exam_date,
+                    'start_time' => $item->start_time,
+                    'duration_minutes' => $item->duration_minutes,
+                    'room' => [
+                        'id' => $item->room_id,
+                        'code' => $item->room_code,
+                        'name' => $item->room_name
+                    ],
+                    'evaluation_type' => $item->evaluation_type,
+                    'status' => $item->status
                 ];
             });
 
