@@ -78,13 +78,7 @@ class EidaDemoSeeder extends Seeder
             'must_change_password' => false,
         ], $roles);
 
-        $career = Career::query()->updateOrCreate(
-            ['code' => 'DEMO-EIDA-SIS'],
-            [
-                'name' => 'DEMO EIDA Ingenieria de Sistemas',
-                'status' => UserStatus::ACTIVE->value,
-            ],
-        );
+        $career = $this->ensureHu05CsvCareer();
 
         $term = $this->ensureAcademicTerm();
 
@@ -296,6 +290,22 @@ class EidaDemoSeeder extends Seeder
         );
 
         return DB::table('academic_terms')->where('name', 'DEMO EIDA 2/2026')->first();
+    }
+
+    private function ensureHu05CsvCareer(): Career
+    {
+        $career = Career::query()->where('code', 'SIS')->first()
+            ?? Career::query()->where('code', 'DEMO-EIDA-SIS')->first()
+            ?? Career::query()->where('name', 'Ingeniería de Sistemas')->first()
+            ?? new Career();
+
+        $career->forceFill([
+            'code' => 'SIS',
+            'name' => 'Ingeniería de Sistemas',
+            'status' => UserStatus::ACTIVE->value,
+        ])->save();
+
+        return $career->refresh();
     }
 
     /**

@@ -61,7 +61,7 @@ Nota: las passwords de perfiles docentes/estudiantes se inicializan con CI usand
 
 | Tipo | Dato |
 | --- | --- |
-| Carrera | DEMO-EIDA-SIS - DEMO EIDA Ingenieria de Sistemas |
+| Carrera | SIS - Ingeniería de Sistemas |
 | Periodo | DEMO EIDA 2/2026 |
 | Materia A | DEMO-EIDA-TIS - DEMO EIDA Taller de Ingenieria de Software |
 | Materia B | DEMO-EIDA-RED - DEMO EIDA Redes de Computadoras |
@@ -69,6 +69,24 @@ Nota: las passwords de perfiles docentes/estudiantes se inicializan con CI usand
 | Aula B | DEMO-EIDA-AULA-B |
 
 `course_offerings.teacher_id` referencia `teachers.id`.
+
+## HU05 Importacion CSV de estudiantes
+
+Carrera valida para CSV:
+
+```text
+Ingeniería de Sistemas
+```
+
+Headers exactos:
+
+```csv
+sis_code,identity_number,first_names,last_names,email,career,profile_photo
+```
+
+`career` debe coincidir exactamente con una carrera existente en BD. HU05 compara contra `careers.name`; no crea carreras automaticamente desde el CSV.
+
+`profile_photo` actualmente debe ser un string no vacio. HU05 no requiere que exista un archivo fisico de imagen.
 
 ## Examenes HU11
 
