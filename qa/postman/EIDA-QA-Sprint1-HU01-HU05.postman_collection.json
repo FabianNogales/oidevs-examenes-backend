@@ -1,0 +1,654 @@
+{
+  "info": {
+    "_postman_id": "a0f994fb-eb25-4995-8534-d51dfda1f2e2",
+    "name": "EIDA - QA Sprint 1 - HU01-HU05",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Artefactos QA RUN-01 derivados de route:list, controladores, Form Requests y contrato CSV. Autenticacion Sanctum mediante cookies. Seleccionar EIDA - QA RUN-01. Ejecutar manualmente por escenario segun README; el orden de carpetas no es un flujo de Collection Runner. Las operaciones de escritura modificaran datos al enviarlas. No se ejecutaron requests durante la preparacion."
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Sin requests adicionales: sincroniza el token cuando Laravel renueva la cookie.",
+          "const rotatedCookie = pm.response.headers.all().find(h => h.key.toLowerCase() === 'set-cookie' && /^XSRF-TOKEN=/.test(h.value));",
+          "if (rotatedCookie) {",
+          "  pm.environment.set('xsrf_token', '');",
+          "  const encoded = rotatedCookie.value.split(';')[0].slice('XSRF-TOKEN='.length);",
+          "  pm.environment.set('xsrf_token', decodeURIComponent(encoded));",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "00 - Auth Setup",
+      "item": [
+        {
+          "name": "GET - CSRF Cookie",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Origin",
+                "value": "{{frontend_url}}",
+                "type": "text"
+              },
+              {
+                "key": "Referer",
+                "value": "{{frontend_url}}/",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/sanctum/csrf-cookie",
+            "description": "Ejecutar antes del login y nuevamente despues de logout. Guarda XSRF-TOKEN decodificado en xsrf_token. Mantener habilitado el cookie jar."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('xsrf_token', '');",
+                  "const setCookie = pm.response.headers.all().find(h => h.key.toLowerCase() === 'set-cookie' && /^XSRF-TOKEN=/.test(h.value));",
+                  "const encodedToken = setCookie ? setCookie.value.split(';')[0].slice('XSRF-TOKEN='.length) : pm.cookies.get('XSRF-TOKEN');",
+                  "pm.test('CSRF Cookie responde 204', function () {",
+                  "  pm.response.to.have.status(204);",
+                  "});",
+                  "pm.test('XSRF-TOKEN disponible y decodificable', function () {",
+                  "  pm.expect(encodedToken).to.be.a('string').and.not.empty;",
+                  "  pm.environment.set('xsrf_token', decodeURIComponent(encodedToken));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET - Current User",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Origin",
+                "value": "{{frontend_url}}",
+                "type": "text"
+              },
+              {
+                "key": "Referer",
+                "value": "{{frontend_url}}/",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/me",
+            "description": "Enviar despues del login. Responde success y data con id, display_name, email, status, must_change_password y roles. Sin sesion: 401."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "HU02 - Login",
+      "item": [
+        {
+          "name": "POST - Login ADMIN",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Origin",
+                "value": "{{frontend_url}}",
+                "type": "text"
+              },
+              {
+                "key": "Referer",
+                "value": "{{frontend_url}}/",
+                "type": "text"
+              },
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrf_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/login",
+            "description": "Caso positivo administrador: HTTP 200 con credenciales validas. Iniciar desde una sesion cerrada y obtener CSRF Cookie antes de enviar.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{admin_email}}\",\n  \"password\": \"{{admin_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST - Login ESTUDIANTE",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Origin",
+                "value": "{{frontend_url}}",
+                "type": "text"
+              },
+              {
+                "key": "Referer",
+                "value": "{{frontend_url}}/",
+                "type": "text"
+              },
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrf_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/login",
+            "description": "Caso positivo estudiante por SIS: HTTP 200 con credenciales validas. Iniciar desde una sesion cerrada y obtener CSRF Cookie antes de enviar.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{student_sis}}\",\n  \"password\": \"{{student_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST - Login FIRST ACCESS",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Origin",
+                "value": "{{frontend_url}}",
+                "type": "text"
+              },
+              {
+                "key": "Referer",
+                "value": "{{frontend_url}}/",
+                "type": "text"
+              },
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrf_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/login",
+            "description": "Primer acceso: HTTP 200 con credenciales validas. Consultar /api/v1/me y verificar data.must_change_password = true. Iniciar desde una sesion cerrada y obtener CSRF Cookie antes de enviar.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{first_access_sis}}\",\n  \"password\": \"{{first_access_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST - Login INACTIVO",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Origin",
+                "value": "{{frontend_url}}",
+                "type": "text"
+              },
+              {
+                "key": "Referer",
+                "value": "{{frontend_url}}/",
+                "type": "text"
+              },
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrf_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/login",
+            "description": "Caso negativo con password correcto: HTTP 422 y errors.identifier indica cuenta inactiva. Iniciar desde una sesion cerrada y obtener CSRF Cookie antes de enviar.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{inactive_sis}}\",\n  \"password\": \"{{inactive_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST - Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Origin",
+                "value": "{{frontend_url}}",
+                "type": "text"
+              },
+              {
+                "key": "Referer",
+                "value": "{{frontend_url}}/",
+                "type": "text"
+              },
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrf_token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/auth/logout",
+            "description": "Ruta API real que cierra la sesion Sanctum actual (200). Existe tambien POST /logout de Fortify. Antes de otro login volver a obtener CSRF Cookie."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "HU03 - Administración",
+      "item": [
+        {
+          "name": "GET - Admin Test",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Origin",
+                "value": "{{frontend_url}}",
+                "type": "text"
+              },
+              {
+                "key": "Referer",
+                "value": "{{frontend_url}}/",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/admin/test",
+            "description": "ADMIN activo con password cambiado: 200 y success=true. Sesion ausente: 401. Rol no administrativo: 403 FORBIDDEN. Primer acceso: 403 PASSWORD_CHANGE_REQUIRED. Tambien cubre control de acceso HU01."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "HU04 - Docentes",
+      "description": "Requiere ADMIN con password cambiado. Para ver, editar o cambiar estado, seleccionar teacher_id del listado o crear un docente QA. Usar un registro de prueba.",
+      "item": [
+        {
+          "name": "GET - Listar docentes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Origin",
+                "value": "{{frontend_url}}",
+                "type": "text"
+              },
+              {
+                "key": "Referer",
+                "value": "{{frontend_url}}/",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/admin/teachers",
+            "description": "Listado paginado en data, links y meta. Query params opcionales reales: page, per_page (1 a 100; predeterminado 15), search."
+          },
+          "response": []
+        },
+        {
+          "name": "GET - Ver docente",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Origin",
+                "value": "{{frontend_url}}",
+                "type": "text"
+              },
+              {
+                "key": "Referer",
+                "value": "{{frontend_url}}/",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/admin/teachers/{{teacher_id}}",
+            "description": "teacher_id corresponde a teachers.id, no a users.id. Respuesta envuelta en data; registro inexistente: 404."
+          },
+          "response": []
+        },
+        {
+          "name": "POST - Crear docente",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Origin",
+                "value": "{{frontend_url}}",
+                "type": "text"
+              },
+              {
+                "key": "Referer",
+                "value": "{{frontend_url}}/",
+                "type": "text"
+              },
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrf_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/admin/teachers",
+            "description": "Datos ficticios RUN-01. institutional_code, identity_number y email deben ser unicos. El dominio umss.edu.bo debe estar permitido en la configuracion. Responde 201 y guarda data.id en teacher_id. No recibe password; el backend inicializa la credencial.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"institutional_code\": \"QA-RUN01-DOC-001\",\n  \"identity_number\": \"99000001\",\n  \"first_names\": \"Docente QA\",\n  \"last_names\": \"Prueba RUN01\",\n  \"email\": \"qa.run01.docente001@umss.edu.bo\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const payload = pm.response.json();",
+                  "  pm.test('Docente creado devuelve data.id', function () {",
+                  "    pm.expect(payload.data.id).to.be.a('number');",
+                  "    pm.environment.set('teacher_id', String(payload.data.id));",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PUT - Editar docente",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Origin",
+                "value": "{{frontend_url}}",
+                "type": "text"
+              },
+              {
+                "key": "Referer",
+                "value": "{{frontend_url}}/",
+                "type": "text"
+              },
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrf_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/admin/teachers/{{teacher_id}}",
+            "description": "PUT permite actualizacion parcial: cada campo enviado es obligatorio y no vacio. Este ejemplo solo cambia nombres. Tambien admite institutional_code, identity_number y email con validacion de unicidad.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"first_names\": \"Docente QA Editado\",\n  \"last_names\": \"Prueba RUN01\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PATCH - Cambiar estado docente",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Origin",
+                "value": "{{frontend_url}}",
+                "type": "text"
+              },
+              {
+                "key": "Referer",
+                "value": "{{frontend_url}}/",
+                "type": "text"
+              },
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrf_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/admin/teachers/{{teacher_id}}/status",
+            "description": "Valores permitidos: ACTIVE e INACTIVE. El ejemplo desactiva al docente y su usuario. Cambiar a ACTIVE para reactivarlo.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"INACTIVE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "HU05 - Importación estudiantes",
+      "description": "Requiere ADMIN con password cambiado. Preview y confirm reciben multipart/form-data con file. Postman genera Content-Type y boundary. No existe intercambio de import_token.",
+      "item": [
+        {
+          "name": "POST - Preview importación",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Origin",
+                "value": "{{frontend_url}}",
+                "type": "text"
+              },
+              {
+                "key": "Referer",
+                "value": "{{frontend_url}}/",
+                "type": "text"
+              },
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrf_token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/admin/students/import/preview",
+            "description": "Seleccionar CSV UTF-8 separado por comas, extension .csv minuscula, maximo 10 MB. Devuelve success, message y data: valid, total_rows, valid_rows, error_rows, errors, rows. Cada fila incluye row, data, valid, errors. HTTP 200 y success=true no garantizan data.valid=true. No crea estudiantes.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Seleccionar manualmente el CSV local. Usar el mismo archivo revisado en preview para confirmar."
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "POST - Confirmar importación",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Origin",
+                "value": "{{frontend_url}}",
+                "type": "text"
+              },
+              {
+                "key": "Referer",
+                "value": "{{frontend_url}}/",
+                "type": "text"
+              },
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrf_token}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/admin/students/import/confirm",
+            "description": "Volver a adjuntar el mismo CSV revisado en preview en el campo file. No enviar JSON, rows ni import_token. Revalida el archivo y persiste filas validas; respuesta data agrega imported_rows y failed_rows. Revisar contadores y errores. Consultar limitaciones reales en README.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Seleccionar manualmente el CSV local. Usar el mismo archivo revisado en preview para confirmar."
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
