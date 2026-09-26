@@ -110,7 +110,12 @@ class StudentCsvImportService
         $rows = [];
 
         while (($data = fgetcsv($handle)) !== false) {
-            if (count($data) === 1 && trim($data[0]) === '') {
+            if (empty(array_filter($data))) {
+                    $invalidRecords[] = [
+                    'sisCode' => null,
+                    'reason' => 'La fila está vacía',
+                    'row' => $rowNumber,
+                ];
                 continue;
             }
 
