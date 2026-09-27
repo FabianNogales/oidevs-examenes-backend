@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Exception;
 
 class AuditLog extends Model
 {
@@ -43,5 +44,16 @@ class AuditLog extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    protected static function booted(): void
+    {
+        static::updating(function ($auditLog) {
+            throw new Exception('Violación de seguridad: Los registros de auditoría son inmutables y no pueden ser modificados.');
+        });
+
+        static::deleting(function ($auditLog) {
+            throw new Exception('Violación de seguridad: Los registros de auditoría son inmutables y no pueden ser eliminados.');
+        });
     }
 }

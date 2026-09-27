@@ -78,6 +78,9 @@ class StudentEnrollmentController extends Controller
                 'entity_type' => 'Enrollment',
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
+                'new_values' => json_encode([
+                    'incorporated_sis_codes' => [$sisCode]
+                ]),
                 'created_at' => now(),
             ]);
 
@@ -124,13 +127,23 @@ class StudentEnrollmentController extends Controller
         
         $studentsToInsert = [];
         $processedSisCodes = []; 
+        $successfulSisCodes = [];
 
         DB::beginTransaction();
         try {
             while (($row = fgetcsv($handle)) !== false) {
                 $rowNum++;
                 
-                if (empty(array_filter($row))) continue;
+                if (empty(array_filter($row))) {
+                    $records[] = [
+                        'row' => $rowNum, 
+                        'sisCode' => null, 
+                        'status' => 'INVALID', 
+                        'reason' => 'La fila está vacía'
+                    ];
+                    $failedCount++;
+                    continue;
+                }
                 
                 $totalProcessed++;
                 $sisCode = $row[$sisCodeIndex] ?? null;
@@ -175,6 +188,7 @@ class StudentEnrollmentController extends Controller
                     'created_at' => now(),
                     'updated_at' => now(),
                 ];
+                $successfulSisCodes[] = $sisCode;
                 $successfulCount++;
             }
 
@@ -187,6 +201,9 @@ class StudentEnrollmentController extends Controller
                     'entity_type' => 'Enrollment',
                     'ip_address' => $request->ip(),
                     'user_agent' => $request->userAgent(),
+                    'new_values' => json_encode([
+                        'incorporated_sis_codes' => $successfulSisCodes
+                    ]),
                     'created_at' => now(),
                 ]);
             }
