@@ -143,4 +143,161 @@ class ExamSchedulingTest extends TestCase
             'status' => 'SCHEDULED'
         ]);
     }
+
+    public function test_scheduling_exam_creates_eligible_records_for_active_enrolled_students(): void
+    {
+        $this->createEnrollmentForStudent('202600001');
+        $this->createEnrollmentForStudent('202600002');
+        $this->createEnrollmentForStudent('202600003');
+
+        Sanctum::actingAs(User::find($this->ownerUserId), ['*']);
+
+        $response = $this->postJson(
+            "/api/v1/course-offerings/{$this->courseOfferingId}/exams",
+            $this->validExamPayload('Eligibility Exam')
+        );
+
+        $response->assertStatus(201);
+
+        $this->assertDatabaseCount('exam_eligibilities', 3);
+        $this->assertSame(
+            3,
+            DB::table('exam_eligibilities')
+                ->where('exam_id', $response->json('data.id'))
+                ->where('status', 'ELIGIBLE')
+                ->count()
+        );
+    }
+
+    public function test_scheduling_exam_does_not_create_eligibility_for_inactive_enrollment(): void
+    {
+        $activeStudentId = $this->createEnrollmentForStudent('202600004');
+        $inactiveEnrollmentStudentId = $this->createEnrollmentForStudent(
+            '202600005',
+            enrollmentStatus: 'INACTIVE'
+        );
+
+        Sanctum::actingAs(User::find($this->ownerUserId), ['*']);
+
+        $response = $this->postJson(
+            "/api/v1/course-offerings/{$this->courseOfferingId}/exams",
+            $this->validExamPayload('Inactive Enrollment Exam')
+        );
+
+        $response->assertStatus(201);
+
+        $this->assertDatabaseHas('exam_eligibilities', [
+            'exam_id' => $response->json('data.id'),
+            'student_id' => $activeStudentId,
+            'status' => 'ELIGIBLE',
+        ]);
+        $this->assertDatabaseMissing('exam_eligibilities', [
+            'exam_id' => $response->json('data.id'),
+            'student_id' => $inactiveEnrollmentStudentId,
+        ]);
+    }
+
+    public function test_scheduling_exam_does_not_create_eligibility_for_inactive_student(): void
+    {
+        $activeStudentId = $this->createEnrollmentForStudent('202600006');
+        $inactiveStudentId = $this->createEnrollmentForStudent(
+            '202600007',
+            studentStatus: 'INACTIVE'
+        );
+
+        Sanctum::actingAs(User::find($this->ownerUserId), ['*']);
+
+        $response = $this->postJson(
+            "/api/v1/course-offerings/{$this->courseOfferingId}/exams",
+            $this->validExamPayload('Inactive Student Exam')
+        );
+
+        $response->assertStatus(201);
+
+        $this->assertDatabaseHas('exam_eligibilities', [
+            'exam_id' => $response->json('data.id'),
+            'student_id' => $activeStudentId,
+            'status' => 'ELIGIBLE',
+        ]);
+        $this->assertDatabaseMissing('exam_eligibilities', [
+            'exam_id' => $response->json('data.id'),
+            'student_id' => $inactiveStudentId,
+        ]);
+    }
+
+    public function test_scheduling_exam_without_enrolled_students_creates_exam_without_eligibilities(): void
+    {
+        Sanctum::actingAs(User::find($this->ownerUserId), ['*']);
+
+        $response = $this->postJson(
+            "/api/v1/course-offerings/{$this->courseOfferingId}/exams",
+            $this->validExamPayload('Empty Offering Exam')
+        );
+
+        $response->assertStatus(201);
+
+        $this->assertDatabaseHas('exams', [
+            'id' => $response->json('data.id'),
+            'name' => 'Empty Offering Exam',
+            'status' => 'SCHEDULED',
+        ]);
+        $this->assertDatabaseMissing('exam_eligibilities', [
+            'exam_id' => $response->json('data.id'),
+        ]);
+    }
+
+    private function validExamPayload(string $name): array
+    {
+        return [
+            'name' => $name,
+            'exam_date' => now()->addDays(5)->format('Y-m-d'),
+            'start_time' => '10:00:00',
+            'duration_minutes' => 90,
+            'room_id' => $this->roomId,
+            'evaluation_type' => 'partial',
+            'rules' => 'Standard rules apply.',
+        ];
+    }
+
+    private function createEnrollmentForStudent(
+        string $sisCode,
+        string $enrollmentStatus = 'ACTIVE',
+        string $studentStatus = 'ACTIVE'
+    ): int {
+        $careerId = DB::table('careers')->insertGetId([
+            'code' => "CAR-{$sisCode}",
+            'name' => "Career {$sisCode}",
+            'status' => 'ACTIVE',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $studentUser = User::factory()->create([
+            'status' => $studentStatus,
+            'must_change_password' => false,
+        ]);
+
+        $studentId = DB::table('students')->insertGetId([
+            'user_id' => $studentUser->id,
+            'sis_code' => $sisCode,
+            'identity_number' => "CI-{$sisCode}",
+            'first_names' => 'Student',
+            'last_names' => $sisCode,
+            'career_id' => $careerId,
+            'status' => $studentStatus,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('enrollments')->insert([
+            'course_offering_id' => $this->courseOfferingId,
+            'student_id' => $studentId,
+            'status' => $enrollmentStatus,
+            'registered_by' => $this->ownerUserId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return $studentId;
+    }
 }
