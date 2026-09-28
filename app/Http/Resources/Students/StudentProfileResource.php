@@ -4,7 +4,6 @@ namespace App\Http\Resources\Students;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\Storage;
 
 class StudentProfileResource extends JsonResource
 {
@@ -12,10 +11,11 @@ class StudentProfileResource extends JsonResource
     {
         // Obtenemos el usuario recargado
         $user = $this->user;
+        $profilePhoto = $user?->profile_photo;
 
         return [
-            'profile_photo_url' => $user && $user->profile_photo 
-                ? asset('storage/' . $user->profile_photo) 
+            'profile_photo_url' => $profilePhoto
+                ? $this->profilePhotoUrl($profilePhoto)
                 : null,
             'personal_data' => [
                 'first_names'     => $this->first_names,
@@ -29,5 +29,14 @@ class StudentProfileResource extends JsonResource
                 'career_name'   => $this->career?->name,
             ],
         ];
+    }
+
+    private function profilePhotoUrl(string $profilePhoto): string
+    {
+        if (str_starts_with($profilePhoto, 'http://') || str_starts_with($profilePhoto, 'https://')) {
+            return $profilePhoto;
+        }
+
+        return asset('storage/' . $profilePhoto);
     }
 }
