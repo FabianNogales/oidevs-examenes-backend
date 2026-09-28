@@ -1,161 +1,165 @@
 # EIDA Demo/Test Data
 
-Dataset local creado para probar manualmente lo que actualmente esta integrado en `main`.
+Datos locales para demostrar manualmente HU01-HU11 del Sprint 1.
 
-Comando:
+No contiene credenciales reales. Todas las contrasenas son de desarrollo local.
+
+## Reconstruir la BD local
 
 ```bash
+php artisan migrate:fresh
 php artisan db:seed --class=EidaDemoSeeder
 ```
 
-No esta registrado en `DatabaseSeeder`, por lo que no se ejecuta automaticamente.
+`EidaDemoSeeder` no esta registrado en `DatabaseSeeder`; se ejecuta manualmente.
 
-## Configuracion local requerida
-
-Backend debe aceptar el dominio institucional usado por estas cuentas:
+## Configuracion local esperada
 
 ```dotenv
+APP_URL=http://127.0.0.1:8000
+FRONTEND_URL=http://127.0.0.1:5173
+SANCTUM_STATEFUL_DOMAINS=127.0.0.1:5173,localhost:5173
+MAIL_MAILER=log
+QUEUE_CONNECTION=sync
 EIDA_INSTITUTIONAL_EMAIL_DOMAINS=umss.edu.bo
 ```
 
-Despues de cambiar `.env`:
-
-```bash
-php artisan optimize:clear
-```
-
-## Credenciales
-
-| Usuario | Rol | Identificador | Password inicial | Estado | Uso |
-| --- | --- | --- | --- | --- | --- |
-| Administrador Demo | ADMINISTRADOR | demo.admin@umss.edu.bo | DemoAdmin1 | ACTIVE, must_change_password=false | Login, `/admin`, HeaderAccount, display_name fallback, logout |
-| Docente Principal Demo | DOCENTE + rol legado Docente | demo.docente@umss.edu.bo | 71000001 | ACTIVE, must_change_password=false | Login, `/docente`, `/teacher/subjects`, estudiantes, examenes |
-| Estudiante Demo | ESTUDIANTE | 202600001 o demo.estudiante@umss.edu.bo | 81000001 | ACTIVE, must_change_password=false | Login, `/students/profile`, `/students/qr`, QR disponible/no disponible |
-| First Access Demo | ESTUDIANTE | 202600004 o demo.firstaccess@umss.edu.bo | 81000004 | ACTIVE, must_change_password=true | Login y redireccion a `/cambiar-contrasena-inicial` |
-| Inactive Demo | ESTUDIANTE | 202600005 o demo.inactive@umss.edu.bo | 81000005 | INACTIVE | Rechazo de Login |
-| Docente Sin Materias Demo | DOCENTE + rol legado Docente | demo.docente.sinmaterias@umss.edu.bo | 71000003 | ACTIVE, must_change_password=false | Estado vacio del panel docente |
-
-Nota: las passwords de perfiles docentes/estudiantes se inicializan con CI usando `InitialPasswordService` y se guardan hasheadas. Algunos usuarios se dejan con `must_change_password=false` para permitir entrada directa a paneles.
-
-## Docentes HU04
-
-| Docente | Email | Codigo institucional | CI | Estado |
-| --- | --- | --- | --- | --- |
-| Docente Principal Demo | demo.docente@umss.edu.bo | DEMO-EIDA-DOC-001 | 71000001 | ACTIVE |
-| Marcela Quiroga Demo | demo.docente.segundo@umss.edu.bo | DEMO-EIDA-DOC-002 | 71000002 | ACTIVE |
-| Ruben Vacio Demo | demo.docente.sinmaterias@umss.edu.bo | DEMO-EIDA-DOC-003 | 71000003 | ACTIVE |
-| Elena Inactiva Demo | demo.docente.inactivo@umss.edu.bo | DEMO-EIDA-DOC-004 | 71000004 | INACTIVE |
-
-## Estudiantes
-
-| Estudiante | SIS | CI | Estado | Escenario |
-| --- | --- | --- | --- | --- |
-| Ana Estudiante Demo | 202600001 | 81000001 | ACTIVE | Inscrita y habilitada |
-| Bruno Inscrito Demo | 202600002 | 81000002 | ACTIVE | Inscrito y habilitado |
-| Carla Padron Demo | 202600003 | 81000003 | ACTIVE | Existe en padron, no inscrita |
-| Diego Primer Acceso Demo | 202600004 | 81000004 | ACTIVE | First access |
-| Eva Inactiva Demo | 202600005 | 81000005 | INACTIVE | Login rechazado |
-| Fabian No Habilitado Demo | 202600006 | 81000006 | ACTIVE | Inscrito con `exam_eligibilities=NOT_ELIGIBLE` |
-
-## Estructura academica
-
-| Tipo | Dato |
-| --- | --- |
-| Carrera | SIS - Ingeniería de Sistemas |
-| Periodo | DEMO EIDA 2/2026 |
-| Materia A | DEMO-EIDA-TIS - DEMO EIDA Taller de Ingenieria de Software |
-| Materia B | DEMO-EIDA-RED - DEMO EIDA Redes de Computadoras |
-| Aula A | DEMO-EIDA-AULA-A |
-| Aula B | DEMO-EIDA-AULA-B |
-
-`course_offerings.teacher_id` referencia `teachers.id`.
-
-## HU05 Importacion CSV de estudiantes
-
-Carrera valida para CSV:
+Para recuperacion de contrasena con `MAIL_MAILER=log`, tomar el enlace desde:
 
 ```text
-Ingeniería de Sistemas
+storage/logs/laravel.log
 ```
 
-Headers exactos:
+## Usuarios demo
+
+| Rol | Correo | SIS | CI | Contrasena | Estado | Proposito |
+| --- | --- | --- | --- | --- | --- | --- |
+| ADMINISTRADOR | demo.admin@umss.edu.bo | - | - | DemoAdmin1 | ACTIVE | HU02, HU03, HU04, HU05 |
+| DOCENTE | demo.docente@umss.edu.bo | - | 71000001 | 71000001 | ACTIVE | HU06, HU07, HU08 |
+| DOCENTE | demo.docente.sinmaterias@umss.edu.bo | - | 71000003 | 71000003 | ACTIVE | HU06 estado vacio |
+| DOCENTE | demo.docente.inactivo@umss.edu.bo | - | 71000004 | 71000004 | INACTIVE | HU02 login bloqueado |
+| ESTUDIANTE | demo.estudiante@umss.edu.bo | 202600001 | 81000001 | 81000001 | ACTIVE | HU09, HU10, HU11 QR disponible |
+| ESTUDIANTE | demo.estudiante.b@umss.edu.bo | 202600002 | 81000002 | 81000002 | ACTIVE | HU07 segundo estudiante inscrito |
+| ESTUDIANTE | demo.estudiante.noinscrito@umss.edu.bo | 202600003 | 81000003 | 81000003 | ACTIVE | HU07/HU11 estudiante no inscrito |
+| ESTUDIANTE | demo.firstaccess@umss.edu.bo | 202600004 | 81000004 | 81000004 | ACTIVE, must_change_password=true | HU02 primer acceso |
+| ESTUDIANTE | demo.inactive@umss.edu.bo | 202600005 | 81000005 | 81000005 | INACTIVE | HU02 login bloqueado |
+| ESTUDIANTE | demo.estudiante.nohabilitado@umss.edu.bo | 202600006 | 81000006 | 81000006 | ACTIVE | HU11 inscrito pero NOT_ELIGIBLE |
+| ESTUDIANTE | 202300116@est.umss.edu | 202300116 | 92000116 | 92000116 | ACTIVE | HU02 recuperacion de contrasena con correo real |
+
+Los docentes y estudiantes usan la logica real de contrasena inicial basada en CI. Los usuarios que deben entrar directo a paneles quedan con `must_change_password=false`, salvo el usuario de primer acceso.
+
+## Cuenta recuperacion visual
+
+| Correo | SIS | CI | Contrasena inicial | Objetivo |
+| --- | --- | --- | --- | --- |
+| 202300116@est.umss.edu | 202300116 | 92000116 | 92000116 | HU02 recuperacion de contrasena mediante correo real |
+
+Esta cuenta no tiene inscripciones, examenes ni habilitaciones. Para login visual con correo real, el backend y frontend deben aceptar `est.umss.edu` en sus variables de dominios institucionales.
+
+## Roles
+
+El seeder crea solo roles oficiales:
+
+- ADMINISTRADOR
+- DOCENTE
+- ESTUDIANTE
+
+No crea el rol legado `Docente`.
+
+## Catalogos
+
+| Tipo | Codigo/nombre | Estado |
+| --- | --- | --- |
+| Carrera | SIS - Ingenieria de Sistemas | ACTIVE |
+| Periodo academico | DEMO EIDA 2/2026 | ACTIVE |
+| Materia 1 | DEMO-EIDA-TIS - DEMO EIDA Taller de Ingenieria de Software | ACTIVE |
+| Materia 2 | DEMO-EIDA-RED - DEMO EIDA Redes de Computadoras | ACTIVE |
+| Aula 1 | DEMO-EIDA-AULA-A - DEMO EIDA Aula A | ACTIVE |
+| Aula 2 | DEMO-EIDA-AULA-B - DEMO EIDA Aula B | ACTIVE |
+
+## Ofertas e inscripciones
+
+| Oferta | Docente | Materia | Periodo | Uso |
+| --- | --- | --- | --- | --- |
+| Oferta principal | demo.docente@umss.edu.bo | DEMO EIDA Taller de Ingenieria de Software | DEMO EIDA 2/2026 | HU06, HU07, HU08, HU11 |
+| Oferta secundaria | demo.docente@umss.edu.bo | DEMO EIDA Redes de Computadoras | DEMO EIDA 2/2026 | navegacion docente y examen finalizado |
+
+Estudiantes inscritos en oferta principal:
+
+- 202600001 Ana Estudiante Demo
+- 202600002 Bruno Inscrito Demo
+- 202600006 Fabian No Habilitado Demo
+
+Estudiantes inscritos en oferta secundaria:
+
+- 202600001 Ana Estudiante Demo
+- 202600002 Bruno Inscrito Demo
+
+No inscrito en la oferta principal:
+
+- 202600003 Carla Padron Demo
+
+## Examenes HU08/HU11
+
+Las fechas se generan relativas al momento de ejecutar el seeder, usando zona horaria `America/La_Paz`.
+
+| Escenario | Nombre | Estado | Fecha relativa | Estudiante clave | Resultado esperado |
+| --- | --- | --- | --- | --- | --- |
+| A | DEMO EIDA A - QR disponible | SCHEDULED | now + 2 horas | 202600001 ELIGIBLE | Aparece en Mis examenes y permite generar QR |
+| B | DEMO EIDA B - QR aun no disponible | SCHEDULED | now + 48 horas | 202600001 ELIGIBLE | Aparece en Mis examenes, QR aun no disponible |
+| C | DEMO EIDA C - Estudiante no habilitado | SCHEDULED | now + 3 horas | 202600006 NOT_ELIGIBLE | No debe poder obtener QR |
+| D | DEMO EIDA D - Examen finalizado | SCHEDULED | now - 3 horas | 202600001 ELIGIBLE | Aparece como finalizado, no emite QR |
+
+El seeder no precalcula QR. `student_qr_tokens` inicia vacia y los tokens se generan bajo demanda desde HU11.
+
+## Habilitaciones
+
+| Examen | SIS | Estado |
+| --- | --- | --- |
+| DEMO EIDA A - QR disponible | 202600001 | ELIGIBLE |
+| DEMO EIDA A - QR disponible | 202600002 | ELIGIBLE |
+| DEMO EIDA B - QR aun no disponible | 202600001 | ELIGIBLE |
+| DEMO EIDA C - Estudiante no habilitado | 202600006 | NOT_ELIGIBLE |
+| DEMO EIDA D - Examen finalizado | 202600001 | ELIGIBLE |
+
+Sin registro de habilitacion, HU11 no muestra examen ni permite QR.
+
+## Datos reservados para HU05
+
+No estan sembrados. Usarlos para importacion manual CSV.
+
+| SIS | CI | Correo |
+| --- | --- | --- |
+| 202600101 | 99000101 | hu05.test101@umss.edu.bo |
+| 202600102 | 99000102 | hu05.test102@umss.edu.bo |
+| 202600103 | 99000103 | hu05.test103@umss.edu.bo |
+| 202600104 | 99000104 | hu05.test104@umss.edu.bo |
+| 202600105 | 99000105 | hu05.test105@umss.edu.bo |
+
+Headers exactos para HU05:
 
 ```csv
 sis_code,identity_number,first_names,last_names,email,career,profile_photo
 ```
 
-`career` debe coincidir exactamente con una carrera existente en BD. HU05 compara contra `careers.name`; no crea carreras automaticamente desde el CSV.
+Valor valido para `career`:
 
-`profile_photo` actualmente debe ser un string no vacio. HU05 no requiere que exista un archivo fisico de imagen.
+```text
+Ingenieria de Sistemas
+```
 
-## Examenes HU11
+`profile_photo` debe ser un texto no vacio; el flujo actual no exige que exista un archivo fisico.
 
-| Examen | Oferta | Fecha dinamica | Resultado esperado |
-| --- | --- | --- | --- |
-| DEMO EIDA QR disponible - Parcial TIS | Taller de Ingenieria de Software | `now('America/La_Paz')->addHours(2)` | `GET /students/exams` muestra disponible y `GET /students/exams/{id}/qr` devuelve 200 |
-| DEMO EIDA QR no disponible - Final TIS | Taller de Ingenieria de Software | `now('America/La_Paz')->addDays(3)->setTime(10, 0)` | Lista visible, QR todavia no disponible |
-| DEMO EIDA examen pasado - Redes | Redes de Computadoras | `now('America/La_Paz')->subDay()->setTime(8, 0)` | Lista visible para inscritos; QR rechaza por examen finalizado |
+## Casos sugeridos
 
-El seeder no crea SVG ni QR precalculado. El token se genera bajo demanda mediante `StudentQrService`.
-
-## Hallazgos funcionales relevantes
-
-| HU | Estado actual | Evidencia |
-| --- | --- | --- |
-| HU01 | Parcial | `/api/v1/admin/test` protegido por admin; no hay UI admin real, `/admin` renderiza HomePage |
-| HU02 | Implementada con ajuste local requerido | Fortify/Sanctum, `/login`, `/api/v1/me`, first access, single session, inactive user |
-| HU03 | Parcial | middleware admin y auditoria de acceso; no hay panel administrativo funcional en frontend |
-| HU04 | Backend implementado, frontend no implementado | endpoints CRUD de docentes bajo `/api/v1/admin/teachers`; header admin muestra "Docentes" sin ruta |
-| HU05 | Parcial | import CSV de SIS para inscripciones, no importador de padron estudiantil completo |
-| HU06 | Parcial | dashboard docente muestra materias/examenes, pero middleware usa rol legado `Docente` |
-| HU07 | Implementada | listado e inscripcion manual/bulk de estudiantes por `course_offering` con verificacion de docente propietario |
-| HU08 | Parcial | backend programa examenes; frontend muestra boton "Crear examen" deshabilitado |
-| HU09 | No implementada | no se encontraron endpoints/UI especificos para esta HU |
-| HU10 | Implementada | perfil estudiante y subida de foto en backend/frontend |
-| HU11 | Parcial | listado y QR por examen existen; no se valida `exam_eligibilities` y depende de migracion aplicada |
-
-## Checklist manual
-
-AUTH
-
-- [ ] Login ADMIN con `demo.admin@umss.edu.bo` / `DemoAdmin1`
-- [ ] Login DOCENTE con `demo.docente@umss.edu.bo` / `71000001`
-- [ ] Login ESTUDIANTE con `202600001` / `81000001`
-- [ ] Ver `display_name` en HeaderAccount
-- [ ] Logout
-- [ ] First access con `202600004` / `81000004`
-- [ ] Usuario inactivo con `202600005` / `81000005`
-- [ ] Sesion unica: iniciar sesion dos veces con el mismo usuario
-
-ADMIN
-
-- [ ] Acceder a `/admin`
-- [ ] Probar backend `/api/v1/admin/test`
-- [ ] Probar `/api/v1/admin/teachers`
-- [ ] Buscar docentes por nombre/codigo/email
-- [ ] Activar/desactivar docente
-
-DOCENTE
-
-- [ ] Acceder a `/teacher/subjects`
-- [ ] Acceder a `/teacher/students`
-- [ ] Abrir estudiantes de Taller de Ingenieria de Software
-- [ ] Ver estudiantes inscritos
-- [ ] Agregar manualmente SIS `202600003`
-- [ ] Importar CSV con header exacto `sisCode`
-- [ ] Entrar con docente sin materias y confirmar estado vacio
-
-ESTUDIANTE
-
-- [ ] Acceder a `/students/profile`
-- [ ] Acceder a `/students/qr`
-- [ ] Ver examen QR disponible
-- [ ] Descargar/ver QR del examen disponible
-- [ ] Ver examen futuro con QR no disponible
-- [ ] Probar QR de examen pasado
-
-SEGURIDAD
-
-- [ ] Confirmar que `/api/v1/me` no expone password, hash, CI, SIS ni `active_session_id`
-- [ ] Confirmar que el JWT del QR contiene ids tecnicos (`std`, `exm`, `exp`, `jti`) y no nombres, correo, CI ni SIS
-- [ ] Confirmar que ejecutar el seeder dos veces no duplica usuarios, roles, docentes, estudiantes, ofertas, inscripciones ni examenes
+- Login correcto: `demo.admin@umss.edu.bo` / `DemoAdmin1`.
+- Cuenta inactiva docente: `demo.docente.inactivo@umss.edu.bo` / `71000004`.
+- Cuenta inactiva estudiante: `202600005` / `81000005`.
+- Primer acceso: `202600004` / `81000004`.
+- Docente con materias: `demo.docente@umss.edu.bo` / `71000001`.
+- Docente sin materias: `demo.docente.sinmaterias@umss.edu.bo` / `71000003`.
+- Estudiante inscrito y habilitado: `202600001` / `81000001`.
+- Estudiante no inscrito: `202600003` / `81000003`.
+- QR disponible: `202600001` en `DEMO EIDA A - QR disponible`.
+- QR fuera de ventana: `202600001` en `DEMO EIDA B - QR aun no disponible`.
+- Estudiante no habilitado: `202600006` en `DEMO EIDA C - Estudiante no habilitado`.

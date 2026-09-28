@@ -49,16 +49,6 @@ class EidaDemoSeeder extends Seeder
         ], $roles);
 
         $this->ensureTeacher([
-            'email' => "demo.docente.segundo@{$domain}",
-            'institutional_code' => 'DEMO-EIDA-DOC-002',
-            'identity_number' => '71000002',
-            'first_names' => 'Marcela',
-            'last_names' => 'Quiroga Demo',
-            'status' => UserStatus::ACTIVE->value,
-            'must_change_password' => false,
-        ], $roles);
-
-        $this->ensureTeacher([
             'email' => "demo.docente.sinmaterias@{$domain}",
             'institutional_code' => 'DEMO-EIDA-DOC-003',
             'identity_number' => '71000003',
@@ -185,6 +175,17 @@ class EidaDemoSeeder extends Seeder
             'career_id' => $career->id,
         ], $roles);
 
+        $this->ensureStudent([
+            'email' => '202300116@est.umss.edu',
+            'sis_code' => '202300116',
+            'identity_number' => '92000116',
+            'first_names' => 'Recuperacion',
+            'last_names' => 'Correo Real Demo',
+            'status' => UserStatus::ACTIVE->value,
+            'must_change_password' => false,
+            'career_id' => $career->id,
+        ], $roles);
+
         foreach ([$studentA, $studentB, $notEligibleStudent] as $student) {
             $this->ensureEnrollment($offeringA, $student, $teacher->user);
         }
@@ -194,41 +195,55 @@ class EidaDemoSeeder extends Seeder
         }
 
         $availableAt = Carbon::now('America/La_Paz')->addHours(2);
-        $futureAt = Carbon::now('America/La_Paz')->addDays(3)->setTime(10, 0);
-        $pastAt = Carbon::now('America/La_Paz')->subDay()->setTime(8, 0);
+        $futureAt = Carbon::now('America/La_Paz')->addHours(48);
+        $notEligibleAt = Carbon::now('America/La_Paz')->addHours(3);
+        $finishedAt = Carbon::now('America/La_Paz')->subHours(3);
 
         $examA = $this->ensureExam(
             $offeringA,
             $roomA,
             $teacher->user,
-            'DEMO EIDA QR disponible - Parcial TIS',
+            'DEMO EIDA A - QR disponible',
             $availableAt,
             'QR disponible para estudiantes inscritos dentro de la ventana de 24 horas.',
+            'SCHEDULED',
         );
 
         $examB = $this->ensureExam(
             $offeringA,
             $roomB,
             $teacher->user,
-            'DEMO EIDA QR no disponible - Final TIS',
+            'DEMO EIDA B - QR aun no disponible',
             $futureAt,
             'QR no disponible todavia por estar fuera de la ventana de 24 horas.',
+            'SCHEDULED',
         );
 
         $examC = $this->ensureExam(
+            $offeringA,
+            $roomA,
+            $teacher->user,
+            'DEMO EIDA C - Estudiante no habilitado',
+            $notEligibleAt,
+            'Estudiante inscrito pero no habilitado para obtener QR.',
+            'SCHEDULED',
+        );
+
+        $examD = $this->ensureExam(
             $offeringB,
             $roomA,
             $teacher->user,
-            'DEMO EIDA examen pasado - Redes',
-            $pastAt,
+            'DEMO EIDA D - Examen finalizado',
+            $finishedAt,
             'Examen pasado para validar mensajes de expiracion del QR.',
+            'SCHEDULED',
         );
 
         $this->ensureEligibility($examA, $studentA, 'ELIGIBLE', $teacher->user, 'DEMO: estudiante inscrito y habilitado.');
         $this->ensureEligibility($examA, $studentB, 'ELIGIBLE', $teacher->user, 'DEMO: segundo estudiante inscrito y habilitado.');
-        $this->ensureEligibility($examA, $notEligibleStudent, 'NOT_ELIGIBLE', $teacher->user, 'DEMO: inscrito pero marcado como no habilitado. El servicio QR actual no consulta esta tabla.');
         $this->ensureEligibility($examB, $studentA, 'ELIGIBLE', $teacher->user, 'DEMO: fuera de ventana QR por fecha.');
-        $this->ensureEligibility($examC, $studentA, 'ELIGIBLE', $teacher->user, 'DEMO: examen pasado.');
+        $this->ensureEligibility($examC, $notEligibleStudent, 'NOT_ELIGIBLE', $teacher->user, 'DEMO: inscrito pero marcado como no habilitado.');
+        $this->ensureEligibility($examD, $studentA, 'ELIGIBLE', $teacher->user, 'DEMO: examen pasado.');
 
         $this->command?->info('EidaDemoSeeder listo. Dominio usado: '.$domain);
         $this->command?->line('Usuarios clave: '.$admin->email.', '.$teacher->user->email.', '.$studentA->user->email.'.');
@@ -302,6 +317,8 @@ class EidaDemoSeeder extends Seeder
             'name' => 'Ingeniería de Sistemas',
             'status' => UserStatus::ACTIVE->value,
         ])->save();
+
+        $career->forceFill(['name' => 'Ingenieria de Sistemas'])->save();
 
         return $career->refresh();
     }
@@ -433,6 +450,7 @@ class EidaDemoSeeder extends Seeder
         string $name,
         Carbon $scheduledAt,
         string $rules,
+        string $status = 'SCHEDULED',
     ): Exam {
         return Exam::query()->updateOrCreate(
             [
@@ -445,7 +463,7 @@ class EidaDemoSeeder extends Seeder
                 'start_time' => $scheduledAt->format('H:i:s'),
                 'duration_minutes' => 90,
                 'rules' => $rules,
-                'status' => UserStatus::ACTIVE->value,
+                'status' => $status,
                 'created_by' => $createdBy->id,
             ],
         );
