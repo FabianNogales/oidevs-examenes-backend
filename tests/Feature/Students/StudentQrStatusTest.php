@@ -221,6 +221,53 @@ class StudentQrStatusTest extends TestCase
             ]);
     }
 
+    public function test_enrolled_student_without_eligibility_record_sees_exam_but_qr_is_denied(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-14 10:00:00', 'America/La_Paz'));
+        DB::table('exam_eligibilities')
+            ->where('student_id', $this->studentId)
+            ->where('exam_id', $this->examId)
+            ->delete();
+
+        Sanctum::actingAs($this->studentUser, ['*']);
+
+        $this->getJson('/api/v1/students/exams')
+            ->assertStatus(200)
+            ->assertJsonFragment([
+                'exam_id' => $this->examId,
+                'qr_status' => 'PENDING_ELIGIBILITY',
+                'is_qr_available' => false,
+            ]);
+
+        $this->getJson("/api/v1/students/exams/{$this->examId}/qr")
+            ->assertStatus(403)
+            ->assertJson([
+                'message' => 'El estudiante no se encuentra habilitado para este examen.',
+            ]);
+    }
+
+    public function test_not_eligible_student_sees_exam_but_qr_is_denied(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-14 10:00:00', 'America/La_Paz'));
+        $this->setEligibility($this->studentId, $this->examId, 'NOT_ELIGIBLE');
+
+        Sanctum::actingAs($this->studentUser, ['*']);
+
+        $this->getJson('/api/v1/students/exams')
+            ->assertStatus(200)
+            ->assertJsonFragment([
+                'exam_id' => $this->examId,
+                'qr_status' => 'NOT_ELIGIBLE',
+                'is_qr_available' => false,
+            ]);
+
+        $this->getJson("/api/v1/students/exams/{$this->examId}/qr")
+            ->assertStatus(403)
+            ->assertJson([
+                'message' => 'El estudiante no se encuentra habilitado para este examen.',
+            ]);
+    }
+
     public function test_ineligible_student_cannot_get_qr(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-06-14 10:00:00', 'America/La_Paz'));

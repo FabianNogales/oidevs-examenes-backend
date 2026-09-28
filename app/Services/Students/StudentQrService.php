@@ -22,11 +22,9 @@ class StudentQrService
      */
     private const TIMEZONE = 'America/La_Paz';
     private const ELIGIBLE_STATUS = 'ELIGIBLE';
+    private const NOT_ELIGIBLE_STATUS = 'NOT_ELIGIBLE';
     private const VISIBLE_EXAM_STATUSES = ['ACTIVE', 'SCHEDULED'];
 
-    /**
-     * Obtiene los exámenes disponibles para el estudiante junto con su QR (si está en ventana de 24h).
-     */
     /**
      * Obtiene los exámenes disponibles para el estudiante junto con su QR (si está en ventana de 24h).
      */
@@ -43,13 +41,6 @@ class StudentQrService
                         $sQuery->where('status', 'ACTIVE');
                     });
             })
-            ->whereExists(function ($query) use ($studentId) {
-                $query->selectRaw('1')
-                    ->from('exam_eligibilities')
-                    ->whereColumn('exam_eligibilities.exam_id', 'exams.id')
-                    ->where('exam_eligibilities.student_id', $studentId)
-                    ->where('exam_eligibilities.status', self::ELIGIBLE_STATUS);
-            })
             ->get()
             ->map(function ($exam) use ($studentId, $now) {
                 $examDateStr = $exam->exam_date instanceof Carbon 
@@ -60,9 +51,13 @@ class StudentQrService
                 $examStart     = Carbon::parse("{$examDateStr} {$exam->start_time}", self::TIMEZONE);
                 $availableFrom = $examStart->copy()->subHours(24);
                 $examEnd       = $examStart->copy()->addMinutes($exam->duration_minutes);
+                $eligibilityStatus = $this->getEligibilityStatus($studentId, $exam->id);
                 
-                // Determinar qr_status según reglas requeridas
-                if ($now->lt($availableFrom)) {
+                if ($eligibilityStatus === null) {
+                    $qrStatus = 'PENDING_ELIGIBILITY';
+                } elseif ($eligibilityStatus === self::NOT_ELIGIBLE_STATUS) {
+                    $qrStatus = 'NOT_ELIGIBLE';
+                } elseif ($now->lt($availableFrom)) {
                     $qrStatus = 'UPCOMING';
                 } elseif ($now->lte($examEnd)) {
                     $qrStatus = 'AVAILABLE';
@@ -215,5 +210,13 @@ class StudentQrService
         if (! $eligibility || $eligibility->status !== self::ELIGIBLE_STATUS) {
             throw new Exception('El estudiante no se encuentra habilitado para este examen.');
         }
+    }
+
+    private function getEligibilityStatus(int $studentId, int $examId): ?string
+    {
+        return DB::table('exam_eligibilities')
+            ->where('student_id', $studentId)
+            ->where('exam_id', $examId)
+            ->value('status');
     }
 }
