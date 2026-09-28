@@ -13,6 +13,7 @@ use BaconQrCode\Renderer\RendererStyle\RendererStyle;
 use BaconQrCode\Writer;
 use BaconQrCode\Common\ErrorCorrectionLevel;
 use Exception;
+use Illuminate\Support\Facades\DB;
 
 class StudentQrService
 {
@@ -20,6 +21,8 @@ class StudentQrService
      * Zona horaria oficial del sistema de exámenes.
      */
     private const TIMEZONE = 'America/La_Paz';
+    private const ELIGIBLE_STATUS = 'ELIGIBLE';
+    private const VISIBLE_EXAM_STATUSES = ['ACTIVE', 'SCHEDULED'];
 
     /**
      * Obtiene los exámenes disponibles para el estudiante junto con su QR (si está en ventana de 24h).
@@ -32,13 +35,20 @@ class StudentQrService
         $now = Carbon::now(self::TIMEZONE);
 
         return Exam::with(['courseOffering.subject'])
-            ->where('status', 'ACTIVE')
+            ->whereIn('status', self::VISIBLE_EXAM_STATUSES)
             ->whereHas('courseOffering.enrollments', function ($query) use ($studentId) {
                 $query->where('student_id', $studentId)
                     ->where('status', 'ACTIVE')
                     ->whereHas('student', function ($sQuery) {
                         $sQuery->where('status', 'ACTIVE');
                     });
+            })
+            ->whereExists(function ($query) use ($studentId) {
+                $query->selectRaw('1')
+                    ->from('exam_eligibilities')
+                    ->whereColumn('exam_eligibilities.exam_id', 'exams.id')
+                    ->where('exam_eligibilities.student_id', $studentId)
+                    ->where('exam_eligibilities.status', self::ELIGIBLE_STATUS);
             })
             ->get()
             ->map(function ($exam) use ($studentId, $now) {
@@ -91,7 +101,7 @@ class StudentQrService
     {
         // 1. Validar que el examen exista y que el estudiante esté inscrito y activo
         $exam = Exam::with(['courseOffering.subject'])
-            ->where('status', 'ACTIVE')
+            ->whereIn('status', self::VISIBLE_EXAM_STATUSES)
             ->whereHas('courseOffering.enrollments', function ($query) use ($studentId) {
                 $query->where('student_id', $studentId)
                     ->where('status', 'ACTIVE')
@@ -100,6 +110,8 @@ class StudentQrService
                     });
             })
             ->findOrFail($examId);
+
+        $this->ensureStudentIsEligible($studentId, $examId);
 
         // 2. Validar ventana de tiempo (24h previas hasta fin del examen) en America/La_Paz
         $examDateStr = $exam->exam_date instanceof Carbon 
@@ -191,5 +203,17 @@ class StudentQrService
     private function base64UrlEncode(string $data): string
     {
         return str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($data));
+    }
+
+    private function ensureStudentIsEligible(int $studentId, int $examId): void
+    {
+        $eligibility = DB::table('exam_eligibilities')
+            ->where('student_id', $studentId)
+            ->where('exam_id', $examId)
+            ->first();
+
+        if (! $eligibility || $eligibility->status !== self::ELIGIBLE_STATUS) {
+            throw new Exception('El estudiante no se encuentra habilitado para este examen.');
+        }
     }
 }

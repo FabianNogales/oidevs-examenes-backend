@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api\V1\Enrollments;
 
+use App\Enums\RoleName;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -22,10 +23,10 @@ class EnrollmentSecurityTest extends TestCase
         parent::setUp();
 
         $roleId = DB::table('roles')->insertGetId([
-            'name' => 'Docente', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()
+            'name' => RoleName::DOCENTE->value, 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()
         ]);
         $studentRoleId = DB::table('roles')->insertGetId([
-            'name' => 'Estudiante', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()
+            'name' => RoleName::ESTUDIANTE->value, 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()
         ]);
 
         $ownerTeacher = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);

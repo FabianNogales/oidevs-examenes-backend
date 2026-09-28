@@ -2,7 +2,9 @@
 
 namespace Tests\Feature\Api\V1\TeacherDashboard;
 
+use App\Enums\RoleName;
 use App\Models\User;
+use App\Services\Teachers\TeacherService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
@@ -38,7 +40,7 @@ class TeacherDashboardTest extends TestCase
         ]);
 
         $this->roleId = DB::table('roles')->insertGetId([
-            'name' => 'Docente',
+            'name' => RoleName::DOCENTE->value,
             'status' => 'ACTIVE',
             'created_at' => now(),
             'updated_at' => now()
@@ -134,5 +136,40 @@ class TeacherDashboardTest extends TestCase
                  ->assertJsonPath('data.0.name', 'First Midterm')
                  ->assertJsonPath('data.0.subject_code', 'CS101')
                  ->assertJsonPath('data.0.room.code', 'AUD-1');
+    }
+
+    public function testTeacherCreatedByTeacherServiceWithOfficialRoleCanAccessTeacherEndpoints(): void
+    {
+        config([
+            'eida.institutional_email_domains' => ['umss.edu.bo'],
+        ]);
+
+        $teacher = app(TeacherService::class)->create([
+            'institutional_code' => 'DOC-SERVICE-001',
+            'identity_number' => '70000001',
+            'first_names' => 'Servicio',
+            'last_names' => 'Docente',
+            'email' => 'servicio.docente@umss.edu.bo',
+        ]);
+
+        $this->assertTrue($teacher->user->hasRole(RoleName::DOCENTE));
+        $this->assertFalse($teacher->user->hasRole('Docente'));
+
+        DB::table('course_offerings')->insert([
+            'subject_id' => 1,
+            'academic_term_id' => 1,
+            'teacher_id' => $teacher->id,
+            'status' => 'ACTIVE',
+            'created_at' => now(),
+            'updated_at' => now()
+        ]);
+
+        Sanctum::actingAs($teacher->user, ['*']);
+
+        $response = $this->getJson('/api/v1/teacher/dashboard/subjects');
+
+        $response->assertStatus(200)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.subject.name', 'Introduction to Programming');
     }
 }

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api\V1\TeacherDashboard;
 
+use App\Enums\RoleName;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -31,9 +32,8 @@ class TeacherSecurityTest extends TestCase
     {
         $student = User::factory()->create(['status' => 'ACTIVE']);
         
-        // Asignamos rol "Estudiante"
         $roleId = DB::table('roles')->insertGetId([
-            'name' => 'Estudiante',
+            'name' => RoleName::ESTUDIANTE->value,
             'status' => 'ACTIVE',
             'created_at' => now(),
             'updated_at' => now(),
@@ -50,7 +50,6 @@ class TeacherSecurityTest extends TestCase
         
         $response = $this->getJson('/test-teacher-route');
 
-        // Debe ser rechazado por no ser Docente
         $response->assertStatus(403)
                  ->assertJson(['message' => 'Forbidden - Insufficient permissions']);
     }
@@ -59,9 +58,8 @@ class TeacherSecurityTest extends TestCase
     {
         $teacher = User::factory()->create(['status' => 'ACTIVE']);
         
-        // Asignamos rol "Docente"
         $roleId = DB::table('roles')->insertGetId([
-            'name' => 'Docente',
+            'name' => RoleName::DOCENTE->value,
             'status' => 'ACTIVE',
             'created_at' => now(),
             'updated_at' => now(),

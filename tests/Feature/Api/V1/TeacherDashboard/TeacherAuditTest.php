@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api\V1\TeacherDashboard;
 
+use App\Enums\RoleName;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -16,9 +17,8 @@ class TeacherAuditTest extends TestCase
     {
         $teacher = User::factory()->create(['status' => 'ACTIVE']);
         
-        // Asignamos el rol "Docente"
         $roleId = DB::table('roles')->insertGetId([
-            'name' => 'Docente',
+            'name' => RoleName::DOCENTE->value,
             'status' => 'ACTIVE',
             'created_at' => now(),
             'updated_at' => now(),

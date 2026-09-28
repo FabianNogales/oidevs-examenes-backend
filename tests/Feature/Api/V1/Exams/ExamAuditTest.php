@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api\V1\Exams;
 
+use App\Enums\RoleName;
 use App\Models\User;
 use App\Models\AuditLog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -17,7 +18,7 @@ class ExamAuditTest extends TestCase
     public function test_scheduling_exam_generates_audit_log(): void
     {
         $roleId = DB::table('roles')->insertGetId([
-            'name' => 'Docente', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()
+            'name' => RoleName::DOCENTE->value, 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()
         ]);
 
         $teacherUser = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);

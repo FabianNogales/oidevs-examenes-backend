@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api\V1\Enrollments;
 
+use App\Enums\RoleName;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -31,7 +32,7 @@ class StudentEnrollmentTest extends TestCase
         $this->teacherUserId = $teacherUser->id;
 
         $roleId = DB::table('roles')->insertGetId([
-            'name' => 'Docente',
+            'name' => RoleName::DOCENTE->value,
             'status' => 'ACTIVE',
             'created_at' => now(),
             'updated_at' => now(),

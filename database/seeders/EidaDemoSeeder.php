@@ -231,7 +231,6 @@ class EidaDemoSeeder extends Seeder
         $this->ensureEligibility($examC, $studentA, 'ELIGIBLE', $teacher->user, 'DEMO: examen pasado.');
 
         $this->command?->info('EidaDemoSeeder listo. Dominio usado: '.$domain);
-        $this->command?->warn('Nota: las rutas docentes actuales requieren tambien el rol legado Docente.');
         $this->command?->line('Usuarios clave: '.$admin->email.', '.$teacher->user->email.', '.$studentA->user->email.'.');
         $this->command?->line('Estudiante sin inscripcion: '.$studentC->sis_code.'. First access: '.$firstAccessStudent->sis_code.'. Inactivo: '.$inactiveStudent->sis_code.'.');
     }
@@ -245,7 +244,6 @@ class EidaDemoSeeder extends Seeder
             RoleName::ADMINISTRADOR->value => 'Administracion del sistema EIDA.',
             RoleName::DOCENTE->value => 'Gestion docente dentro del sistema EIDA.',
             RoleName::ESTUDIANTE->value => 'Acceso estudiantil al sistema EIDA.',
-            'Docente' => 'Rol legado requerido por el middleware teacher.role actual.',
         ];
 
         $roles = [];
@@ -340,7 +338,6 @@ class EidaDemoSeeder extends Seeder
         );
 
         $this->assignRole($user, $roles[RoleName::DOCENTE->value]);
-        $this->assignRole($user, $roles['Docente']);
 
         return $teacher->refresh()->load('user');
     }

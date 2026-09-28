@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api\V1\Exams;
 
+use App\Enums\RoleName;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -22,7 +23,7 @@ class ExamSchedulingTest extends TestCase
         parent::setUp();
 
         $roleId = DB::table('roles')->insertGetId([
-            'name' => 'Docente', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()
+            'name' => RoleName::DOCENTE->value, 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()
         ]);
 
         // Docente Titular
