@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\Admin\TeacherController;
 use App\Http\Controllers\Api\V1\Admin\StudentImportController;
 use App\Http\Controllers\Api\V1\Auth\AuthController;
 use App\Http\Controllers\Api\V1\Auth\CurrentUserController;
+use App\Http\Controllers\Api\V1\Collaborators\ExamCollaboratorController;
 use App\Http\Controllers\Api\V1\Enrollments\StudentEnrollmentController;
 use App\Http\Controllers\Api\V1\Exams\ExamSchedulingController;
 use App\Http\Controllers\Api\V1\Health\HealthCheckController;
@@ -31,7 +32,7 @@ Route::middleware(['auth:sanctum', 'session.current'])->group(function () {
     Route::get('me', CurrentUserController::class)->name('me');
 });
 
-// Rutas de Estudiantes (HU-10 Perfil y HU-11 Exámenes/QR)
+// Rutas de Estudiantes (HU-10 Perfil, HU-11 Exámenes/QR, HU-16 Panel Colaborador)
 Route::middleware([
     'auth:sanctum',
     'session.current',
@@ -45,6 +46,9 @@ Route::middleware([
     // Rutas de Exámenes y QR del Estudiante (HU-11)
     Route::get('/students/exams', [StudentQrController::class, 'index']);
     Route::get('/students/exams/{exam_id}/qr', [StudentQrController::class, 'show']);
+
+    // HU-16: Panel de control como colaborador temporal
+    Route::get('/student/collaborations', [ExamCollaboratorController::class, 'myCollaborations']);
 });
 
 // HU 01: Acceso Administrativo protegido estrictamente
@@ -58,14 +62,14 @@ Route::middleware(['auth:sanctum', 'session.current', 'password.changed', 'verif
             ]);
         });
         Route::post(
-        '/students/import/preview',
-        [StudentImportController::class, 'preview']
-    );
+            '/students/import/preview',
+            [StudentImportController::class, 'preview']
+        );
 
-    Route::post(
-        '/students/import/confirm',
-        [StudentImportController::class, 'confirm']
-    );
+        Route::post(
+            '/students/import/confirm',
+            [StudentImportController::class, 'confirm']
+        );
         Route::get('teachers', [TeacherController::class, 'index'])->name('teachers.index');
         Route::post('teachers', [TeacherController::class, 'store'])->name('teachers.store');
         Route::get('teachers/{teacher}', [TeacherController::class, 'show'])->name('teachers.show');
@@ -90,3 +94,32 @@ Route::prefix('course-offerings/{courseOffering}')
         Route::post('/enrollments/bulk', [StudentEnrollmentController::class, 'storeBulk']);
         Route::post('/exams', [ExamSchedulingController::class, 'store']);
     });
+
+// HU 15: Designar y revocar colaboradores temporales para un examen (Docente)
+Route::prefix('exams/{exam_id}/collaborators')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'teacher.role'])
+    ->group(function () {
+        Route::get('/', [ExamCollaboratorController::class, 'index']);
+        Route::post('/', [ExamCollaboratorController::class, 'store']);
+        Route::delete('/{collaborator_id}', [ExamCollaboratorController::class, 'destroy']);
+    });
+
+
+// HU 15: Gestión de colaboradores temporales por parte del Docente
+Route::prefix('exams/{exam_id}/collaborators')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'teacher.role'])
+    ->group(function () {
+        Route::get('/', [ExamCollaboratorController::class, 'index']);
+        Route::post('/', [ExamCollaboratorController::class, 'store']);
+        Route::delete('/{collaborator_id}', [ExamCollaboratorController::class, 'destroy']);
+    });
+
+// HU 16: Panel de control del estudiante como colaborador temporal
+Route::middleware([
+    'auth:sanctum',
+    'session.current',
+    'password.changed',
+    'role:'.RoleName::ESTUDIANTE->value,
+])->group(function () {
+    Route::get('/student/collaborations', [ExamCollaboratorController::class, 'myCollaborations']);
+});    
