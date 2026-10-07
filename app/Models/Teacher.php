@@ -60,15 +60,23 @@ class Teacher extends Model
             return $query;
         }
 
-        $likeTerm = '%'.strtolower($term).'%';
+        $likeTerm = '%'.mb_strtolower($term).'%';
 
-        return $query->where(function (Builder $query) use ($likeTerm): void {
+        return $query->where(function (Builder $query) use ($likeTerm, $term): void {
             $query
                 ->whereRaw('LOWER(first_names) LIKE ?', [$likeTerm])
                 ->orWhereRaw('LOWER(last_names) LIKE ?', [$likeTerm])
                 ->orWhereRaw('LOWER(institutional_code) LIKE ?', [$likeTerm])
                 ->orWhereHas('user', function (Builder $query) use ($likeTerm): void {
                     $query->whereRaw('LOWER(email) LIKE ?', [$likeTerm]);
+                })
+                ->orWhere(function (Builder $query) use ($term): void {
+                    foreach (explode(' ', mb_strtolower($term)) as $word) {
+                        $query->where(function (Builder $query) use ($word): void {
+                            $query->whereRaw('LOWER(first_names) LIKE ?', ['%'.$word.'%'])
+                                ->orWhereRaw('LOWER(last_names) LIKE ?', ['%'.$word.'%']);
+                        });
+                    }
                 });
         });
     }

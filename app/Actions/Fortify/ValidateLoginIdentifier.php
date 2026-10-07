@@ -3,6 +3,7 @@
 namespace App\Actions\Fortify;
 
 use App\Services\Auth\LoginUserResolver;
+use App\Models\Teacher;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -44,14 +45,18 @@ class ValidateLoginIdentifier
             return;
         }
 
+        if (Teacher::query()->where('institutional_code', $identifier)->exists()) {
+            return;
+        }
+
         if (! ctype_digit($identifier)) {
-            $fail('El codigo SIS debe contener solo numeros.');
+            $fail('El código institucional/SIS debe ser válido.');
 
             return;
         }
 
         if (strlen($identifier) < 9) {
-            $fail('El codigo SIS debe tener al menos 9 digitos.');
+            $fail('El código SIS debe tener al menos 9 dígitos.');
         }
     }
 }

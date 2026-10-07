@@ -88,5 +88,6 @@ Route::prefix('course-offerings/{courseOffering}')
         Route::get('/enrollments', [StudentEnrollmentController::class, 'index']);
         Route::post('/enrollments/manual', [StudentEnrollmentController::class, 'storeManual']);
         Route::post('/enrollments/bulk', [StudentEnrollmentController::class, 'storeBulk']);
+        Route::post('/enrollments/bulk/preview', [StudentEnrollmentController::class, 'previewBulk']);
         Route::post('/exams', [ExamSchedulingController::class, 'store']);
     });

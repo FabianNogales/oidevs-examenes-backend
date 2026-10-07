@@ -104,6 +104,16 @@ class StudentEnrollmentController extends Controller
 
     public function storeBulk(StoreBulkEnrollmentRequest $request, int $courseOfferingId): JsonResponse
     {
+        return $this->processBulk($request, $courseOfferingId, false);
+    }
+
+    public function previewBulk(StoreBulkEnrollmentRequest $request, int $courseOfferingId): JsonResponse
+    {
+        return $this->processBulk($request, $courseOfferingId, true);
+    }
+
+    private function processBulk(StoreBulkEnrollmentRequest $request, int $courseOfferingId, bool $preview): JsonResponse
+    {
         $userId = $request->user()->id;
         $teacher = DB::table('teachers')->where('user_id', $userId)->first();
         $courseOffering = DB::table('course_offerings')->find($courseOfferingId);
@@ -128,6 +138,7 @@ class StudentEnrollmentController extends Controller
         $studentsToInsert = [];
         $processedSisCodes = []; 
         $successfulSisCodes = [];
+        $rowResults = [];
 
         DB::beginTransaction();
         try {
@@ -189,10 +200,16 @@ class StudentEnrollmentController extends Controller
                     'updated_at' => now(),
                 ];
                 $successfulSisCodes[] = $sisCode;
+                $rowResults[] = [
+                    'row' => $rowNum,
+                    'sisCode' => $sisCode,
+                    'status' => $preview ? 'VALID' : 'ADDED',
+                    'reason' => $preview ? 'Listo para importar.' : 'Agregado correctamente.',
+                ];
                 $successfulCount++;
             }
 
-            if (!empty($studentsToInsert)) {
+            if (!$preview && !empty($studentsToInsert)) {
                 DB::table('enrollments')->insert($studentsToInsert);
                 
                 DB::table('audit_logs')->insert([
@@ -222,7 +239,8 @@ class StudentEnrollmentController extends Controller
                 'successfulRecords' => $successfulCount,
                 'duplicateRecords' => $duplicateCount,
                 'failedCount' => $failedCount,
-                'failedRecords' => $records
+                'failedRecords' => $records,
+                'records' => collect(array_merge($rowResults, $records))->sortBy('row')->values()->all(),
             ]
         ], 200);
     }

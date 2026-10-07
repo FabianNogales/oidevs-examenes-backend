@@ -4,6 +4,7 @@ namespace App\Services\Auth;
 
 use App\Enums\UserStatus;
 use App\Models\Student;
+use App\Models\Teacher;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
@@ -14,7 +15,7 @@ class LoginUserResolver
      * Resuelve el identificador de HU02 hacia un User autenticable.
      *
      * Con @ se interpreta como correo institucional; sin @ se interpreta como
-     * codigo SIS asociado a un estudiante.
+     * código SIS de estudiante o código institucional de docente.
      */
     public function resolve(string $identifier, string $password): ?User
     {
@@ -47,7 +48,11 @@ class LoginUserResolver
             ->with('user')
             ->where('sis_code', $identifier)
             ->first()
-            ?->user;
+            ?->user ?? Teacher::query()
+                ->with('user')
+                ->where('institutional_code', $identifier)
+                ->first()
+                ?->user;
     }
 
     public function isEmailIdentifier(string $identifier): bool
