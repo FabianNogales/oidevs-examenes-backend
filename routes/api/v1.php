@@ -14,6 +14,14 @@ use App\Http\Controllers\Api\V1\Students\StudentQrController;
 use App\Http\Controllers\Api\V1\TeacherDashboard\TeacherDashboardController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\Rooms\RoomController;
+use App\Http\Controllers\Api\V1\Eligibility\ExamEligibilityController;
+
+Route::prefix('exams/{exam}/eligibilities')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'teacher.role'])
+    ->group(function () {
+        Route::get('/', [ExamEligibilityController::class, 'index']);
+        Route::patch('/{student}', [ExamEligibilityController::class, 'update']);
+    });
 
 Route::middleware(['auth:sanctum', 'session.current'])->group(function () {
     Route::get('/rooms', [RoomController::class, 'index']);
