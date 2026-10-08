@@ -15,6 +15,8 @@ class ExamEligibility extends Model
         'student_id',
         'status',
         'reason',
+        'reason_code',
+        'observations',
         'evaluated_by',
         'evaluated_at',
     ];

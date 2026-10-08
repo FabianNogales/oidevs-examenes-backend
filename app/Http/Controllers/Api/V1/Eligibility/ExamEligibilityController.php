@@ -4,110 +4,98 @@ namespace App\Http\Controllers\Api\V1\Eligibility;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Eligibility\UpdateEligibilityRequest;
-use App\Models\Exam;
 use App\Models\ExamEligibility;
-use App\Models\Teacher;
+use App\Services\Eligibility\ExamEligibilityService;
+use App\Support\Eligibility\EligibilityRules;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class ExamEligibilityController extends Controller
 {
-    /**
-     * Listar estudiantes y sus estados de habilitación para un examen.
-     */
+    public function __construct(protected ExamEligibilityService $service) {}
+
+    private function data(ExamEligibility $eligibility): array
+    {
+        return [
+            'id' => $eligibility->id,
+            'exam_id' => $eligibility->exam_id,
+            'student_id' => $eligibility->student_id,
+            'status' => $eligibility->status,
+            'reason_code' => $eligibility->reason_code,
+            'reason' => $eligibility->reason,
+            'observations' => $eligibility->observations,
+            'evaluated_at' => $eligibility->evaluated_at?->toIso8601String(),
+        ];
+    }
+
     public function index(Request $request, int $examId): JsonResponse
     {
-        $teacher = Teacher::where('user_id', $request->user()->id)->first();
-
-
-        if (!$teacher) {
-            return response()->json(['message' => 'Forbidden - User is not a teacher.'], 403);
-        }
-
-        $exam = Exam::with('courseOffering')->findOrFail($examId);
-
-        if ($exam->courseOffering->teacher_id !== $teacher->id) {
-            return response()->json(['message' => 'Forbidden - You do not own this exam.'], 403);
-        }
-
-        $query = ExamEligibility::query()
-            ->with(['student.user', 'evaluator'])
-            ->where('exam_id', $examId);
+        $this->service->responsibleExam($request, $examId);
+        $query = ExamEligibility::with(['student.user', 'evaluator'])->where('exam_id', $examId);
 
         if ($request->filled('status')) {
             $query->where('status', $request->query('status'));
         }
-
         if ($request->filled('search')) {
-            $search = strtolower(trim($request->query('search')));
-            $query->whereHas('student', function ($q) use ($search) {
-                $q->whereRaw('LOWER(first_names) LIKE ?', ["%{$search}%"])
-                  ->orWhereRaw('LOWER(last_names) LIKE ?', ["%{$search}%"])
-                  ->orWhereRaw('LOWER(sis_code) LIKE ?', ["%{$search}%"])
-                  ->orWhereRaw('LOWER(identity_number) LIKE ?', ["%{$search}%"]);
+            $search = mb_strtolower(trim($request->query('search')));
+            $query->whereHas('student', function ($query) use ($search) {
+                foreach (['first_names', 'last_names', 'sis_code', 'identity_number'] as $column) {
+                    $query->orWhereRaw("LOWER({$column}) LIKE ?", ["%{$search}%"]);
+                }
             });
         }
 
-        $eligibilities = $query->get()->map(function ($eligibility) {
-            return [
-                'id' => $eligibility->id,
-                'student_id' => $eligibility->student_id,
-                'sis_code' => $eligibility->student->sis_code ?? null,
-                'identity_number' => $eligibility->student->identity_number ?? null,
-                'first_names' => $eligibility->student->first_names ?? null,
-                'last_names' => $eligibility->student->last_names ?? null,
-                'email' => $eligibility->student->user->email ?? null,
-                'status' => $eligibility->status,
-                'reason' => $eligibility->reason,
+        $data = $query->orderBy('id')->get()->map(function ($eligibility) {
+            $student = $eligibility->student;
+            $photo = $student?->user?->profile_photo;
+
+            return $this->data($eligibility) + [
+                'sis_code' => $student?->sis_code,
+                'identity_number' => $student?->identity_number,
+                'first_names' => $student?->first_names,
+                'last_names' => $student?->last_names,
+                'email' => $student?->user?->email,
+                'profile_photo_url' => $photo
+                    ? ((str_starts_with($photo, 'http://') || str_starts_with($photo, 'https://')) ? $photo : asset('storage/'.$photo))
+                    : null,
                 'evaluated_by' => $eligibility->evaluator?->email,
-                'evaluated_at' => $eligibility->evaluated_at?->toIso8601String(),
             ];
         });
 
-        return response()->json(['data' => $eligibilities]);
+        return response()->json(['data' => $data]);
     }
 
-    /**
-     * Actualizar estado de habilitación de un estudiante.
-     */
     public function update(UpdateEligibilityRequest $request, int $examId, int $studentId): JsonResponse
     {
-        $teacher = Teacher::where('user_id', $request->user()->id)->first();
+        $this->service->responsibleExam($request, $examId);
+        $eligibility = DB::transaction(function () use ($request, $examId, $studentId) {
+            $eligibility = ExamEligibility::where('exam_id', $examId)->where('student_id', $studentId)
+                ->lockForUpdate()->firstOrFail();
 
-        if (!$teacher) {
-            return response()->json(['message' => 'Forbidden - User is not a teacher.'], 403);
-        }
-
-        $exam = Exam::with('courseOffering')->findOrFail($examId);
-
-        if ($exam->courseOffering->teacher_id !== $teacher->id) {
-            return response()->json(['message' => 'Forbidden - You do not own this exam.'], 403);
-        }
-
-        $eligibility = ExamEligibility::where('exam_id', $examId)
-            ->where('student_id', $studentId)
-            ->firstOrFail();
-
-        $status = $request->validated('status');
-        $reason = $status === 'INELIGIBLE' ? $request->validated('reason') : null;
-
-        $eligibility->update([
-            'status' => $status,
-            'reason' => $reason,
-            'evaluated_by' => $request->user()->id,
-            'evaluated_at' => now(),
-        ]);
+            return $this->service->save($eligibility, $request->validated(), $request);
+        });
 
         return response()->json([
             'message' => 'Estado de habilitación actualizado correctamente.',
-            'data' => [
-                'id' => $eligibility->id,
-                'exam_id' => $eligibility->exam_id,
-                'student_id' => $eligibility->student_id,
-                'status' => $eligibility->status,
-                'reason' => $eligibility->reason,
-                'evaluated_at' => $eligibility->evaluated_at->toIso8601String(),
-            ],
+            'data' => $this->data($eligibility),
         ]);
+    }
+
+    public function reasons(Request $request, int $examId): JsonResponse
+    {
+        $this->service->responsibleExam($request, $examId);
+
+        return response()->json(['data' => collect(EligibilityRules::REASONS)
+            ->map(fn ($label, $code) => ['code' => $code, 'label' => $label])->values()]);
+    }
+
+    public function bulk(Request $request, int $examId): JsonResponse
+    {
+        $exam = $this->service->responsibleExam($request, $examId);
+        $request->validate(['file' => ['required', 'file', 'mimes:csv,txt', 'extensions:csv', 'max:5120']]);
+        $result = $this->service->bulk($request->file('file'), $exam, $request);
+
+        return response()->json(['message' => 'Carga de habilitaciones procesada.', 'data' => $result]);
     }
 }

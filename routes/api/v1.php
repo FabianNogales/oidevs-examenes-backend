@@ -20,6 +20,8 @@ Route::prefix('exams/{exam}/eligibilities')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'teacher.role'])
     ->group(function () {
         Route::get('/', [ExamEligibilityController::class, 'index']);
+        Route::get('/reasons', [ExamEligibilityController::class, 'reasons']);
+        Route::post('/bulk', [ExamEligibilityController::class, 'bulk']);
         Route::patch('/{student}', [ExamEligibilityController::class, 'update']);
     });
 
