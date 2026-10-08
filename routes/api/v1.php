@@ -14,6 +14,13 @@ use App\Http\Controllers\Api\V1\TeacherDashboard\TeacherDashboardController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\Rooms\RoomController;
 
+Route::prefix('admin/rooms')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureActiveRoomAdministrator::class])
+    ->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'index']);
+        Route::get('/{room}', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'show'])->whereNumber('room');
+    });
+
 Route::middleware(['auth:sanctum', 'session.current'])->group(function () {
     Route::get('/rooms', [RoomController::class, 'index']);
 });
