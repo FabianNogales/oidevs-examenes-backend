@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use Closure;
+use App\Enums\UserStatus;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -13,6 +14,21 @@ class EnsureCurrentSession
     public function handle(Request $request, Closure $next): Response|JsonResponse
     {
         $user = $request->user();
+
+        // Bloquear cuentas desactivadas antes de validar la sesión previa, también sin cookie.
+        if ($user && $user->status !== UserStatus::ACTIVE->value) {
+            if ($request->hasSession()) {
+                Auth::guard(config('fortify.guard', 'web'))->logoutCurrentDevice();
+                $request->session()->invalidate();
+                $request->session()->regenerateToken();
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'La cuenta se encuentra inactiva.',
+                'code' => 'ACCOUNT_INACTIVE',
+            ], 401);
+        }
 
         if (! $user || ! $request->hasSession()) {
             return $next($request);

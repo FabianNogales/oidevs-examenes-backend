@@ -68,6 +68,10 @@ Route::middleware(['auth:sanctum', 'session.current', 'password.changed', 'verif
         [StudentImportController::class, 'confirm']
     );
         Route::get('students', [StudentController::class, 'index'])->name('students.index');
+        Route::post('students', [StudentController::class, 'store'])->name('students.store');
+        Route::get('students/{student}', [StudentController::class, 'show'])->name('students.show');
+        Route::patch('students/{student}', [StudentController::class, 'update'])->name('students.update');
+        Route::patch('students/{student}/status', [StudentController::class, 'updateStatus'])->name('students.status');
         Route::get('teachers', [TeacherController::class, 'index'])->name('teachers.index');
         Route::post('teachers', [TeacherController::class, 'store'])->name('teachers.store');
         Route::get('teachers/{teacher}', [TeacherController::class, 'show'])->name('teachers.show');

@@ -46,6 +46,7 @@ The initial domain folders are prepared for Auth, Students, Subjects, Exams, Col
 ## Documentación técnica
 
 - [HU02 — Autenticación y sesión](docs/HU02_AUTH_API.md)
+- [HU20 — Gestión de estudiantes: contrato backend](docs/HU20_Gestion_Estudiantes_Backend.md)
 
 ## Database
 

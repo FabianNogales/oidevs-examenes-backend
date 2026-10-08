@@ -19,7 +19,10 @@ class StudentRegistrationService
 {
     public function __construct(private readonly InitialPasswordService $initialPasswordService) {}
 
-    /** Crear una cuenta nueva a partir de datos previamente validados y normalizados. */
+    /**
+     * Crear cuenta, rol y perfil de forma atómica con datos validados/normalizados.
+     * $context distingue IMPORT (HU05) de MANUAL (HU20) en la auditoría.
+     */
     public function create(
         array $data,
         Career $career,
@@ -44,6 +47,7 @@ class StudentRegistrationService
                 'profile_photo' => $data['profile_photo'] ?? null,
             ]);
 
+            // Compartir la regla de credencial inicial CI y cambio obligatorio con HU05.
             $this->initialPasswordService->initialize($user, $data['identity_number']);
 
             $user->roles()->attach($studentRole->id, [
