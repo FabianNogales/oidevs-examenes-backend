@@ -91,9 +91,13 @@ class ExamCollaboratorController extends Controller
     public function users(Request $request): JsonResponse
     {
         abort_unless($request->user()->isActive(), 403, 'La cuenta no está activa.');
-        $validated = $request->validate(['search' => 'nullable|string|max:255']);
+        $validated = $request->validate([
+            'search' => 'nullable|string|max:255',
+            'exam_id' => 'required|integer|exists:exams,id',
+        ]);
+        $exam = $this->collaboratorService->responsibleExam($validated['exam_id'], $request->user()->id);
         $search = trim($validated['search'] ?? '');
-        $query = User::with(['teacher', 'student']);
+        $query = $this->collaboratorService->candidateUsers($exam);
 
         if ($search !== '') {
             $query->where(function ($query) use ($search) {

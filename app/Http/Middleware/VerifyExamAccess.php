@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\Exam;
 use App\Models\ExamCollaborator;
+use App\Services\Collaborators\ExamCollaboratorService;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -35,6 +36,7 @@ class VerifyExamAccess
         }
 
         if (ExamCollaborator::examIsAvailable($exam)
+            && app(ExamCollaboratorService::class)->isCandidate($exam, $user->id)
             && ExamCollaborator::where('exam_id', $exam->id)->where('user_id', $user->id)
                 ->where('status', 'ACTIVE')->exists()) {
             return $next($request);

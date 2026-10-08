@@ -16,7 +16,7 @@ La reversión se impide si existen colaboradores sin perfil de estudiante, para 
 
 Todos los endpoints requieren autenticación Sanctum (sesión SPA o Bearer) y haber completado el cambio de contraseña cuando corresponda.
 POST, GET y DELETE de colaboradores exigen rol DOCENTE activo y ser el docente responsable del examen.
-GET /users exige rol DOCENTE activo y cuenta activa; este buscador sirve al modal de HU15, no reemplaza la administración de usuarios de HU21.
+GET /users exige exam_id, rol DOCENTE activo, cuenta activa y ser responsable del examen; este buscador sirve al modal de HU15, no reemplaza la administración de usuarios de HU21.
 GET /me/collaborations está disponible para cualquier cuenta activa autenticada, sin exigir un rol específico.
 Ninguna operación modifica roles globales.
 
@@ -41,7 +41,7 @@ Body: {"user_id":5}
 
 assigned_by lo determina el backend con el usuario autenticado.
 Una asignación activa duplicada devuelve 422 con errors.user_id.
-Una cuenta inactiva no puede recibir una nueva autorización.
+Solo puede recibir autorización un usuario con cuenta y perfil de estudiante activos, sin inscripción ACTIVE en la oferta académica del examen. La validación se repite en el POST aunque el usuario haya aparecido antes en el buscador.
 Una autorización revocada puede reasignarse: se reutiliza su registro y se actualizan asignador y fecha.
 
 ### GET /exams/{exam_id}/collaborators
@@ -89,9 +89,9 @@ Revoca la autorización únicamente para ese examen y conserva el registro.
 Solo muestra colaboraciones vigentes del usuario autenticado. Sin colaboraciones: {"data":[]}.
 room es el nombre del ambiente, o null si no hay ambiente asociado.
 
-### GET /users?search={query}
+### GET /users?exam_id={exam_id}&search={query}
 
-Busca por nombre, apellidos, nombre completo, CI o correo entre usuarios de cualquier rol.
+Busca por nombre, apellidos, nombre completo, CI o correo únicamente entre estudiantes aptos para el examen indicado. exam_id es obligatorio; su ausencia devuelve 422. Excluye cuentas/perfiles inactivos, usuarios sin perfil de estudiante e inscripciones ACTIVE en la oferta del examen.
 200:
 {
   "data": [{
@@ -102,14 +102,15 @@ Busca por nombre, apellidos, nombre completo, CI o correo entre usuarios de cual
   }]
 }
 
-Sin coincidencias: {"data":[]}. Sin search se devuelve el listado.
-Usuarios sin perfil docente/estudiante usan su correo como display_name y identity_number:null.
+Sin coincidencias: {"data":[]}. Sin search se devuelve el listado de candidatos del examen.
+Los id devueltos siguen siendo IDs de users y se envían como user_id al POST.
 Los datos administrativos y las contraseñas no se exponen.
 La respuesta no está paginada, conforme al contrato acordado.
 
 ## Vigencia y control de acceso
 
 La autorización deja de permitir acceso cuando se revoca, cuando el examen sale de SCHEDULED/IN_PROGRESS o cuando llega la fecha/hora de inicio más duration_minutes.
+Las colaboraciones antiguas que ya no cumplen la nueva regla no habilitan acceso al control ni aparecen en /me/collaborations; sus registros se conservan para poder revocarlos.
 Las fechas del examen se interpretan con APP_TIMEZONE del backend; assigned_at se serializa en UTC.
 El middleware verify.exam.access valida usuario, examen y autorización vigente; la comparación del docente responsable usa teachers.user_id.
 Este cambio prepara la autorización para las herramientas de HU13/HU14. No incorpora nuevos endpoints de verificación o escaneo QR.
@@ -128,4 +129,12 @@ Las rutas anteriores /student/collaborations y la semántica DELETE por ID de co
     php artisan test
     php artisan route:list --path=api/v1
 
-Las pruebas de colaboradores mantienen habilitados los middleware y cubren asignación de estudiantes y usuarios sin perfil, datos del contrato, búsqueda, permisos del docente responsable, aislamiento entre usuarios/exámenes, duplicados, reasignación, revocación, vencimiento y migración de registros anteriores.
+Las pruebas de colaboradores mantienen habilitados los middleware y cubren asignación de estudiantes aptos y rechazo de usuarios sin perfil, datos del contrato, búsqueda, permisos del docente responsable, aislamiento entre usuarios/exámenes, duplicados, reasignación, revocación, vencimiento y migración de registros anteriores.
+
+## Regla funcional actualizada de HU15
+
+La aptitud se verifica contra enrollments de la course_offering_id del examen.
+Una inscripción INACTIVE o una inscripción en otra oferta no impide ser candidato.
+En esta versión no existe un registro de notas/aprobación: no se exige una aprobación para colaborar ni se infiere una nota desde el estado INACTIVE. Un estudiante que aprobó y ya no tiene inscripción activa puede ser candidato.
+Se mantiene user_id en el contrato y /me/collaborations accesible sin restricción de rol global.
+Este ajuste no modifica inscripciones, roles, estados de estudiantes ni otras HUs, y no requiere una migración adicional.

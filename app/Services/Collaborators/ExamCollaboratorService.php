@@ -5,6 +5,7 @@ namespace App\Services\Collaborators;
 use App\Models\Exam;
 use App\Models\ExamCollaborator;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -21,6 +22,24 @@ class ExamCollaboratorService
         return $exam;
     }
 
+    public function candidateUsers(Exam $exam): Builder
+    {
+        return User::with(['teacher', 'student'])->where('status', 'ACTIVE')
+            ->whereHas('student', function ($student) use ($exam) {
+                $student->where('status', 'ACTIVE')->whereNotExists(function ($enrollment) use ($exam) {
+                    $enrollment->selectRaw('1')->from('enrollments')
+                        ->whereColumn('enrollments.student_id', 'students.id')
+                        ->where('enrollments.course_offering_id', $exam->course_offering_id)
+                        ->where('enrollments.status', 'ACTIVE');
+                });
+            });
+    }
+
+    public function isCandidate(Exam $exam, int $userId): bool
+    {
+        return $this->candidateUsers($exam)->whereKey($userId)->exists();
+    }
+
     public function assignCollaborator(int $examId, int $userId, int $assignedByUserId): ExamCollaborator
     {
         return DB::transaction(function () use ($examId, $userId, $assignedByUserId) {
@@ -30,9 +49,9 @@ class ExamCollaboratorService
                 throw ValidationException::withMessages(['exam_id' => ['El examen ya finalizó o no está disponible.']]);
             }
 
-            $user = User::findOrFail($userId);
-            if (! $user->isActive()) {
-                throw ValidationException::withMessages(['user_id' => ['El usuario debe tener una cuenta activa.']]);
+            User::findOrFail($userId);
+            if (! $this->isCandidate($exam, $userId)) {
+                throw ValidationException::withMessages(['user_id' => ['El colaborador debe ser un estudiante activo sin inscripción activa en la oferta del examen.']]);
             }
 
             $existing = ExamCollaborator::where('exam_id', $examId)->where('user_id', $userId)->first();
@@ -76,7 +95,7 @@ class ExamCollaboratorService
     {
         return ExamCollaborator::with(['exam.courseOffering.subject', 'exam.room'])
             ->where('user_id', $userId)->where('status', 'ACTIVE')->orderBy('id')->get()
-            ->filter(fn ($collaboration) => ExamCollaborator::examIsAvailable($collaboration->exam))
+            ->filter(fn ($collaboration) => ExamCollaborator::examIsAvailable($collaboration->exam) && $this->isCandidate($collaboration->exam, $userId))
             ->values();
     }
 }
