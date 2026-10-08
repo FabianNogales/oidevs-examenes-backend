@@ -41,7 +41,7 @@ Body: {"user_id":5}
 
 assigned_by lo determina el backend con el usuario autenticado.
 Una asignación activa duplicada devuelve 422 con errors.user_id.
-Solo puede recibir autorización un usuario con cuenta y perfil de estudiante activos, sin inscripción ACTIVE en la oferta académica del examen. La validación se repite en el POST aunque el usuario haya aparecido antes en el buscador.
+Puede recibir autorización cualquier usuario con cuenta ACTIVE, independientemente de su rol. Si tiene perfil de estudiante, no puede tener inscripción ACTIVE en la oferta académica del examen. La validación se repite en el POST aunque el usuario haya aparecido antes en el buscador.
 Una autorización revocada puede reasignarse: se reutiliza su registro y se actualizan asignador y fecha.
 
 ### GET /exams/{exam_id}/collaborators
@@ -91,7 +91,7 @@ room es el nombre del ambiente, o null si no hay ambiente asociado.
 
 ### GET /users?exam_id={exam_id}&search={query}
 
-Busca por nombre, apellidos, nombre completo, CI o correo únicamente entre estudiantes aptos para el examen indicado. exam_id es obligatorio; su ausencia devuelve 422. Excluye cuentas/perfiles inactivos, usuarios sin perfil de estudiante e inscripciones ACTIVE en la oferta del examen.
+Busca por nombre, apellidos, nombre completo, CI o correo entre usuarios activos de cualquier rol. exam_id es obligatorio; su ausencia devuelve 422. Excluye cuentas inactivas y usuarios con inscripción estudiantil ACTIVE en la oferta del examen. Los usuarios activos sin perfil estudiantil también pueden ser candidatos.
 200:
 {
   "data": [{
@@ -103,7 +103,7 @@ Busca por nombre, apellidos, nombre completo, CI o correo únicamente entre estu
 }
 
 Sin coincidencias: {"data":[]}. Sin search se devuelve el listado de candidatos del examen.
-Los id devueltos siguen siendo IDs de users y se envían como user_id al POST.
+Los id devueltos siguen siendo IDs de users y se envían como user_id al POST. Usuarios sin perfil docente/estudiante usan su correo como display_name y identity_number:null.
 Los datos administrativos y las contraseñas no se exponen.
 La respuesta no está paginada, conforme al contrato acordado.
 
@@ -129,12 +129,14 @@ Las rutas anteriores /student/collaborations y la semántica DELETE por ID de co
     php artisan test
     php artisan route:list --path=api/v1
 
-Las pruebas de colaboradores mantienen habilitados los middleware y cubren asignación de estudiantes aptos y rechazo de usuarios sin perfil, datos del contrato, búsqueda, permisos del docente responsable, aislamiento entre usuarios/exámenes, duplicados, reasignación, revocación, vencimiento y migración de registros anteriores.
+Las pruebas de colaboradores mantienen habilitados los middleware y cubren asignación de usuarios activos de distintos roles, docentes que colaboran en otro examen, rechazo de cuentas inactivas y estudiantes inscritos, datos del contrato, búsqueda, permisos del docente responsable, aislamiento entre usuarios/exámenes, duplicados, reasignación, revocación, vencimiento y migración de registros anteriores.
 
-## Regla funcional actualizada de HU15
+## Regla C vigente de HU15/HU16
 
-La aptitud se verifica contra enrollments de la course_offering_id del examen.
+Cualquier usuario registrado con cuenta ACTIVE puede colaborar, sin cambiar su rol permanente.
+La restricción estudiantil se verifica contra enrollments de la course_offering_id del examen y el perfil de estudiante asociado al usuario. Si tiene inscripción ACTIVE, se excluye incluso si además tiene otro rol; poseer otro rol no elimina su condición de estudiante inscrito.
+Para usuarios sin perfil de estudiante no aplica esta restricción. No se exige un rol global específico para ser candidato.
 Una inscripción INACTIVE o una inscripción en otra oferta no impide ser candidato.
 En esta versión no existe un registro de notas/aprobación: no se exige una aprobación para colaborar ni se infiere una nota desde el estado INACTIVE. Un estudiante que aprobó y ya no tiene inscripción activa puede ser candidato.
-Se mantiene user_id en el contrato y /me/collaborations accesible sin restricción de rol global.
+Se mantiene user_id en el contrato y /me/collaborations accesible sin restricción de rol global. Un docente puede conservar sus exámenes y consultar adicionalmente sus colaboraciones en exámenes ajenos. La colaboración no le permite administrar colaboradores de esos exámenes.
 Este ajuste no modifica inscripciones, roles, estados de estudiantes ni otras HUs, y no requiere una migración adicional.

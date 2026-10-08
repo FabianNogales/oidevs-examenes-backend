@@ -308,7 +308,7 @@ class ExamCollaboratorTest extends TestCase
                 ->assertJsonPath('data.0.identity_number', $student->identity_number);
         }
         $this->getJson('/api/v1/users?exam_id='.$exam->id.'&search=registered%40example.com')->assertOk()
-            ->assertJsonCount(0, 'data');
+            ->assertJsonPath('data.0.id', $plainUser->id)->assertJsonMissingPath('data.0.password');
         $this->getJson('/api/v1/users?exam_id='.$exam->id.'&search=no-match-xyz')->assertOk()->assertJsonCount(0, 'data');
         $this->actingAs($plainUser)->getJson('/api/v1/users?search=Juan')->assertForbidden();
     }
@@ -426,7 +426,7 @@ class ExamCollaboratorTest extends TestCase
         $candidate = $this->createStudent();
         $this->enroll($enrolled, $exam);
         $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")
-            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $candidate->user_id);
+            ->assertOk()->assertJsonCount(2, 'data')->assertJsonFragment(['id' => $candidate->user_id]);
         $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $enrolled->user_id])
             ->assertUnprocessable()->assertJsonValidationErrors('user_id');
         $this->assertDatabaseCount('exam_collaborators', 0);
@@ -443,26 +443,66 @@ class ExamCollaboratorTest extends TestCase
         $other = $this->createStudent();
         $this->enroll($former, $exam, 'INACTIVE');
         $this->enroll($other, $otherExam);
-        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonCount(2, 'data');
+        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonCount(3, 'data');
         foreach ([$former, $other] as $student) {
             $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $student->user_id])->assertCreated();
         }
     }
 
-    public function test_non_students_and_inactive_profiles_cannot_be_assigned(): void
+    public function test_active_users_of_any_role_are_candidates_and_inactive_accounts_are_rejected(): void
     {
         $owner = User::factory()->create();
         $exam = $this->createExam($this->createTeacher($owner));
-        $inactive = $this->createStudent();
-        $inactive->update(['status' => 'INACTIVE']);
-        $inactiveAccount = $this->createStudent();
-        $inactiveAccount->user->update(['status' => 'INACTIVE']);
         $plain = User::factory()->create();
-        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonCount(0, 'data');
-        foreach ([$plain->id, $owner->id, $inactive->user_id, $inactiveAccount->user_id] as $id) {
-            $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $id])
-                ->assertUnprocessable()->assertJsonValidationErrors('user_id');
+        $teacherUser = User::factory()->create();
+        $this->createTeacher($teacherUser);
+        $admin = User::factory()->create();
+        $role = Role::firstOrCreate(['name' => RoleName::ADMINISTRADOR->value], ['status' => 'ACTIVE']);
+        $admin->roles()->attach($role->id, ['status' => 'ACTIVE', 'assigned_at' => now()]);
+        $inactive = User::factory()->create(['status' => 'INACTIVE']);
+        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")
+            ->assertOk()->assertJsonCount(4, 'data')->assertJsonMissing(['id' => $inactive->id]);
+        foreach ([$plain, $teacherUser, $admin] as $candidate) {
+            $roles = $candidate->roles()->pluck('roles.id')->all();
+            $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $candidate->id])->assertCreated();
+            $this->assertSame($roles, $candidate->roles()->pluck('roles.id')->all());
         }
+        $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $inactive->id])
+            ->assertUnprocessable()->assertJsonValidationErrors('user_id');
+    }
+
+    public function test_teacher_can_collaborate_on_another_exam_without_managing_its_collaborators(): void
+    {
+        $owner = User::factory()->create();
+        $exam = $this->createExam($this->createTeacher($owner));
+        $collaborator = User::factory()->create();
+        $ownExam = $this->createExam($this->createTeacher($collaborator));
+        $this->actingAs($owner)->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $collaborator->id])->assertCreated();
+        $this->actingAs($collaborator)->getJson('/api/v1/me/collaborations')
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.exam_id', $exam->id);
+        $this->assertTrue($collaborator->hasRole(RoleName::DOCENTE));
+        $this->getJson("/api/v1/exams/{$ownExam->id}/collaborators")->assertOk();
+        $this->getJson("/api/v1/exams/{$exam->id}/collaborators")->assertForbidden();
+        $request = Request::create('/control', 'GET', ['exam_id' => $exam->id]);
+        $request->setUserResolver(fn () => $collaborator);
+        $this->assertSame(200, (new VerifyExamAccess)->handle($request, fn () => response()->json(['ok' => true]))->getStatusCode());
+        $this->actingAs($owner)->deleteJson("/api/v1/exams/{$exam->id}/collaborators/{$collaborator->id}")->assertOk();
+        $this->assertSame(403, (new VerifyExamAccess)->handle($request, fn () => response()->json(['ok' => true]))->getStatusCode());
+        $this->actingAs($collaborator)->getJson("/api/v1/exams/{$ownExam->id}/collaborators")->assertOk();
+        $this->getJson('/api/v1/me/collaborations')->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_student_enrollment_restriction_also_applies_to_a_user_with_teacher_role(): void
+    {
+        $owner = User::factory()->create();
+        $exam = $this->createExam($this->createTeacher($owner));
+        $student = $this->createStudent();
+        $this->createTeacher($student->user);
+        $this->enroll($student, $exam);
+        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")
+            ->assertOk()->assertJsonMissing(['id' => $student->user_id]);
+        $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $student->user_id])
+            ->assertUnprocessable()->assertJsonValidationErrors('user_id');
     }
 
     public function test_candidate_search_requires_exam_and_responsible_teacher(): void
@@ -481,12 +521,12 @@ class ExamCollaboratorTest extends TestCase
         $owner = User::factory()->create();
         $exam = $this->createExam($this->createTeacher($owner));
         $student = $this->createStudent();
-        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonCount(1, 'data');
+        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonCount(2, 'data');
         $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $student->user_id])->assertCreated();
         $this->enroll($student, $exam);
         $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $student->user_id])
             ->assertUnprocessable()->assertJsonValidationErrors('user_id');
-        $this->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonCount(1, 'data');
         $this->actingAs($student->user)->getJson('/api/v1/me/collaborations')->assertOk()->assertJsonCount(0, 'data');
         $request = Request::create('/control', 'GET', ['exam_id' => $exam->id]);
         $request->setUserResolver(fn () => $student->user);

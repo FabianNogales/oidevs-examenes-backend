@@ -24,14 +24,14 @@ class ExamCollaboratorService
 
     public function candidateUsers(Exam $exam): Builder
     {
+        // El perfil estudiantil determina la inscripción, incluso en usuarios con varios roles.
         return User::with(['teacher', 'student'])->where('status', 'ACTIVE')
-            ->whereHas('student', function ($student) use ($exam) {
-                $student->where('status', 'ACTIVE')->whereNotExists(function ($enrollment) use ($exam) {
-                    $enrollment->selectRaw('1')->from('enrollments')
-                        ->whereColumn('enrollments.student_id', 'students.id')
-                        ->where('enrollments.course_offering_id', $exam->course_offering_id)
-                        ->where('enrollments.status', 'ACTIVE');
-                });
+            ->whereNotExists(function ($enrollment) use ($exam) {
+                $enrollment->selectRaw('1')->from('enrollments')
+                    ->join('students', 'students.id', '=', 'enrollments.student_id')
+                    ->whereColumn('students.user_id', 'users.id')
+                    ->where('enrollments.course_offering_id', $exam->course_offering_id)
+                    ->where('enrollments.status', 'ACTIVE');
             });
     }
 
@@ -51,7 +51,7 @@ class ExamCollaboratorService
 
             User::findOrFail($userId);
             if (! $this->isCandidate($exam, $userId)) {
-                throw ValidationException::withMessages(['user_id' => ['El colaborador debe ser un estudiante activo sin inscripción activa en la oferta del examen.']]);
+                throw ValidationException::withMessages(['user_id' => ['El colaborador debe tener una cuenta activa y no tener una inscripción estudiantil activa en la oferta del examen.']]);
             }
 
             $existing = ExamCollaborator::where('exam_id', $examId)->where('user_id', $userId)->first();
