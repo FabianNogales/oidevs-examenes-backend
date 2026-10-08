@@ -3,6 +3,7 @@
 use App\Enums\RoleName;
 use App\Http\Controllers\Api\V1\Admin\TeacherController;
 use App\Http\Controllers\Api\V1\Admin\StudentImportController;
+use App\Http\Controllers\Api\V1\Admin\StudentController;
 use App\Http\Controllers\Api\V1\Auth\AuthController;
 use App\Http\Controllers\Api\V1\Auth\CurrentUserController;
 use App\Http\Controllers\Api\V1\Enrollments\StudentEnrollmentController;
@@ -66,6 +67,7 @@ Route::middleware(['auth:sanctum', 'session.current', 'password.changed', 'verif
         '/students/import/confirm',
         [StudentImportController::class, 'confirm']
     );
+        Route::get('students', [StudentController::class, 'index'])->name('students.index');
         Route::get('teachers', [TeacherController::class, 'index'])->name('teachers.index');
         Route::post('teachers', [TeacherController::class, 'store'])->name('teachers.store');
         Route::get('teachers/{teacher}', [TeacherController::class, 'show'])->name('teachers.show');
