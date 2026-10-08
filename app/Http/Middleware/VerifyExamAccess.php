@@ -2,10 +2,10 @@
 
 namespace App\Http\Middleware;
 
-use Closure;
-use Illuminate\Http\Request;
 use App\Models\Exam;
 use App\Models\ExamCollaborator;
+use Closure;
+use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 class VerifyExamAccess
@@ -13,37 +13,33 @@ class VerifyExamAccess
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
+        if (! $user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        if (! $user->isActive()) {
+            return response()->json(['message' => 'La cuenta no está activa.'], 403);
+        }
+
         $examId = $request->route('exam') ?? $request->route('exam_id') ?? $request->input('exam_id');
-
-        if (!$examId) {
-            return response()->json(['message' => 'Examen no especificado'], Response::HTTP_BAD_REQUEST);
+        if (! $examId) {
+            return response()->json(['message' => 'Examen no especificado'], 400);
+        }
+        $exam = $examId instanceof Exam ? $examId->load('courseOffering.teacher')
+            : Exam::with('courseOffering.teacher')->find($examId);
+        if (! $exam) {
+            return response()->json(['message' => 'Examen no encontrado'], 404);
         }
 
-        $exam = Exam::with('courseOffering')->find($examId);
-
-        if (!$exam) {
-            return response()->json(['message' => 'Examen no encontrado'], Response::HTTP_NOT_FOUND);
-        }
-
-        // 1. Acceso permitido si el usuario es el docente responsable del examen
-        if ($exam->courseOffering && $exam->courseOffering->teacher_id === $user->id) {
+        if ((int) $exam->courseOffering?->teacher?->user_id === $user->id) {
             return $next($request);
         }
 
-        // 2. Acceso permitido si el estudiante es un colaborador temporal activo
-        if ($user->student) {
-            $isCollaborator = ExamCollaborator::where('exam_id', $examId)
-                ->where('student_id', $user->student->id)
-                ->where('status', 'ACTIVE')
-                ->exists();
-
-            if ($isCollaborator) {
-                return $next($request);
-            }
+        if (ExamCollaborator::examIsAvailable($exam)
+            && ExamCollaborator::where('exam_id', $exam->id)->where('user_id', $user->id)
+                ->where('status', 'ACTIVE')->exists()) {
+            return $next($request);
         }
 
-        return response()->json([
-            'message' => 'No tiene autorización para gestionar ni verificar este examen'
-        ], Response::HTTP_FORBIDDEN);
+        return response()->json(['message' => 'No tiene autorización vigente para verificar este examen'], 403);
     }
 }

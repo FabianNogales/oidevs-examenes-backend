@@ -4,82 +4,79 @@ namespace App\Services\Collaborators;
 
 use App\Models\Exam;
 use App\Models\ExamCollaborator;
-use App\Models\Student;
+use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class ExamCollaboratorService
 {
-    /**
-     * Designar a un estudiante como colaborador temporal para un examen (HU15).
-     */
-    public function assignCollaborator(int $examId, int $studentId, int $assignedByUserId): ExamCollaborator
+    public function responsibleExam(int $examId, int $userId): Exam
     {
-        $exam = Exam::findOrFail($examId);
-        $student = Student::findOrFail($studentId);
+        abort_unless(User::findOrFail($userId)->isActive(), 403, 'La cuenta no está activa.');
+        $exam = Exam::with('courseOffering.teacher')->findOrFail($examId);
+        abort_unless((int) $exam->courseOffering?->teacher?->user_id === $userId, 403,
+            'Solo el docente responsable puede gestionar los colaboradores de este examen.');
 
-        // Validar que el estudiante no esté ya asignado activamente
-        $existing = ExamCollaborator::where('exam_id', $examId)
-            ->where('student_id', $studentId)
-            ->where('status', 'ACTIVE')
-            ->first();
-
-        if ($existing) {
-            throw ValidationException::withMessages([
-                'student_id' => ['El estudiante ya está designado como colaborador activo para este examen.']
-            ]);
-        }
-
-        // Generar un hash de código de acceso temporal
-        $accessCode = Str::random(32);
-
-        return ExamCollaborator::create([
-            'exam_id' => $examId,
-            'student_id' => $studentId,
-            'assigned_by' => $assignedByUserId,
-            'access_code_hash' => hash('sha256', $accessCode),
-            'status' => 'ACTIVE',
-            'assigned_at' => now(),
-        ]);
+        return $exam;
     }
 
-    /**
-     * Listar todos los colaboradores de un examen (HU15).
-     */
+    public function assignCollaborator(int $examId, int $userId, int $assignedByUserId): ExamCollaborator
+    {
+        return DB::transaction(function () use ($examId, $userId, $assignedByUserId) {
+            // Serializar las asignaciones del mismo examen, incluso la primera.
+            $exam = Exam::whereKey($examId)->lockForUpdate()->firstOrFail();
+            if (! ExamCollaborator::examIsAvailable($exam)) {
+                throw ValidationException::withMessages(['exam_id' => ['El examen ya finalizó o no está disponible.']]);
+            }
+
+            $user = User::findOrFail($userId);
+            if (! $user->isActive()) {
+                throw ValidationException::withMessages(['user_id' => ['El usuario debe tener una cuenta activa.']]);
+            }
+
+            $existing = ExamCollaborator::where('exam_id', $examId)->where('user_id', $userId)->first();
+            if ($existing && $existing->status === 'ACTIVE') {
+                throw ValidationException::withMessages(['user_id' => ['El usuario ya está asignado como colaborador activo para este examen.']]);
+            }
+
+            $values = [
+                'assigned_by' => $assignedByUserId,
+                'access_code_hash' => hash('sha256', Str::random(32)),
+                'status' => 'ACTIVE',
+                'assigned_at' => now(),
+                'revoked_at' => null,
+            ];
+
+            if ($existing) {
+                $existing->update($values);
+
+                return $existing->load(['user.teacher', 'user.student', 'assigner.teacher', 'assigner.student']);
+            }
+
+            return ExamCollaborator::create($values + ['exam_id' => $examId, 'user_id' => $userId])
+                ->load(['user.teacher', 'user.student', 'assigner.teacher', 'assigner.student']);
+        });
+    }
+
     public function getExamCollaborators(int $examId)
     {
-        return ExamCollaborator::with(['student.user', 'assigner'])
-            ->where('exam_id', $examId)
-            ->get();
+        return ExamCollaborator::with(['user.teacher', 'user.student', 'assigner.teacher', 'assigner.student'])
+            ->where('exam_id', $examId)->where('status', 'ACTIVE')->orderBy('id')->get();
     }
 
-    /**
-     * Revocar la autorización de un colaborador (HU15).
-     */
-    public function revokeCollaborator(int $examId, int $collaboratorId): ExamCollaborator
+    public function revokeCollaborator(int $examId, int $userId): void
     {
         $collaborator = ExamCollaborator::where('exam_id', $examId)
-            ->where('id', $collaboratorId)
-            ->firstOrFail();
-
-        $collaborator->update([
-            'status' => 'REVOKED',
-            'revoked_at' => now(),
-        ]);
-
-        return $collaborator;
+            ->where('user_id', $userId)->where('status', 'ACTIVE')->firstOrFail();
+        $collaborator->update(['status' => 'REVOKED', 'revoked_at' => now()]);
     }
 
-    /**
-     * Listar los exámenes donde el estudiante autenticado es colaborador activo (HU16).
-     */
-    public function getStudentCollaborations(int $userId)
+    public function getUserCollaborations(int $userId)
     {
-        $student = Student::where('user_id', $userId)->firstOrFail();
-
         return ExamCollaborator::with(['exam.courseOffering.subject', 'exam.room'])
-            ->where('student_id', $student->id)
-            ->where('status', 'ACTIVE')
-            ->get();
+            ->where('user_id', $userId)->where('status', 'ACTIVE')->orderBy('id')->get()
+            ->filter(fn ($collaboration) => ExamCollaborator::examIsAvailable($collaboration->exam))
+            ->values();
     }
 }
