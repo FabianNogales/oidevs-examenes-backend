@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\V1\Rooms\RoomController;
 Route::prefix('admin/rooms')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureActiveRoomAdministrator::class])
     ->group(function () {
+        Route::post('/import/preview', [\App\Http\Controllers\Api\V1\Admin\RoomImportController::class, 'preview']);
         Route::get('/', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'index']);
         Route::post('/', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'store']);
         Route::put('/{room}', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'update'])->whereNumber('room');
