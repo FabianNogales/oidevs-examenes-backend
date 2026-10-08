@@ -2,14 +2,12 @@
 
 namespace App\Services\Students;
 
-use App\Enums\RoleName;
 use App\Models\User;
 use App\Models\Student;
-use App\Models\Role;
 use App\Models\Career;
-use App\Services\Auth\InitialPasswordService;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class StudentCsvImportService
 {
@@ -25,12 +23,7 @@ class StudentCsvImportService
         'profile_photo',
     ];
 
-    private InitialPasswordService $initialPasswordService;
-
-    public function __construct(
-    InitialPasswordService $initialPasswordService){
-        $this->initialPasswordService = $initialPasswordService;
-    }
+    public function __construct(private readonly StudentRegistrationService $registration) {}
 
     public function validate(UploadedFile $file): array
     {
@@ -72,6 +65,7 @@ class StudentCsvImportService
             ];
         }
 
+        $headerStart = ftell($handle);
         $headers = fgetcsv($handle);
 
         if ($headers === false) {
@@ -108,30 +102,44 @@ class StudentCsvImportService
         }
 
         $rows = [];
+        $rowNumber = 1 + $this->consumedLineCount($handle, $headerStart);
 
-        while (($data = fgetcsv($handle)) !== false) {
-            if (empty(array_filter($data))) {
-                    $invalidRecords[] = [
-                    'sisCode' => null,
-                    'reason' => 'La fila está vacía',
-                    'row' => $rowNumber,
-                ];
-                continue;
+        while (true) {
+            $recordStart = ftell($handle);
+            $values = fgetcsv($handle);
+
+            if ($values === false) {
+                break;
             }
 
+            $currentRow = $rowNumber;
+            $rowNumber += $this->consumedLineCount($handle, $recordStart);
+            $values = array_map(fn ($value) => trim((string) $value), $values);
+            $rowErrors = [];
+
+            if (count(array_filter($values, fn (string $value) => $value !== '')) === 0) {
+                $rowErrors[] = 'La fila está vacía.';
+            } elseif (count($values) !== count(self::REQUIRED_COLUMNS)) {
+                $rowErrors[] = 'La fila no contiene la cantidad de columnas esperada.';
+            }
+
+            // Mantener las claves del contrato incluso en registros incompletos.
             $data = array_combine(
-    self::REQUIRED_COLUMNS,
-    $data
-);
+                self::REQUIRED_COLUMNS,
+                array_slice(array_pad($values, count(self::REQUIRED_COLUMNS), ''), 0, count(self::REQUIRED_COLUMNS))
+            );
+            $data['email'] = strtolower($data['email']);
 
-$rowErrors = $this->validateStudentData($data);
+            if ($rowErrors === []) {
+                $rowErrors = $this->validateStudentData($data);
+            }
 
-$rows[] = [
-    'row' => count($rows) + 2,
-    'data' => $data,
-    'valid' => empty($rowErrors),
-    'errors' => $rowErrors,
-];
+            $rows[] = [
+                'row' => $currentRow,
+                'data' => $data,
+                'valid' => empty($rowErrors),
+                'errors' => $rowErrors,
+            ];
         }
         $duplicateErrors = $this->validateDuplicates($rows);
 
@@ -170,6 +178,16 @@ return [
     'rows' => $rows,
 ];
     }
+    /** Contar líneas físicas, incluyendo saltos dentro de campos CSV entre comillas. */
+    private function consumedLineCount($handle, int $start): int
+    {
+        $end = ftell($handle);
+        fseek($handle, $start);
+        $record = fread($handle, $end - $start);
+
+        return max(1, preg_match_all('/\r\n|\r|\n/', $record));
+    }
+
     private function validateStudentData(array $data): array
 {
     $errors = [];
@@ -180,6 +198,8 @@ return [
 
     if ($data['identity_number'] === '') {
         $errors[] = 'El CI es obligatorio.';
+    } elseif (! preg_match('/\A[0-9]+\z/', $data['identity_number'])) {
+        $errors[] = 'El CI debe contener únicamente números.';
     }
 
     if ($data['first_names'] === '') {
@@ -209,6 +229,23 @@ return [
 
     if ($data['profile_photo'] === '') {
         $errors[] = 'La foto de perfil es obligatoria.';
+    }
+
+    // Las columnas string correspondientes usan el límite predeterminado de 255.
+    $fieldLabels = [
+        'sis_code' => 'El código SIS',
+        'identity_number' => 'El CI',
+        'first_names' => 'Los nombres',
+        'last_names' => 'Los apellidos',
+        'email' => 'El correo',
+        'career' => 'La carrera',
+        'profile_photo' => 'La referencia de la foto de perfil',
+    ];
+
+    foreach ($fieldLabels as $field => $label) {
+        if (mb_strlen($data[$field], 'UTF-8') > 255) {
+            $errors[] = $label.' no debe superar los 255 caracteres.';
+        }
     }
 
     return $errors;
@@ -269,79 +306,67 @@ private function validateExistingStudents(array $rows): array
         if (Student::where('identity_number', $data['identity_number'])->exists()) {
             $errors[$index][] = 'El CI ya existe en la base de datos.';
         }
-        if (User::where('email', $data['email'])->exists()) {
+        if (User::whereRaw('LOWER(email) = ?', [$data['email']])->exists()) {
             $errors[$index][] = 'El email ya existe en la base de datos.';
         }
     }
 
     return $errors;
 }
-public function import(UploadedFile $file): array
-{
-    $validation = $this->validate($file);
+    public function import(UploadedFile $file, ?User $actor = null, ?Request $request = null): array
+    {
+        $validation = $this->validate($file);
+        $imported = 0;
+        $skipped = 0;
+        $failed = 0;
+        $results = [];
 
-    $imported = 0;
-    $failed = 0;
+        foreach ($validation['rows'] as $row) {
+            $result = [
+                'row' => $row['row'],
+                'sis_code' => $row['data']['sis_code'],
+                'status' => 'SKIPPED',
+                'errors' => $row['errors'],
+                'student_id' => null,
+            ];
 
-    foreach ($validation['rows'] as $row) {
-        if (! $row['valid']) {
-            continue;
+            if (! $row['valid']) {
+                $skipped++;
+                $results[] = $result;
+                continue;
+            }
+
+            try {
+                $career = Career::where('name', $row['data']['career'])->firstOrFail();
+                $student = $this->registration->create($row['data'], $career, $actor, $request, 'IMPORT');
+
+                $result['status'] = 'IMPORTED';
+                $result['student_id'] = $student->id;
+                $imported++;
+            } catch (\Throwable $exception) {
+                $failed++;
+                $result['status'] = 'FAILED';
+                $result['errors'] = [
+                    $exception instanceof \DomainException
+                        ? 'El rol ESTUDIANTE activo no está disponible. No se creó el estudiante.'
+                        : 'No se pudo registrar el estudiante. La creación de esta fila fue revertida.',
+                ];
+
+                // No incluir SQL, credenciales ni datos personales en el diagnóstico.
+                Log::error('Falló la creación de una fila de importación de estudiantes.', [
+                    'row' => $row['row'],
+                    'exception_type' => $exception::class,
+                ]);
+            }
+
+            $results[] = $result;
         }
 
-        try {
-            DB::transaction(function () use ($row) {
-                $data = $row['data'];
+        $validation['imported_rows'] = $imported;
+        $validation['skipped_rows'] = $skipped;
+        $validation['failed_rows'] = $failed;
+        $validation['results'] = $results;
 
-                $career = Career::where(
-                    'name',
-                    $data['career']
-                )->firstOrFail();
-
-                $studentRole = Role::where(
-                    'name',
-                    RoleName::ESTUDIANTE->value
-                )->firstOrFail();
-
-                $user = User::forceCreate([
-                    'email' => $data['email'],
-                    'password' => 'temporary',
-                    'status' => 'ACTIVE',
-                    'profile_photo' => $data['profile_photo'],
-                ]);
-
-                $this->initialPasswordService->initialize(
-                    $user,
-                    $data['identity_number']
-                );
-
-                $user->roles()->attach(
-                    $studentRole->id,
-                    [
-                        'assigned_at' => now(),
-                        'status' => 'ACTIVE',
-                    ]
-                );
-
-                Student::create([
-                    'user_id' => $user->id,
-                    'sis_code' => $data['sis_code'],
-                    'identity_number' => $data['identity_number'],
-                    'first_names' => $data['first_names'],
-                    'last_names' => $data['last_names'],
-                    'career_id' => $career->id,
-                    'status' => 'ACTIVE',
-                ]);
-            });
-
-            $imported++;
-        } catch (\Throwable $exception) {
-            throw $exception;
-        }
+        return $validation;
     }
-
-    $validation['imported_rows'] = $imported;
-    $validation['failed_rows'] = $failed;
-
-    return $validation;
-}
 }
