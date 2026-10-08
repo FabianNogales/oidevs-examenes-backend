@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Rooms\ListRoomsRequest;
 use App\Http\Requests\Api\V1\Rooms\SaveRoomRequest;
+use App\Http\Requests\Api\V1\Rooms\UpdateRoomStatusRequest;
 use App\Http\Resources\Rooms\RoomResource;
 use App\Models\Room;
 use App\Services\Rooms\RoomService;
@@ -34,5 +35,10 @@ class RoomController extends Controller
     public function update(SaveRoomRequest $request, Room $room): RoomResource
     {
         return RoomResource::make($this->rooms->save($request->validated(), $request, $room));
+    }
+
+    public function updateStatus(UpdateRoomStatusRequest $request, Room $room): RoomResource
+    {
+        return RoomResource::make($this->rooms->changeStatus($room, $request->validated('status'), $request));
     }
 }

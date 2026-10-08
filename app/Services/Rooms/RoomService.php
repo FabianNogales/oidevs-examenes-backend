@@ -64,4 +64,23 @@ class RoomService
 
         return $query->orderBy('id')->paginate(15);
     }
+
+    public function changeStatus(Room $room, string $status, Request $request): Room
+    {
+        return DB::transaction(function () use ($room, $status, $request) {
+            $room = Room::query()->lockForUpdate()->findOrFail($room->id);
+            if ($room->status === $status) {
+                return $room;
+            }
+
+            $oldStatus = $room->status;
+            $room->status = $status;
+            $room->save();
+            $this->audit->log($request, $request->user()->id,
+                $status === 'ACTIVE' ? 'ROOM_ACTIVATED' : 'ROOM_DEACTIVATED',
+                Room::class, $room->id, ['status' => $oldStatus], ['status' => $status]);
+
+            return $room;
+        });
+    }
 }

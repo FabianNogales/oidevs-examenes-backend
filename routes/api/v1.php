@@ -20,6 +20,7 @@ Route::prefix('admin/rooms')
         Route::get('/', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'index']);
         Route::post('/', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'store']);
         Route::put('/{room}', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'update'])->whereNumber('room');
+        Route::patch('/{room}/status', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'updateStatus'])->whereNumber('room');
         Route::get('/{room}', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'show'])->whereNumber('room');
     });
 
