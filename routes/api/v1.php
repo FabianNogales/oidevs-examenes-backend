@@ -14,6 +14,14 @@ use App\Http\Controllers\Api\V1\TeacherDashboard\TeacherDashboardController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\Rooms\RoomController;
 
+Route::prefix('admin/subjects')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureActiveSubjectAdministrator::class])
+    ->group(function () {
+        Route::get('/careers', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'careers']);
+        Route::get('/', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'index']);
+        Route::get('/{subject}', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'show'])->whereNumber('subject');
+    });
+
 Route::prefix('admin/rooms')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureActiveRoomAdministrator::class])
     ->group(function () {
