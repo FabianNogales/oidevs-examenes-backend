@@ -3,10 +3,73 @@
 namespace App\Services\Subjects;
 
 use App\Models\Subject;
+use App\Models\Career;
+use App\Services\Audit\AuditLogService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class SubjectService
 {
+    public function __construct(private readonly AuditLogService $audit) {}
+
+    public function save(array $data, Request $request, ?Subject $subject = null): Subject
+    {
+        try {
+            return DB::transaction(function () use ($data, $request, $subject) {
+                $creating = $subject === null;
+                $subject = $creating ? new Subject : Subject::query()->lockForUpdate()->findOrFail($subject->id);
+                $old = $creating ? null : $this->snapshot($subject);
+                $ids = $data['career_ids'];
+                sort($ids, SORT_NUMERIC);
+                $careers = Career::query()->whereIn('id', $ids)->orderBy('id')->lockForUpdate()->get();
+                if ($careers->count() !== count($ids) || $ids === []) {
+                    throw ValidationException::withMessages(['career_ids' => 'Selecciona carreras existentes y distintas.']);
+                }
+                $existing = $creating ? [] : $subject->careers()->pluck('careers.id')->all();
+                foreach ($careers as $career) {
+                    if ($career->status !== 'ACTIVE' && ! in_array($career->id, $existing, true)) {
+                        throw ValidationException::withMessages(['career_ids' => 'No puedes agregar carreras inactivas.']);
+                    }
+                }
+                $code = strtoupper(trim($data['code']));
+                $duplicate = Subject::query()->whereRaw('UPPER(code) = ?', [$code]);
+                if (! $creating) {
+                    $duplicate->where('id', '!=', $subject->id);
+                }
+                if ($duplicate->exists()) {
+                    throw ValidationException::withMessages(['code' => 'Ya existe una materia con este código.']);
+                }
+                $subject->code = $code;
+                $subject->name = trim($data['name']);
+                if ($creating) {
+                    $subject->status = 'ACTIVE';
+                }
+                $subject->save();
+                $subject->careers()->sync($ids);
+                $this->audit->log($request, $request->user()->id,
+                    $creating ? 'SUBJECT_CREATED' : 'SUBJECT_UPDATED', Subject::class, $subject->id,
+                    $old, $this->snapshot($subject));
+
+                return $subject->load(['careers' => fn ($query) => $query->orderBy('careers.name')->orderBy('careers.id')]);
+            });
+        } catch (UniqueConstraintViolationException $exception) {
+            if (! str_contains($exception->getMessage(), 'subjects_code_unique') && ! str_contains($exception->getMessage(), 'subjects.code')) {
+                throw $exception;
+            }
+            throw ValidationException::withMessages(['code' => 'Ya existe una materia con este código.']);
+        }
+    }
+
+    private function snapshot(Subject $subject): array
+    {
+        return $subject->only(['code', 'name', 'status']) + [
+            'career_ids' => $subject->careers()->orderBy('careers.id')->pluck('careers.id')->all(),
+        ];
+    }
+
     public function paginate(array $filters): LengthAwarePaginator
     {
         $query = Subject::query()->with(['careers' => fn ($query) => $query->orderBy('careers.name')->orderBy('careers.id')]);

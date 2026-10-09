@@ -18,6 +18,8 @@ Route::prefix('admin/subjects')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureActiveSubjectAdministrator::class])
     ->group(function () {
         Route::get('/careers', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'careers']);
+        Route::post('/', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'store']);
+        Route::put('/{subject}', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'update'])->whereNumber('subject');
         Route::get('/', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'index']);
         Route::get('/{subject}', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'show'])->whereNumber('subject');
     });
