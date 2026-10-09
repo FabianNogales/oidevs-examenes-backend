@@ -49,7 +49,7 @@ class SubjectImportPreviewTest extends TestCase
         $this->assertSame(hash('sha256', $text), $import->file_hash);
         $this->assertSame($response->json('data.preview_id'), $import->preview_id);
         $this->assertSame(now()->addMinutes(30)->timestamp, $import->expires_at->timestamp);
-        $this->assertSame($response->json('data.rows'), $import->preview_report['rows']);
+        $this->assertEquals($response->json('data.rows'), $import->preview_report['rows']);
         $this->assertSame('PENDING', $import->status);
         $this->assertNull($import->result_report);
         $this->assertNull($import->completed_at);

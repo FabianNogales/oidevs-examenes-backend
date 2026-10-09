@@ -19,6 +19,7 @@ Route::prefix('admin/subjects')
     ->group(function () {
         Route::get('/careers', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'careers']);
         Route::post('/import/preview', [\App\Http\Controllers\Api\V1\Admin\SubjectImportController::class, 'preview']);
+        Route::post('/import/confirm', [\App\Http\Controllers\Api\V1\Admin\SubjectImportController::class, 'confirm']);
         Route::post('/', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'store']);
         Route::put('/{subject}', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'update'])->whereNumber('subject');
         Route::patch('/{subject}/status', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'updateStatus'])->whereNumber('subject');
