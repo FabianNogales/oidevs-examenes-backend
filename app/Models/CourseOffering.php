@@ -18,6 +18,12 @@ class CourseOffering extends Model
         'status',
     ];
 
+    protected $casts = [
+        'teacher_id' => 'integer',
+        'subject_id' => 'integer',
+        'academic_term_id' => 'integer',
+    ];
+
     public function subject(): BelongsTo
     {
         return $this->belongsTo(Subject::class);

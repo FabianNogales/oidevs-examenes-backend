@@ -26,6 +26,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'password.changed' => EnsurePasswordHasBeenChanged::class,
             'session.current' => EnsureCurrentSession::class,
             'role' => EnsureUserHasRole::class,
+            'verify.exam.access' => \App\Http\Middleware\VerifyExamAccess::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

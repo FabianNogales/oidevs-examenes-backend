@@ -1,19 +1,30 @@
 <?php
 
 use App\Enums\RoleName;
-use App\Http\Controllers\Api\V1\Admin\TeacherController;
 use App\Http\Controllers\Api\V1\Admin\StudentImportController;
 use App\Http\Controllers\Api\V1\Admin\StudentController;
+use App\Http\Controllers\Api\V1\Admin\TeacherController;
 use App\Http\Controllers\Api\V1\Auth\AuthController;
 use App\Http\Controllers\Api\V1\Auth\CurrentUserController;
+use App\Http\Controllers\Api\V1\Collaborators\ExamCollaboratorController;
+use App\Http\Controllers\Api\V1\Eligibility\ExamEligibilityController;
 use App\Http\Controllers\Api\V1\Enrollments\StudentEnrollmentController;
 use App\Http\Controllers\Api\V1\Exams\ExamSchedulingController;
 use App\Http\Controllers\Api\V1\Health\HealthCheckController;
+use App\Http\Controllers\Api\V1\Rooms\RoomController;
 use App\Http\Controllers\Api\V1\Students\StudentProfileController;
 use App\Http\Controllers\Api\V1\Students\StudentQrController;
 use App\Http\Controllers\Api\V1\TeacherDashboard\TeacherDashboardController;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\V1\Rooms\RoomController;
+
+Route::prefix('exams/{exam}/eligibilities')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'teacher.role'])
+    ->group(function () {
+        Route::get('/', [ExamEligibilityController::class, 'index']);
+        Route::get('/reasons', [ExamEligibilityController::class, 'reasons']);
+        Route::post('/bulk', [ExamEligibilityController::class, 'bulk']);
+        Route::patch('/{student}', [ExamEligibilityController::class, 'update']);
+    });
 
 Route::prefix('admin/subjects')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureActiveSubjectAdministrator::class])
@@ -57,7 +68,7 @@ Route::middleware(['auth:sanctum', 'session.current'])->group(function () {
     Route::get('me', CurrentUserController::class)->name('me');
 });
 
-// Rutas de Estudiantes (HU-10 Perfil y HU-11 Exámenes/QR)
+// Rutas de Estudiantes (HU-10 Perfil, HU-11 Exámenes/QR)
 Route::middleware([
     'auth:sanctum',
     'session.current',
@@ -71,6 +82,7 @@ Route::middleware([
     // Rutas de Exámenes y QR del Estudiante (HU-11)
     Route::get('/students/exams', [StudentQrController::class, 'index']);
     Route::get('/students/exams/{exam_id}/qr', [StudentQrController::class, 'show']);
+
 });
 
 // HU 01: Acceso Administrativo protegido estrictamente
@@ -84,14 +96,14 @@ Route::middleware(['auth:sanctum', 'session.current', 'password.changed', 'verif
             ]);
         });
         Route::post(
-        '/students/import/preview',
-        [StudentImportController::class, 'preview']
-    );
+            '/students/import/preview',
+            [StudentImportController::class, 'preview']
+        );
 
-    Route::post(
-        '/students/import/confirm',
-        [StudentImportController::class, 'confirm']
-    );
+        Route::post(
+            '/students/import/confirm',
+            [StudentImportController::class, 'confirm']
+        );
         Route::get('students', [StudentController::class, 'index'])->name('students.index');
         Route::post('students', [StudentController::class, 'store'])->name('students.store');
         Route::get('students/{student}', [StudentController::class, 'show'])->name('students.show');
@@ -122,3 +134,17 @@ Route::prefix('course-offerings/{courseOffering}')
         Route::post('/enrollments/bulk/preview', [StudentEnrollmentController::class, 'previewBulk']);
         Route::post('/exams', [ExamSchedulingController::class, 'store']);
     });
+
+// HU15: Solo el docente responsable gestiona colaboradores.
+Route::prefix('exams/{exam_id}/collaborators')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'teacher.role'])
+    ->group(function () {
+        Route::get('/', [ExamCollaboratorController::class, 'index']);
+        Route::post('/', [ExamCollaboratorController::class, 'store']);
+        Route::delete('/{user_id}', [ExamCollaboratorController::class, 'destroy']);
+    });
+
+Route::middleware(['auth:sanctum', 'session.current', 'password.changed'])->group(function () {
+    Route::get('/me/collaborations', [ExamCollaboratorController::class, 'myCollaborations']);
+    Route::get('/users', [ExamCollaboratorController::class, 'users'])->middleware('teacher.role');
+});
