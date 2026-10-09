@@ -55,6 +55,7 @@ Una autorización revocada puede reasignarse: se reutiliza su registro y se actu
     "display_name": "Juan Pérez",
     "email": "juan.perez@univalle.edu",
     "identity_number": "44556677",
+    "profile_photo_url": null,
     "assigned_at": "2026-10-08T21:30:00.000000Z",
     "assigned_by": 3,
     "assigned_by_name": "Héctor Pérez"
@@ -63,6 +64,11 @@ Una autorización revocada puede reasignarse: se reutiliza su registro y se actu
 
 Devuelve autorizaciones vigentes. Los datos del listado permiten mostrar el detalle sin otra petición.
 El frontend puede filtrar el listado por nombre, CI o correo.
+profile_photo_url es string|null y usa users.profile_photo para cualquier rol:
+- URL http/https existente: se devuelve directamente.
+- Ruta de archivo público: se devuelve asset('storage/' + ruta), igual que en HU10/HU12.
+- Sin fotografía: null; frontend usa avatar fallback.
+No se necesita otro endpoint para el detalle. El entorno debe tener APP_URL y el enlace público de storage configurados.
 
 ### DELETE /exams/{exam_id}/collaborators/{user_id}
 

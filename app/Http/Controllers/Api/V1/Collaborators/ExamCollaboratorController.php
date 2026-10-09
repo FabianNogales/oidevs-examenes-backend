@@ -46,7 +46,13 @@ class ExamCollaboratorController extends Controller
             $user = $this->userData($collaborator->user);
             unset($user['id']);
 
-            return $this->assignmentData($collaborator) + $user;
+            $photo = $collaborator->user->profile_photo;
+
+            return $this->assignmentData($collaborator) + $user + [
+                'profile_photo_url' => $photo
+                    ? ((str_starts_with($photo, 'http://') || str_starts_with($photo, 'https://')) ? $photo : asset('storage/'.$photo))
+                    : null,
+            ];
         })->values()]);
     }
 
