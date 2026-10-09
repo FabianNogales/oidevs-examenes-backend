@@ -182,13 +182,17 @@ class StudentQrStatusTest extends TestCase
     {
         Carbon::setTestNow(Carbon::parse('2026-06-14 10:00:00', 'America/La_Paz'));
         Sanctum::actingAs($this->teacherUser, ['*']);
+        // The baseline exam already reserves LAB-1 at this time.
+        $integrationRoomId = DB::table('rooms')->insertGetId([
+            'code' => 'QR-INTEGRATION', 'name' => 'Aula integración QR', 'status' => 'ACTIVE',
+        ]);
 
         $response = $this->postJson("/api/v1/course-offerings/{$this->courseOfferingId}/exams", [
             'name' => 'Scheduled Integration Exam',
             'exam_date' => '2026-06-15',
             'start_time' => '10:00:00',
             'duration_minutes' => 90,
-            'room_id' => $this->roomId,
+            'room_id' => $integrationRoomId,
             'evaluation_type' => 'partial',
             'rules' => 'Portar carnet de identidad.',
         ]);

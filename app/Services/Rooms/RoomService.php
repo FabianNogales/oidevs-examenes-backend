@@ -13,7 +13,7 @@ use Illuminate\Validation\ValidationException;
 
 class RoomService
 {
-    public function __construct(private readonly AuditLogService $audit) {}
+    public function __construct(private readonly AuditLogService $audit, private readonly RoomAvailabilityService $availability) {}
 
     public function save(array $data, Request $request, ?Room $room = null): Room
     {
@@ -62,7 +62,10 @@ class RoomService
             $query->where('status', $filters['status']);
         }
 
-        return $query->orderBy('id')->paginate(15);
+        $rooms = $query->orderBy('id')->paginate(15);
+        $this->availability->annotate($rooms->getCollection());
+
+        return $rooms;
     }
 
     public function changeStatus(Room $room, string $status, Request $request): Room

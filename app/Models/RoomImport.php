@@ -7,6 +7,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class RoomImport extends Model
 {
+    // Preserve the offset when writing timestamptz, regardless of PostgreSQL's session timezone.
+    protected $dateFormat = 'Y-m-d H:i:sP';
+
     protected $fillable = ['preview_id', 'user_id', 'file_hash', 'status', 'expires_at', 'preview_report', 'result_report', 'completed_at'];
 
     protected function casts(): array

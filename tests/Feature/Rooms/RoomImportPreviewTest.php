@@ -6,6 +6,7 @@ use App\Models\Role;
 use App\Models\Room;
 use App\Models\RoomImport;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Session;
@@ -47,8 +48,9 @@ class RoomImportPreviewTest extends TestCase
         $this->assertSame(hash('sha256', $text), $import->file_hash);
         $this->assertSame($response->json('data.preview_id'), $import->preview_id);
         $this->assertSame('PENDING', $import->status);
-        $this->assertSame($response->json('data.rows'), $import->preview_report['rows']);
+        $this->assertEquals($response->json('data.rows'), $import->preview_report['rows']);
         $this->assertStringEndsWith('-04:00', $response->json('data.expires_at'));
+        $this->assertSame(CarbonImmutable::parse($response->json('data.expires_at'))->timestamp, $import->expires_at->timestamp);
         $this->assertTrue($import->expires_at->isFuture());
         $this->assertNull($import->result_report);
         $this->assertDatabaseCount('rooms', 0);

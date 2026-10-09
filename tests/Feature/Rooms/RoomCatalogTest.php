@@ -91,8 +91,8 @@ class RoomCatalogTest extends TestCase
         $this->getJson('/api/v1/admin/rooms/'.$room->id)->assertOk()
             ->assertJsonPath('data.id', $room->id)->assertJsonPath('data.capacity', 50)
             ->assertJsonPath('data.name', null)->assertJsonPath('data.description', null)
-            ->assertJsonPath('data.status', 'INACTIVE')->assertJsonPath('data.availability', 'UNKNOWN')
-            ->assertJsonMissingPath('data.current_exam');
+            ->assertJsonPath('data.status', 'INACTIVE')->assertJsonPath('data.availability', 'AVAILABLE')
+            ->assertJsonPath('data.current_exam', null);
     }
 
     public function test_invalid_filters_are_rejected(): void

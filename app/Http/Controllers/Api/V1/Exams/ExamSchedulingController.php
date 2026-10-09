@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Exams\StoreExamRequest;
 use App\Models\CourseOffering;
 use App\Models\Exam;
+use App\Services\Rooms\RoomAvailabilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 
@@ -25,6 +26,10 @@ class ExamSchedulingController extends Controller
         }
 
         $exam = DB::transaction(function () use ($courseOffering, $request) {
+            app(RoomAvailabilityService::class)->ensureReservable(
+                (int) $request->validated('room_id'), $request->validated('exam_date'),
+                $request->validated('start_time'), (int) $request->validated('duration_minutes')
+            );
             $exam = Exam::create([
                 'course_offering_id' => $courseOffering->id,
                 'room_id' => $request->validated('room_id'),

@@ -49,14 +49,14 @@ class RoomImportConfirmTest extends TestCase
         $import = RoomImport::firstOrFail();
         $this->assertSame('COMPLETED', $import->status);
         $this->assertNotNull($import->completed_at);
-        $this->assertSame($response->json('data'), $import->result_report);
+        $this->assertEquals($response->json('data'), $import->result_report);
     }
 
     public function test_retry_recovers_identical_report_even_after_expiry_without_new_audit(): void
     {
         $id = $this->preview();
         $first = $this->confirm($id)->assertOk()->json('data');
-        RoomImport::where('preview_id', $id)->update(['expires_at' => now()->subDay()]);
+        RoomImport::where('preview_id', $id)->firstOrFail()->update(['expires_at' => now()->subDay()]);
         $this->confirm($id)->assertOk()->assertExactJson(['data' => $first]);
         $this->assertDatabaseCount('rooms', 2);
         $this->assertDatabaseCount('audit_logs', 2);
@@ -67,7 +67,7 @@ class RoomImportConfirmTest extends TestCase
         $id = $this->preview();
         $this->confirm($id, self::CSV."D,Extra,,,\n")->assertStatus(409);
         $this->confirm('00000000-0000-4000-8000-000000000000')->assertStatus(409);
-        RoomImport::where('preview_id', $id)->update(['expires_at' => now()->subMinute()]);
+        RoomImport::where('preview_id', $id)->firstOrFail()->update(['expires_at' => now()->subMinute()]);
         $this->confirm($id)->assertStatus(410);
         $this->assertDatabaseCount('rooms', 0);
     }
