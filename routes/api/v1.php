@@ -20,6 +20,7 @@ Route::prefix('admin/subjects')
         Route::get('/careers', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'careers']);
         Route::post('/', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'store']);
         Route::put('/{subject}', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'update'])->whereNumber('subject');
+        Route::patch('/{subject}/status', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'updateStatus'])->whereNumber('subject');
         Route::get('/', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'index']);
         Route::get('/{subject}', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'show'])->whereNumber('subject');
     });

@@ -70,6 +70,27 @@ class SubjectService
         ];
     }
 
+    public function changeStatus(Subject $subject, string $status, Request $request): Subject
+    {
+        if (! in_array($status, ['ACTIVE', 'INACTIVE'], true)) {
+            throw ValidationException::withMessages(['status' => 'El estado debe ser ACTIVE o INACTIVE.']);
+        }
+
+        return DB::transaction(function () use ($subject, $status, $request) {
+            $subject = Subject::query()->lockForUpdate()->findOrFail($subject->id);
+            if ($subject->status !== $status) {
+                $old = $this->snapshot($subject);
+                $subject->status = $status;
+                $subject->save();
+                $this->audit->log($request, $request->user()->id,
+                    $status === 'ACTIVE' ? 'SUBJECT_ACTIVATED' : 'SUBJECT_DEACTIVATED',
+                    Subject::class, $subject->id, $old, $this->snapshot($subject));
+            }
+
+            return $subject->load(['careers' => fn ($query) => $query->orderBy('careers.name')->orderBy('careers.id')]);
+        });
+    }
+
     public function paginate(array $filters): LengthAwarePaginator
     {
         $query = Subject::query()->with(['careers' => fn ($query) => $query->orderBy('careers.name')->orderBy('careers.id')]);
