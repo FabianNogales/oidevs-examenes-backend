@@ -82,7 +82,7 @@ class ExamSchedulingTest extends TestCase
 
         $response = $this->postJson("/api/v1/course-offerings/{$this->courseOfferingId}/exams", [
             'name' => '', 
-            'exam_date' => now()->subDay()->format('Y-m-d'), 
+            'exam_date' => now('America/La_Paz')->subDay()->format('Y-m-d'),
             'start_time' => '08:00:00',
             'duration_minutes' => -10, 
             'room_id' => 999, 

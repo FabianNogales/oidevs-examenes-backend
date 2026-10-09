@@ -1,0 +1,14 @@
+<?php
+
+namespace App\Http\Resources\Subjects;
+
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+class CareerResource extends JsonResource
+{
+    public function toArray(Request $request): array
+    {
+        return ['id' => (int) $this->id, 'code' => $this->code, 'name' => $this->name, 'status' => $this->status];
+    }
+}

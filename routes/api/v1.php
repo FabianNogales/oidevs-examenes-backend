@@ -15,6 +15,31 @@ use App\Http\Controllers\Api\V1\TeacherDashboard\TeacherDashboardController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\V1\Rooms\RoomController;
 
+Route::prefix('admin/subjects')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureActiveSubjectAdministrator::class])
+    ->group(function () {
+        Route::get('/careers', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'careers']);
+        Route::post('/import/preview', [\App\Http\Controllers\Api\V1\Admin\SubjectImportController::class, 'preview']);
+        Route::post('/import/confirm', [\App\Http\Controllers\Api\V1\Admin\SubjectImportController::class, 'confirm']);
+        Route::post('/', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'store']);
+        Route::put('/{subject}', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'update'])->whereNumber('subject');
+        Route::patch('/{subject}/status', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'updateStatus'])->whereNumber('subject');
+        Route::get('/', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'index']);
+        Route::get('/{subject}', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'show'])->whereNumber('subject');
+    });
+
+Route::prefix('admin/rooms')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureActiveRoomAdministrator::class])
+    ->group(function () {
+        Route::post('/import/preview', [\App\Http\Controllers\Api\V1\Admin\RoomImportController::class, 'preview']);
+        Route::post('/import/confirm', [\App\Http\Controllers\Api\V1\Admin\RoomImportController::class, 'confirm']);
+        Route::get('/', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'store']);
+        Route::put('/{room}', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'update'])->whereNumber('room');
+        Route::patch('/{room}/status', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'updateStatus'])->whereNumber('room');
+        Route::get('/{room}', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'show'])->whereNumber('room');
+    });
+
 Route::middleware(['auth:sanctum', 'session.current'])->group(function () {
     Route::get('/rooms', [RoomController::class, 'index']);
 });
