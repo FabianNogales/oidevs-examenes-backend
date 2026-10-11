@@ -83,6 +83,8 @@ class StudentPanelDevSeeder extends Seeder
         ]);
 
         // ---------- 3. Ofertas académicas (usando teacher_id) ----------
+        [$offeringId1, $offeringId2] = app(\App\Services\AcademicTerms\AcademicTermOfferingGuard::class)->write($termId,
+            function () use ($subjectId1, $subjectId2, $teacherId, $termId) {
         $offeringId1 = DB::table('course_offerings')->insertGetId([
             'subject_id' => $subjectId1,
             'academic_term_id' => $termId,
@@ -100,6 +102,9 @@ class StudentPanelDevSeeder extends Seeder
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+
+                return [$offeringId1, $offeringId2];
+            });
 
         // Examen 1: Disponible AHORA
         $examId1 = DB::table('exams')->insertGetId([

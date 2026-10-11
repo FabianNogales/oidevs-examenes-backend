@@ -91,6 +91,8 @@ class EidaDemoSeeder extends Seeder
         $roomA = $this->ensureRoom('DEMO-EIDA-AULA-A', 'DEMO EIDA Aula A', 'Edificio MEMI - Planta 2');
         $roomB = $this->ensureRoom('DEMO-EIDA-AULA-B', 'DEMO EIDA Aula B', 'Edificio MEMI - Planta 3');
 
+        [$offeringA, $offeringB] = app(\App\Services\AcademicTerms\AcademicTermOfferingGuard::class)->write($term->id,
+            function () use ($softwareWorkshop, $networks, $term, $teacher) {
         $offeringA = CourseOffering::query()->updateOrCreate(
             [
                 'subject_id' => $softwareWorkshop->id,
@@ -108,6 +110,9 @@ class EidaDemoSeeder extends Seeder
             ],
             ['status' => UserStatus::ACTIVE->value],
         );
+
+                return [$offeringA, $offeringB];
+            });
 
         $studentA = $this->ensureStudent([
             'email' => "demo.estudiante@{$domain}",
