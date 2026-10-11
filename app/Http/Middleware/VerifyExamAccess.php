@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Enums\RoleName;
 use App\Models\Exam;
 use App\Models\ExamCollaborator;
 use App\Services\Collaborators\ExamCollaboratorService;
@@ -31,7 +32,7 @@ class VerifyExamAccess
             return response()->json(['message' => 'Examen no encontrado'], 404);
         }
 
-        if ((int) $exam->courseOffering?->teacher?->user_id === $user->id) {
+        if ((int) $exam->courseOffering?->teacher?->user_id === $user->id && $user->hasRole(RoleName::DOCENTE)) {
             return $next($request);
         }
 

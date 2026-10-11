@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\Auth\CurrentUserController;
 use App\Http\Controllers\Api\V1\Collaborators\ExamCollaboratorController;
 use App\Http\Controllers\Api\V1\Eligibility\ExamEligibilityController;
 use App\Http\Controllers\Api\V1\Enrollments\StudentEnrollmentController;
+use App\Http\Controllers\Api\V1\Entries\EntryControlController;
 use App\Http\Controllers\Api\V1\Exams\ExamSchedulingController;
 use App\Http\Controllers\Api\V1\Health\HealthCheckController;
 use App\Http\Controllers\Api\V1\Rooms\RoomController;
@@ -148,3 +149,12 @@ Route::middleware(['auth:sanctum', 'session.current', 'password.changed'])->grou
     Route::get('/me/collaborations', [ExamCollaboratorController::class, 'myCollaborations']);
     Route::get('/users', [ExamCollaboratorController::class, 'users'])->middleware('teacher.role');
 });
+
+Route::prefix('exams/{exam_id}/entry-control')
+    ->whereNumber('exam_id')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'verify.exam.access'])
+    ->group(function () {
+        Route::get('/students', [EntryControlController::class, 'index']);
+        Route::get('/students/{student_id}', [EntryControlController::class, 'show'])
+            ->whereNumber('student_id');
+    });
