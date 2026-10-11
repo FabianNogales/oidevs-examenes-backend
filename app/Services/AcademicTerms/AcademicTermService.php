@@ -54,6 +54,34 @@ class AcademicTermService
         }
     }
 
+    public function changeStatus(int $id, string $status, Request $request): AcademicTerm
+    {
+        try {
+            return $this->integrity->transaction(function () use ($id, $status, $request) {
+                $term = $this->integrity->assertCanChangeStatus($id, $status);
+                if ($term->status === $status) {
+                    return $term;
+                }
+                if ($status === 'ACTIVE') {
+                    $data = $this->integrity->validatePayload(array_replace($this->snapshot($term), ['status' => 'ACTIVE']), true);
+                    $this->integrity->assertCanSave($data, $id);
+                }
+                $old = $this->snapshot($term);
+                $term->status = $status;
+                $term->save();
+                $this->audit->log($request, $request->user()->id,
+                    $status === 'ACTIVE' ? 'ACADEMIC_TERM_ACTIVATED' : 'ACADEMIC_TERM_DEACTIVATED',
+                    'ACADEMIC_TERM', $term->id, $old, $this->snapshot($term));
+
+                return $term;
+            });
+        } catch (HttpResponseException $exception) {
+            throw $exception;
+        } catch (\Throwable $exception) {
+            $this->internalError($exception);
+        }
+    }
+
     private function snapshot(AcademicTerm $term): array
     {
         return ['name' => $term->name, 'start_date' => $term->start_date->toDateString(),
