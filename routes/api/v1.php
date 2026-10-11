@@ -30,6 +30,8 @@ Route::prefix('admin/academic-terms')
     ->middleware(['auth:sanctum', \App\Http\Middleware\EnsureActiveAcademicTermAdministrator::class, 'session.current', 'password.changed'])
     ->group(function () {
         Route::get('/active', [\App\Http\Controllers\Api\V1\Admin\AcademicTermController::class, 'active']);
+        Route::post('/', [\App\Http\Controllers\Api\V1\Admin\AcademicTermController::class, 'store']);
+        Route::put('/{academicTerm}', [\App\Http\Controllers\Api\V1\Admin\AcademicTermController::class, 'update'])->where('academicTerm', '[1-9][0-9]*');
         Route::get('/', [\App\Http\Controllers\Api\V1\Admin\AcademicTermController::class, 'index']);
         Route::get('/{academicTerm}', [\App\Http\Controllers\Api\V1\Admin\AcademicTermController::class, 'show'])->where('academicTerm', '[1-9][0-9]*');
     });
