@@ -75,8 +75,11 @@ class RoomStatusTest extends TestCase
     public function test_inactive_administrator_and_non_admin_cannot_change_state(): void
     {
         $this->admin->update(['status' => 'INACTIVE']);
-        $this->patchJson($this->endpoint(), ['status' => 'INACTIVE'])->assertForbidden();
+        $this->patchJson($this->endpoint(), ['status' => 'INACTIVE'])->assertUnauthorized()->assertJsonPath('code', 'ACCOUNT_INACTIVE');
         $this->admin->update(['status' => 'ACTIVE']);
+        $this->startSession();
+        $this->admin->forceFill(['active_session_id' => $this->app['session']->getId()])->save();
+        $this->actingAs($this->admin)->withCookie(config('session.cookie'), $this->app['session']->getId());
         $this->admin->roles()->detach();
         $this->patchJson($this->endpoint(), ['status' => 'INACTIVE'])->assertForbidden();
         $this->assertSame('ACTIVE', $this->room->refresh()->status);

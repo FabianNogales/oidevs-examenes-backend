@@ -46,7 +46,7 @@ class SubjectCatalogTest extends TestCase
                 $user->roles()->updateExistingPivot($role->id, ['status' => 'INACTIVE']);
             }
             foreach ($paths as $path) {
-                $this->getJson($path)->assertForbidden();
+                $this->getJson($path)->assertStatus($case === 'account' ? 401 : 403);
             }
         }
     }

@@ -83,8 +83,11 @@ class SubjectStatusTest extends TestCase
         $this->admin->forceFill(['must_change_password' => true])->save();
         $this->patchJson($this->endpoint(), ['status' => 'INACTIVE'])->assertForbidden()->assertJsonPath('code', 'PASSWORD_CHANGE_REQUIRED');
         $this->admin->forceFill(['must_change_password' => false, 'status' => 'INACTIVE'])->save();
-        $this->patchJson($this->endpoint(), ['status' => 'INACTIVE'])->assertForbidden();
+        $this->patchJson($this->endpoint(), ['status' => 'INACTIVE'])->assertUnauthorized()->assertJsonPath('code', 'ACCOUNT_INACTIVE');
         $this->admin->update(['status' => 'ACTIVE']);
+        $this->startSession();
+        $this->admin->forceFill(['active_session_id' => $this->app['session']->getId()])->save();
+        $this->actingAs($this->admin)->withCookie(config('session.cookie'), $this->app['session']->getId());
         $this->admin->roles()->detach();
         $this->patchJson($this->endpoint(), ['status' => 'INACTIVE'])->assertForbidden();
         $this->assertSame('ACTIVE', $this->subject->refresh()->status);

@@ -44,7 +44,7 @@ class RoomCatalogTest extends TestCase
             } else {
                 $user->roles()->updateExistingPivot($user->roles()->first()->id, ['status' => 'INACTIVE']);
             }
-            $this->getJson('/api/v1/admin/rooms')->assertForbidden();
+            $this->getJson('/api/v1/admin/rooms')->assertStatus($case === 'account' ? 401 : 403);
         }
     }
 
