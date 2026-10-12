@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\Collaborators\ExamCollaboratorController;
 use App\Http\Controllers\Api\V1\Eligibility\ExamEligibilityController;
 use App\Http\Controllers\Api\V1\Enrollments\StudentEnrollmentController;
 use App\Http\Controllers\Api\V1\Entries\EntryControlController;
+use App\Http\Controllers\Api\V1\Entries\QrEntryController;
 use App\Http\Controllers\Api\V1\Exams\ExamSchedulingController;
 use App\Http\Controllers\Api\V1\Health\HealthCheckController;
 use App\Http\Controllers\Api\V1\Rooms\RoomController;
@@ -155,6 +156,8 @@ Route::prefix('exams/{exam_id}/entry-control')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'verify.exam.access'])
     ->group(function () {
         Route::get('/students', [EntryControlController::class, 'index']);
+        Route::post('/qr', [QrEntryController::class, 'store']);
+        Route::get('/entries', [QrEntryController::class, 'index']);
         Route::get('/students/{student_id}', [EntryControlController::class, 'show'])
             ->whereNumber('student_id');
     });
