@@ -85,7 +85,7 @@ class RoomWriteTest extends TestCase
     {
         $this->putJson('/api/v1/admin/rooms/9999', $this->payload())->assertNotFound();
         $this->admin->update(['status' => 'INACTIVE']);
-        $this->postJson('/api/v1/admin/rooms', $this->payload())->assertForbidden();
+        $this->postJson('/api/v1/admin/rooms', $this->payload())->assertUnauthorized()->assertJsonPath('code', 'ACCOUNT_INACTIVE');
         $this->assertDatabaseCount('rooms', 0);
     }
 
