@@ -14,6 +14,7 @@ class StudentResource extends JsonResource
             'sis_code' => $this->sis_code,
             'first_names' => $this->first_names,
             'last_names' => $this->last_names,
+            'identity_number'    => $this->identity_number,
             'email' => $this->whenLoaded('user', fn () => $this->user?->email),
             'status' => $this->status,
             'user_status' => $this->whenLoaded('user', fn () => $this->user?->status),
