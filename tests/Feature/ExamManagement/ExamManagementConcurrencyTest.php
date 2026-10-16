@@ -4,6 +4,7 @@ namespace Tests\Feature\ExamManagement;
 
 use App\Models\Exam;
 use App\Models\Role;
+use App\Models\Room;
 use App\Models\StudentQrToken;
 use App\Models\User;
 use App\Services\Students\StudentQrService;
@@ -11,11 +12,12 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\CourseOfferingFixture;
+use Tests\Support\ExamVersionPrecision;
 use Tests\TestCase;
 
 class ExamManagementConcurrencyTest extends TestCase
 {
-    use CourseOfferingFixture;
+    use CourseOfferingFixture, ExamVersionPrecision;
 
     private array $fixture;
 
@@ -33,6 +35,7 @@ class ExamManagementConcurrencyTest extends TestCase
             $this->markTestSkipped('Requires an isolated hu18_test_* PostgreSQL database.');
         }
         Artisan::call('migrate:fresh', ['--force' => true]);
+        $this->enableExamMicroseconds();
         $this->travelTo(CarbonImmutable::parse('2026-10-16 09:00:00', 'America/La_Paz'));
         $this->fixture = $this->offeringFixture();
         $this->exam = Exam::create(array_replace($this->examPayload($this->fixture['room']->id), ['exam_date' => '2026-10-16',
@@ -52,6 +55,69 @@ class ExamManagementConcurrencyTest extends TestCase
         $this->assertSame(409, $second['status']);
         $this->assertSame('EXAM_ALREADY_CANCELLED', $second['data']['code']);
         $this->assertCancelledOnce();
+    }
+
+    public function test_two_edits_with_same_version_only_apply_first_change(): void
+    {
+        [$first, $second] = $this->workers($this->editExam(['name' => 'Primera edición']), $this->editExam(['name' => 'Segunda edición']));
+        $this->assertSame(200, $first['status']);
+        $this->assertSame(409, $second['status']);
+        $this->assertSame('EXAM_VERSION_CONFLICT', $second['data']['code']);
+        $this->assertSame('Primera edición', $this->exam->fresh()->name);
+        $this->assertNotSame($this->version, $first['data']['data']['updated_at']);
+        $this->assertSame($first['data']['data']['updated_at'], $this->exam->fresh()->updated_at->toISOString());
+        $this->assertSame(1, DB::table('audit_logs')->where('action', 'EXAM_UPDATED')->count());
+    }
+
+    public function test_edit_winning_lock_prevents_stale_cancellation(): void
+    {
+        [$first, $second] = $this->workers($this->editExam(['name' => 'Edición conservada']), $this->cancel());
+        $this->assertSame(200, $first['status']);
+        $this->assertSame(409, $second['status']);
+        $this->assertSame('EXAM_VERSION_CONFLICT', $second['data']['code']);
+        $this->assertSame('SCHEDULED', $this->exam->fresh()->status);
+        $this->assertSame('Edición conservada', $this->exam->fresh()->name);
+        $this->assertSame(0, DB::table('audit_logs')->where('action', 'EXAM_CANCELLED')->count());
+    }
+
+    public function test_cancel_winning_lock_prevents_stale_edit(): void
+    {
+        [$first, $second] = $this->workers($this->cancel(), $this->editExam(['name' => 'No sobrescribir']));
+        $this->assertSame(200, $first['status']);
+        $this->assertSame(409, $second['status']);
+        $this->assertSame('EXAM_VERSION_CONFLICT', $second['data']['code']);
+        $this->assertSame('Parcial', $this->exam->fresh()->name);
+        $this->assertSame(0, DB::table('audit_logs')->where('action', 'EXAM_UPDATED')->count());
+        $this->assertCancelledOnce();
+    }
+
+    public function test_two_exam_edits_competing_for_same_room_interval_cannot_both_reserve(): void
+    {
+        $otherRoom = Room::create(['code' => 'OTHER', 'name' => 'Otra aula', 'status' => 'ACTIVE']);
+        $target = Room::create(['code' => 'TARGET', 'name' => 'Destino', 'status' => 'ACTIVE']);
+        $other = $this->exam->replicate();
+        $other->room_id = $otherRoom->id;
+        $other->save();
+        $changes = ['room_id' => $target->id, 'start_time' => '12:00:00'];
+        [$first, $second] = $this->workers($this->editExam($changes), $this->editExam($changes, $other));
+        $this->assertSame(200, $first['status']);
+        $this->assertSame(422, $second['status']);
+        $this->assertArrayHasKey('room_id', $second['data']['errors']);
+        $this->assertSame(1, Exam::where('room_id', $target->id)->count());
+        $this->assertSame($otherRoom->id, $other->fresh()->room_id);
+        $this->assertSame(1, DB::table('audit_logs')->where('action', 'EXAM_UPDATED')->count());
+    }
+
+    public function test_regeneration_after_rescheduling_cannot_reuse_old_qr_token(): void
+    {
+        app(StudentQrService::class)->getOrGenerateForExam($this->fixture['studentId'], $this->exam->id);
+        $old = StudentQrToken::firstOrFail();
+        [$first, $second] = $this->workers($this->editExam(['duration_minutes' => 30]), $this->generate());
+        $this->assertSame(200, $first['status']);
+        $this->assertSame(200, $second['status']);
+        $this->assertSame('REVOKED', $old->fresh()->status);
+        $this->assertSame(2, StudentQrToken::count());
+        $this->assertSame(1, StudentQrToken::where('status', 'ACTIVE')->count());
     }
 
     public function test_generation_winning_exam_lock_is_revoked_by_subsequent_cancellation(): void
@@ -134,6 +200,15 @@ class ExamManagementConcurrencyTest extends TestCase
     private function cancel(): array
     {
         return $this->operation('POST', '/api/v1/teacher/exams/'.$this->exam->id.'/cancel', ['expected_updated_at' => $this->version], 'global');
+    }
+
+    private function editExam(array $changes = [], ?Exam $exam = null): array
+    {
+        $exam ??= $this->exam;
+        $payload = $exam->only(['name', 'exam_date', 'start_time', 'duration_minutes', 'room_id', 'evaluation_type', 'rules']);
+        $payload['expected_updated_at'] = $exam->fresh()->updated_at->toISOString();
+
+        return array_replace($this->operation('PATCH', '/api/v1/teacher/exams/'.$exam->id, array_replace($payload, $changes), 'global'), ['exam_id' => $exam->id]);
     }
 
     private function generate(): array

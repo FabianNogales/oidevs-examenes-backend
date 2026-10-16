@@ -158,6 +158,7 @@ Route::prefix('teacher/exams')
     ->group(function () {
         Route::get('/', [ExamManagementController::class, 'index']);
         Route::get('/{exam}', [ExamManagementController::class, 'show'])->where('exam', '[1-9][0-9]*');
+        Route::patch('/{exam}', [ExamManagementController::class, 'update'])->where('exam', '[1-9][0-9]*');
         Route::post('/{exam}/cancel', [ExamManagementController::class, 'cancel'])->where('exam', '[1-9][0-9]*');
     });
 

@@ -10,14 +10,14 @@ use App\Models\User;
 use App\Services\AcademicTerms\AcademicTermIntegrity;
 use App\Services\Audit\AuditLogService;
 use App\Services\CourseOfferings\CourseOfferingAccess;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 
 class ExamCancellationService
 {
     public function __construct(private readonly ExamManagementService $exams, private readonly ExamManagementPolicy $policy,
-        private readonly AcademicTermIntegrity $integrity, private readonly CourseOfferingAccess $access, private readonly AuditLogService $audit) {}
+        private readonly AcademicTermIntegrity $integrity, private readonly CourseOfferingAccess $access, private readonly AuditLogService $audit,
+        private readonly ExamRevision $revision) {}
 
     public function cancel(string $id, string $expectedUpdatedAt, Request $request): Exam
     {
@@ -30,10 +30,7 @@ class ExamCancellationService
                 if ($exam->status === 'CANCELLED') {
                     $this->conflict('EXAM_ALREADY_CANCELLED', 'El examen ya está cancelado.');
                 }
-                $expected = CarbonImmutable::parse($expectedUpdatedAt);
-                if (! $exam->updated_at || ! $expected->equalTo($exam->updated_at)) {
-                    $this->conflict('EXAM_VERSION_CONFLICT', 'El examen fue modificado. Recarga su información.');
-                }
+                $this->revision->assertMatches($exam, $expectedUpdatedAt);
 
                 return $this->access->run($exam->course_offering_id, $request->user()->id, true,
                     function (CourseOffering $offering) use ($exam, $request) {
@@ -47,7 +44,7 @@ class ExamCancellationService
                         Room::whereKey($exam->room_id)->lockForUpdate()->first();
                         $old = $this->snapshot($exam);
                         $exam->status = 'CANCELLED';
-                        $exam->save();
+                        $this->revision->saveNext($exam, requireMicroseconds: false);
                         $revoked = StudentQrToken::where('exam_id', $exam->id)->where('status', 'ACTIVE')->whereNull('revoked_at')
                             ->update(['status' => 'REVOKED', 'revoked_at' => now(), 'updated_at' => now()]);
                         $exam->refresh();
