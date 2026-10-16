@@ -32,6 +32,8 @@ Route::prefix('admin/course-offerings')
     ->middleware(['auth:sanctum', \App\Http\Middleware\EnsureActiveCourseOfferingAdministrator::class, 'session.current', 'password.changed'])
     ->group(function () {
         Route::post('/bulk', [\App\Http\Controllers\Api\V1\Admin\CourseOfferingController::class, 'bulk']);
+        Route::put('/{courseOffering}', [\App\Http\Controllers\Api\V1\Admin\CourseOfferingController::class, 'update'])->where('courseOffering', '[1-9][0-9]*');
+        Route::patch('/{courseOffering}/status', [\App\Http\Controllers\Api\V1\Admin\CourseOfferingController::class, 'updateStatus'])->where('courseOffering', '[1-9][0-9]*');
         Route::get('/', [\App\Http\Controllers\Api\V1\Admin\CourseOfferingController::class, 'index']);
         Route::get('/{courseOffering}', [\App\Http\Controllers\Api\V1\Admin\CourseOfferingController::class, 'show'])->where('courseOffering', '[1-9][0-9]*');
     });
