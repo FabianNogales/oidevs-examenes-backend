@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Entries;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Entries\EntryControlRequest;
+use App\Http\Requests\Entries\ManualEntryRequest;
 use App\Http\Requests\Entries\QrEntryRequest;
 use App\Models\Exam;
 use App\Services\Entries\QrEntryService;
@@ -21,5 +22,10 @@ class QrEntryController extends Controller
     public function index(EntryControlRequest $request, int $examId): JsonResponse
     {
         return response()->json($this->service->history(Exam::findOrFail($examId), $request->validated()));
+    }
+
+    public function storeManual(ManualEntryRequest $request, int $examId, int $studentId): JsonResponse
+    {
+        return $this->service->processManual($examId, $studentId, $request->user(), $request->validated());
     }
 }

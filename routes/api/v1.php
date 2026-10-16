@@ -168,6 +168,8 @@ Route::prefix('exams/{exam_id}/entry-control')
     ->group(function () {
         Route::get('/students', [EntryControlController::class, 'index']);
         Route::post('/qr', [QrEntryController::class, 'store']);
+        Route::post('/students/{student_id}/entries', [QrEntryController::class, 'storeManual'])
+            ->whereNumber('student_id');
         Route::get('/entries', [QrEntryController::class, 'index']);
         Route::get('/students/{student_id}', [EntryControlController::class, 'show'])
             ->whereNumber('student_id');

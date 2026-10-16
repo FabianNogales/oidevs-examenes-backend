@@ -1,6 +1,8 @@
 # Nueva HU — Registrar manualmente el ingreso de estudiantes a un examen
 
-Estado: propuesta documental; contrato pendiente de aceptación de frontend. No implementada.
+Estado: contrato aceptado explícitamente por frontend e implementado en Dev_Hector. El ID y la estimación siguen pendientes de asignación por el equipo.
+
+Actualización: `git pull --ff-only origin Dev_Hector` y `php artisan optimize:clear`. Este cambio no agrega migraciones. La confirmación de identidad y el botón corresponden a frontend; backend agrega el POST y comparte la transacción de registro con QR.
 
 - ID: pendiente de asignación por el equipo.
 - Título: Registrar manualmente el ingreso de estudiantes a un examen.
@@ -39,7 +41,7 @@ Backend volverá a validar las condiciones y registrará estudiante, examen, amb
 
 HU13 conserva su contrato GET; esta nueva HU agrega la acción al detalle existente. HU14 conserva su contrato QR, compartiendo reglas, almacenamiento e historial con MANUAL. HU16 debe referenciar esta HU en descripción y CA4/CA8 para incluir el registro manual entre las herramientas del colaborador. No se agregan permisos globales ni se amplía su acceso a otros exámenes.
 
-## Contrato propuesto con frontend
+## Contrato aceptado con frontend
 
 ### Consulta existente
 
@@ -48,7 +50,7 @@ HU13 conserva su contrato GET; esta nueva HU agrega la acción al detalle existe
 
 Se conservan búsqueda, campos, alcance, paginación y summary de HU13. student_id corresponde a students.id, nunca users.id. meets_entry_conditions y blockers son la referencia de consulta. Disponibilidad y permisos se vuelven a comprobar al guardar; un GET favorable no garantiza que el POST vaya a aceptarse.
 
-### Registrar manualmente (nuevo, aún no implementado)
+### Registrar manualmente
 
 POST /api/v1/exams/{exam_id}/entry-control/students/{student_id}/entries
 
@@ -104,6 +106,6 @@ GET /api/v1/exams/{exam_id}/entry-control/entries
 
 Se conserva el historial de HU14: search/page/per_page, orden por entered_at e id descendentes, objetos student/entry y estados VALID/ANNULLED. Incluirá QR y MANUAL, sin cambiar el contrato.
 
-## Solicitud de aceptación
+## Aceptación
 
-Erick, confirma explícitamente que aceptas esta nueva HU y el contrato propuesto: reutilización de búsqueda/detalle, confirmación de identidad, nuevo POST con room_id, resultados AUTHORIZED/DENIED/ALREADY_REGISTERED, validaciones sin excepciones, duplicados compartidos con QR y refresco/historial existentes. Tras la aceptación se implementará en Dev_Hector. La aceptación de la idea de la HU no se considera aceptación automática de este contrato técnico.
+Frontend confirmó explícitamente reutilizar búsqueda y detalle de HU13, consumir el POST con room_id, manejar AUTHORIZED/DENIED/ALREADY_REGISTERED y refrescar detalle, listado y contadores. El historial permanece compartido entre MANUAL y QR.
