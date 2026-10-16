@@ -28,6 +28,13 @@ Route::prefix('exams/{exam}/eligibilities')
         Route::patch('/{student}', [ExamEligibilityController::class, 'update']);
     });
 
+Route::prefix('admin/course-offerings')
+    ->middleware(['auth:sanctum', \App\Http\Middleware\EnsureActiveCourseOfferingAdministrator::class, 'session.current', 'password.changed'])
+    ->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\V1\Admin\CourseOfferingController::class, 'index']);
+        Route::get('/{courseOffering}', [\App\Http\Controllers\Api\V1\Admin\CourseOfferingController::class, 'show'])->where('courseOffering', '[1-9][0-9]*');
+    });
+
 Route::prefix('admin/academic-terms')
     ->middleware(['auth:sanctum', \App\Http\Middleware\EnsureActiveAcademicTermAdministrator::class, 'session.current', 'password.changed'])
     ->group(function () {
