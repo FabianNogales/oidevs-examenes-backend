@@ -1,8 +1,14 @@
 <?php
 
 use App\Enums\RoleName;
-use App\Http\Controllers\Api\V1\Admin\StudentImportController;
+use App\Http\Controllers\Api\V1\Admin\AcademicTermController;
+use App\Http\Controllers\Api\V1\Admin\CourseOfferingController;
+use App\Http\Controllers\Api\V1\Admin\CourseOfferingImportController;
+use App\Http\Controllers\Api\V1\Admin\RoomImportController;
 use App\Http\Controllers\Api\V1\Admin\StudentController;
+use App\Http\Controllers\Api\V1\Admin\StudentImportController;
+use App\Http\Controllers\Api\V1\Admin\SubjectController;
+use App\Http\Controllers\Api\V1\Admin\SubjectImportController;
 use App\Http\Controllers\Api\V1\Admin\TeacherController;
 use App\Http\Controllers\Api\V1\Auth\AuthController;
 use App\Http\Controllers\Api\V1\Auth\CurrentUserController;
@@ -11,12 +17,18 @@ use App\Http\Controllers\Api\V1\Eligibility\ExamEligibilityController;
 use App\Http\Controllers\Api\V1\Enrollments\StudentEnrollmentController;
 use App\Http\Controllers\Api\V1\Entries\EntryControlController;
 use App\Http\Controllers\Api\V1\Entries\QrEntryController;
+use App\Http\Controllers\Api\V1\Exams\ExamManagementController;
 use App\Http\Controllers\Api\V1\Exams\ExamSchedulingController;
 use App\Http\Controllers\Api\V1\Health\HealthCheckController;
 use App\Http\Controllers\Api\V1\Rooms\RoomController;
 use App\Http\Controllers\Api\V1\Students\StudentProfileController;
 use App\Http\Controllers\Api\V1\Students\StudentQrController;
 use App\Http\Controllers\Api\V1\TeacherDashboard\TeacherDashboardController;
+use App\Http\Middleware\EnsureActiveAcademicTermAdministrator;
+use App\Http\Middleware\EnsureActiveCourseOfferingAdministrator;
+use App\Http\Middleware\EnsureActiveRoomAdministrator;
+use App\Http\Middleware\EnsureActiveSubjectAdministrator;
+use App\Http\Middleware\EnsureCourseOfferingAccess;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('exams/{exam}/eligibilities')
@@ -28,40 +40,52 @@ Route::prefix('exams/{exam}/eligibilities')
         Route::patch('/{student}', [ExamEligibilityController::class, 'update']);
     });
 
-Route::prefix('admin/academic-terms')
-    ->middleware(['auth:sanctum', \App\Http\Middleware\EnsureActiveAcademicTermAdministrator::class, 'session.current', 'password.changed'])
+Route::prefix('admin/course-offerings')
+    ->middleware(['auth:sanctum', EnsureActiveCourseOfferingAdministrator::class, 'session.current', 'password.changed'])
     ->group(function () {
-        Route::get('/active', [\App\Http\Controllers\Api\V1\Admin\AcademicTermController::class, 'active']);
-        Route::post('/', [\App\Http\Controllers\Api\V1\Admin\AcademicTermController::class, 'store']);
-        Route::put('/{academicTerm}', [\App\Http\Controllers\Api\V1\Admin\AcademicTermController::class, 'update'])->where('academicTerm', '[1-9][0-9]*');
-        Route::patch('/{academicTerm}/status', [\App\Http\Controllers\Api\V1\Admin\AcademicTermController::class, 'updateStatus'])->where('academicTerm', '[1-9][0-9]*');
-        Route::get('/', [\App\Http\Controllers\Api\V1\Admin\AcademicTermController::class, 'index']);
-        Route::get('/{academicTerm}', [\App\Http\Controllers\Api\V1\Admin\AcademicTermController::class, 'show'])->where('academicTerm', '[1-9][0-9]*');
+        Route::post('/bulk', [CourseOfferingController::class, 'bulk']);
+        Route::post('/import/preview', [CourseOfferingImportController::class, 'preview']);
+        Route::post('/import/confirm', [CourseOfferingImportController::class, 'confirm']);
+        Route::put('/{courseOffering}', [CourseOfferingController::class, 'update'])->where('courseOffering', '[1-9][0-9]*');
+        Route::patch('/{courseOffering}/status', [CourseOfferingController::class, 'updateStatus'])->where('courseOffering', '[1-9][0-9]*');
+        Route::get('/', [CourseOfferingController::class, 'index']);
+        Route::get('/{courseOffering}', [CourseOfferingController::class, 'show'])->where('courseOffering', '[1-9][0-9]*');
+    });
+
+Route::prefix('admin/academic-terms')
+    ->middleware(['auth:sanctum', EnsureActiveAcademicTermAdministrator::class, 'session.current', 'password.changed'])
+    ->group(function () {
+        Route::get('/active', [AcademicTermController::class, 'active']);
+        Route::post('/', [AcademicTermController::class, 'store']);
+        Route::put('/{academicTerm}', [AcademicTermController::class, 'update'])->where('academicTerm', '[1-9][0-9]*');
+        Route::patch('/{academicTerm}/status', [AcademicTermController::class, 'updateStatus'])->where('academicTerm', '[1-9][0-9]*');
+        Route::get('/', [AcademicTermController::class, 'index']);
+        Route::get('/{academicTerm}', [AcademicTermController::class, 'show'])->where('academicTerm', '[1-9][0-9]*');
     });
 
 Route::prefix('admin/subjects')
-    ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureActiveSubjectAdministrator::class])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveSubjectAdministrator::class])
     ->group(function () {
-        Route::get('/careers', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'careers']);
-        Route::post('/import/preview', [\App\Http\Controllers\Api\V1\Admin\SubjectImportController::class, 'preview']);
-        Route::post('/import/confirm', [\App\Http\Controllers\Api\V1\Admin\SubjectImportController::class, 'confirm']);
-        Route::post('/', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'store']);
-        Route::put('/{subject}', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'update'])->whereNumber('subject');
-        Route::patch('/{subject}/status', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'updateStatus'])->whereNumber('subject');
-        Route::get('/', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'index']);
-        Route::get('/{subject}', [\App\Http\Controllers\Api\V1\Admin\SubjectController::class, 'show'])->whereNumber('subject');
+        Route::get('/careers', [SubjectController::class, 'careers']);
+        Route::post('/import/preview', [SubjectImportController::class, 'preview']);
+        Route::post('/import/confirm', [SubjectImportController::class, 'confirm']);
+        Route::post('/', [SubjectController::class, 'store']);
+        Route::put('/{subject}', [SubjectController::class, 'update'])->whereNumber('subject');
+        Route::patch('/{subject}/status', [SubjectController::class, 'updateStatus'])->whereNumber('subject');
+        Route::get('/', [SubjectController::class, 'index']);
+        Route::get('/{subject}', [SubjectController::class, 'show'])->whereNumber('subject');
     });
 
 Route::prefix('admin/rooms')
-    ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureActiveRoomAdministrator::class])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveRoomAdministrator::class])
     ->group(function () {
-        Route::post('/import/preview', [\App\Http\Controllers\Api\V1\Admin\RoomImportController::class, 'preview']);
-        Route::post('/import/confirm', [\App\Http\Controllers\Api\V1\Admin\RoomImportController::class, 'confirm']);
-        Route::get('/', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'index']);
-        Route::post('/', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'store']);
-        Route::put('/{room}', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'update'])->whereNumber('room');
-        Route::patch('/{room}/status', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'updateStatus'])->whereNumber('room');
-        Route::get('/{room}', [\App\Http\Controllers\Api\V1\Admin\RoomController::class, 'show'])->whereNumber('room');
+        Route::post('/import/preview', [RoomImportController::class, 'preview']);
+        Route::post('/import/confirm', [RoomImportController::class, 'confirm']);
+        Route::get('/', [App\Http\Controllers\Api\V1\Admin\RoomController::class, 'index']);
+        Route::post('/', [App\Http\Controllers\Api\V1\Admin\RoomController::class, 'store']);
+        Route::put('/{room}', [App\Http\Controllers\Api\V1\Admin\RoomController::class, 'update'])->whereNumber('room');
+        Route::patch('/{room}/status', [App\Http\Controllers\Api\V1\Admin\RoomController::class, 'updateStatus'])->whereNumber('room');
+        Route::get('/{room}', [App\Http\Controllers\Api\V1\Admin\RoomController::class, 'show'])->whereNumber('room');
     });
 
 Route::middleware(['auth:sanctum', 'session.current'])->group(function () {
@@ -129,6 +153,15 @@ Route::middleware(['auth:sanctum', 'session.current', 'password.changed', 'verif
         Route::patch('teachers/{teacher}/status', [TeacherController::class, 'updateStatus'])->name('teachers.status');
     });
 
+Route::prefix('teacher/exams')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'teacher.role'])
+    ->group(function () {
+        Route::get('/', [ExamManagementController::class, 'index']);
+        Route::get('/{exam}', [ExamManagementController::class, 'show'])->where('exam', '[1-9][0-9]*');
+        Route::patch('/{exam}', [ExamManagementController::class, 'update'])->where('exam', '[1-9][0-9]*');
+        Route::post('/{exam}/cancel', [ExamManagementController::class, 'cancel'])->where('exam', '[1-9][0-9]*');
+    });
+
 // HU 06: Seguridad de rutas del panel docente
 Route::prefix('teacher/dashboard')
     ->middleware(['auth:sanctum', 'throttle:60,1', 'teacher.role', 'block.mutations', 'audit.logger'])
@@ -139,7 +172,7 @@ Route::prefix('teacher/dashboard')
 
 // HU 07 y HU 08: Bloquear a usuarios sin permisos (RBAC) para inscripciones y exámenes
 Route::prefix('course-offerings/{courseOffering}')
-    ->middleware(['auth:sanctum', 'teacher.role'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'teacher.role', EnsureCourseOfferingAccess::class])
     ->group(function () {
         Route::get('/enrollments', [StudentEnrollmentController::class, 'index']);
         Route::post('/enrollments/manual', [StudentEnrollmentController::class, 'storeManual']);
