@@ -2,32 +2,32 @@
 
 namespace App\Services\CourseOfferings;
 
-use App\Models\CourseOffering;
 use App\Enums\RoleName;
 use App\Enums\UserStatus;
 use App\Models\AcademicTerm;
-use App\Models\Teacher;
-use App\Models\User;
+use App\Models\CourseOffering;
 use App\Models\Role;
 use App\Models\Subject;
-use App\Services\AcademicTerms\AcademicTermOfferingGuard;
+use App\Models\Teacher;
+use App\Models\User;
 use App\Services\AcademicTerms\AcademicTermIntegrity;
+use App\Services\AcademicTerms\AcademicTermOfferingGuard;
 use App\Services\Audit\AuditLogService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Http\Request;
 use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class CourseOfferingService
 {
     public function __construct(private readonly AcademicTermOfferingGuard $periods, private readonly AuditLogService $audit, private readonly AcademicTermIntegrity $integrity) {}
 
-    public function bulk(array $data, Request $request): Collection
+    public function bulk(array $data, Request $request, ?string $previewId = null): Collection
     {
         try {
-            return $this->periods->write($data['academic_term_id'], function () use ($data, $request) {
+            return $this->periods->write($data['academic_term_id'], function () use ($data, $request, $previewId) {
                 if (AcademicTerm::where('status', 'ACTIVE')->limit(2)->get()->count() > 1) {
                     $this->reject(409, 'ACADEMIC_TERM_STATE_INCONSISTENT', 'Existen varios periodos activos; revisa los periodos antes de asignar materias.', ['academic_term_id' => ['Solo puede existir un periodo activo.']]);
                 }
@@ -66,7 +66,7 @@ class CourseOfferingService
                     $offering = CourseOffering::create(['teacher_id' => $teacher->id, 'subject_id' => $subjectId,
                         'academic_term_id' => $data['academic_term_id'], 'status' => 'ACTIVE']);
                     $this->audit->log($request, $request->user()->id, 'COURSE_OFFERING_CREATED', 'COURSE_OFFERING', $offering->id,
-                        null, $offering->only(['teacher_id', 'subject_id', 'academic_term_id', 'status']));
+                        null, $offering->only(['teacher_id', 'subject_id', 'academic_term_id', 'status']) + ($previewId === null ? [] : ['preview_id' => $previewId]));
                     $ids[] = $offering->id;
                 }
 
@@ -98,7 +98,7 @@ class CourseOfferingService
             $old = $this->snapshot($offering);
             $changed = false;
             foreach (['teacher_id', 'subject_id', 'academic_term_id'] as $field) {
-                $changed = $changed || $offering->$field !== $data[$field];
+                $changed = $changed || $data[$field] !== $offering->$field;
             }
             if (! $changed) {
                 return $this->find($id);
@@ -107,6 +107,7 @@ class CourseOfferingService
                 $this->reject(409, 'COURSE_OFFERING_HAS_HISTORY', 'No puedes cambiar la combinación de una oferta con inscripciones o exámenes.',
                     ['subject_id' => ['La oferta tiene información histórica asociada.'], 'academic_term_id' => ['No puedes trasladar una oferta con historial a otro periodo.']]);
             }
+
             return $this->periods->write($data['academic_term_id'], function () use ($offering, $data, $request, $old, $id) {
                 $this->lockEnabledReferences($data);
                 if (CourseOffering::where('teacher_id', $data['teacher_id'])->where('subject_id', $data['subject_id'])
