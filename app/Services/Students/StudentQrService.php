@@ -94,6 +94,11 @@ class StudentQrService
      */
     public function getOrGenerateForExam(int $studentId, int $examId): array
     {
+        return DB::transaction(fn () => $this->generateForLockedExam($studentId, $examId));
+    }
+
+    private function generateForLockedExam(int $studentId, int $examId): array
+    {
         // 1. Validar que el examen exista y que el estudiante esté inscrito y activo
         $exam = Exam::with(['courseOffering.subject'])
             ->whereIn('status', self::VISIBLE_EXAM_STATUSES)
@@ -104,7 +109,7 @@ class StudentQrService
                         $sQuery->where('status', 'ACTIVE');
                     });
             })
-            ->findOrFail($examId);
+            ->lockForUpdate()->findOrFail($examId);
 
         $this->ensureStudentIsEligible($studentId, $examId);
 
