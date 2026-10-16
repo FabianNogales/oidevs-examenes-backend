@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\V1\Eligibility\ExamEligibilityController;
 use App\Http\Controllers\Api\V1\Enrollments\StudentEnrollmentController;
 use App\Http\Controllers\Api\V1\Entries\EntryControlController;
 use App\Http\Controllers\Api\V1\Entries\QrEntryController;
+use App\Http\Controllers\Api\V1\Exams\ExamManagementController;
 use App\Http\Controllers\Api\V1\Exams\ExamSchedulingController;
 use App\Http\Controllers\Api\V1\Health\HealthCheckController;
 use App\Http\Controllers\Api\V1\Rooms\RoomController;
@@ -150,6 +151,13 @@ Route::middleware(['auth:sanctum', 'session.current', 'password.changed', 'verif
         Route::get('teachers/{teacher}', [TeacherController::class, 'show'])->name('teachers.show');
         Route::put('teachers/{teacher}', [TeacherController::class, 'update'])->name('teachers.update');
         Route::patch('teachers/{teacher}/status', [TeacherController::class, 'updateStatus'])->name('teachers.status');
+    });
+
+Route::prefix('teacher/exams')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'teacher.role'])
+    ->group(function () {
+        Route::get('/', [ExamManagementController::class, 'index']);
+        Route::get('/{exam}', [ExamManagementController::class, 'show'])->where('exam', '[1-9][0-9]*');
     });
 
 // HU 06: Seguridad de rutas del panel docente
