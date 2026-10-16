@@ -57,6 +57,8 @@ class EntryControlService
             'duration_minutes' => (int) $exam->duration_minutes,
             'evaluation_type' => $exam->evaluation_type,
             'status' => $exam->status,
+            'entry_available' => ExamEntryAvailability::reason($exam) === null,
+            'entry_unavailable_reason' => ExamEntryAvailability::reason($exam),
             'room' => $exam->room ? $exam->room->only(['id', 'code', 'name', 'location']) : null,
         ];
     }
@@ -138,6 +140,7 @@ class EntryControlService
             'INELIGIBLE' => 'El estudiante se encuentra inhabilitado para este examen.',
             'ROOM_MISMATCH' => 'El ambiente controlado no corresponde al ambiente asignado al examen.',
             'ALREADY_REGISTERED' => 'El estudiante ya tiene un ingreso registrado para este examen.',
+            'EXAM_UNAVAILABLE' => 'El examen no está disponible para registrar ingresos.',
         ];
         $failed = [
             'STUDENT_INACTIVE' => $record->student_status !== 'ACTIVE',
@@ -146,6 +149,7 @@ class EntryControlService
             'INELIGIBLE' => $eligibility === 'INELIGIBLE',
             'ROOM_MISMATCH' => $roomStatus === 'MISMATCH',
             'ALREADY_REGISTERED' => $record->entry_id !== null,
+            'EXAM_UNAVAILABLE' => ExamEntryAvailability::reason($exam) !== null,
         ];
         foreach ($failed as $code => $condition) {
             if ($condition) {

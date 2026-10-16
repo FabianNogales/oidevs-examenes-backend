@@ -1,5 +1,7 @@
 # Nueva HU — Registrar manualmente el ingreso de estudiantes a un examen
 
+Actualización de integración HU18: aplicar la [disponibilidad compartida](EXAM_ENTRY_AVAILABILITY.md), incluida ACTIVE legado, America/La_Paz y fin excluido. El contrato MANUAL y el historial compartido se conservan.
+
 Estado: contrato aceptado explícitamente por frontend e implementado en Dev_Hector. El ID y la estimación siguen pendientes de asignación por el equipo.
 
 Actualización: `git pull --ff-only origin Dev_Hector` y `php artisan optimize:clear`. Este cambio no agrega migraciones. La confirmación de identidad y el botón corresponden a frontend; backend agrega el POST y comparte la transacción de registro con QR.

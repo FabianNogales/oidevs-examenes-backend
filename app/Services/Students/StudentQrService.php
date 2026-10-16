@@ -4,6 +4,7 @@ namespace App\Services\Students;
 
 use App\Models\Exam;
 use App\Models\StudentQrToken;
+use App\Services\Entries\ExamEntryAvailability;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -20,10 +21,10 @@ class StudentQrService
     /**
      * Zona horaria oficial del sistema de exámenes.
      */
-    private const TIMEZONE = 'America/La_Paz';
+    private const TIMEZONE = ExamEntryAvailability::TIMEZONE;
     private const ELIGIBLE_STATUS = 'ELIGIBLE';
-    private const NOT_ELIGIBLE_STATUS = 'NOT_ELIGIBLE';
-    private const VISIBLE_EXAM_STATUSES = ['ACTIVE', 'SCHEDULED'];
+    private const NOT_ELIGIBLE_STATUS = 'INELIGIBLE';
+    private const VISIBLE_EXAM_STATUSES = ExamEntryAvailability::STATES;
 
     /**
      * Obtiene los exámenes disponibles para el estudiante junto con su QR (si está en ventana de 24h).
@@ -43,23 +44,19 @@ class StudentQrService
             })
             ->get()
             ->map(function ($exam) use ($studentId, $now) {
-                $examDateStr = $exam->exam_date instanceof Carbon 
-                    ? $exam->exam_date->format('Y-m-d') 
-                    : substr((string)$exam->exam_date, 0, 10);
-
                 // Forzar la interpretación de la fecha/hora en la zona horaria oficial (America/La_Paz)
-                $examStart     = Carbon::parse("{$examDateStr} {$exam->start_time}", self::TIMEZONE);
+                $examStart     = ExamEntryAvailability::startsAt($exam);
                 $availableFrom = $examStart->copy()->subHours(24);
                 $examEnd       = $examStart->copy()->addMinutes($exam->duration_minutes);
                 $eligibilityStatus = $this->getEligibilityStatus($studentId, $exam->id);
                 
                 if ($eligibilityStatus === null) {
                     $qrStatus = 'PENDING_ELIGIBILITY';
-                } elseif ($eligibilityStatus === self::NOT_ELIGIBLE_STATUS) {
+                } elseif (in_array($eligibilityStatus, [self::NOT_ELIGIBLE_STATUS, 'NOT_ELIGIBLE'], true)) {
                     $qrStatus = 'NOT_ELIGIBLE';
                 } elseif ($now->lt($availableFrom)) {
                     $qrStatus = 'UPCOMING';
-                } elseif ($now->lte($examEnd)) {
+                } elseif ($now->lt($examEnd)) {
                     $qrStatus = 'AVAILABLE';
                 } else {
                     $qrStatus = 'FINISHED';
@@ -114,11 +111,7 @@ class StudentQrService
         $this->ensureStudentIsEligible($studentId, $examId);
 
         // 2. Validar ventana de tiempo (24h previas hasta fin del examen) en America/La_Paz
-        $examDateStr = $exam->exam_date instanceof Carbon 
-            ? $exam->exam_date->format('Y-m-d') 
-            : substr((string)$exam->exam_date, 0, 10);
-
-        $examStart     = Carbon::parse("{$examDateStr} {$exam->start_time}", self::TIMEZONE);
+        $examStart     = ExamEntryAvailability::startsAt($exam);
         $examEnd       = $examStart->copy()->addMinutes($exam->duration_minutes);
         $now           = Carbon::now(self::TIMEZONE);
         $availableFrom = $examStart->copy()->subHours(24);
@@ -127,7 +120,7 @@ class StudentQrService
             throw new Exception("El código QR aún no está disponible. Se habilitará 24 horas antes del examen.");
         }
 
-        if ($now->gt($examEnd)) {
+        if ($now->gte($examEnd)) {
             throw new Exception("El examen ya ha finalizado.");
         }
 

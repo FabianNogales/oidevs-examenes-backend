@@ -1,5 +1,7 @@
 # HU13 — Consulta de control de ingreso
 
+Actualización de integración HU18: ver [disponibilidad compartida](EXAM_ENTRY_AVAILABILITY.md). Se agregan exam.entry_available, exam.entry_unavailable_reason y EXAM_UNAVAILABLE a blockers; la disponibilidad de ingreso se evalúa con estados acordados y America/La_Paz, sin hora mínima nueva. Se conservan campos, permisos históricos y significado de contadores.
+
 Base: /api/v1. Implementación de consulta para el contrato aprobado con frontend.
 No registra ingresos, modifica habilitaciones ni evalúa un QR; esas operaciones corresponden a HU14.
 

@@ -73,7 +73,8 @@ class QrEntryService
             if ($entry) {
                 return $this->result('ALREADY_REGISTERED', 'Ingreso ya registrado.', $data, 409);
             }
-            if (! ExamCollaborator::examIsAvailable($exam)) {
+            if (! ExamCollaborator::examIsAvailable($exam)
+                && ! in_array('EXAM_UNAVAILABLE', array_column($data['blockers'], 'code'), true)) {
                 $data['blockers'][] = ['code' => 'EXAM_UNAVAILABLE', 'message' => 'El examen no está disponible para registrar ingresos.'];
             }
             if ($data['blockers'] !== []) {

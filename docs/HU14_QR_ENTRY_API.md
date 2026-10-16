@@ -1,5 +1,7 @@
 # HU14 — Registro de ingreso mediante QR
 
+Actualización de integración HU18: [disponibilidad compartida](EXAM_ENTRY_AVAILABILITY.md) reemplaza la restricción previa a SCHEDULED/IN_PROGRESS. Se admite también ACTIVE legado y se usa America/La_Paz con fin excluido, conservando revocación y bloqueo transaccional de HU18.
+
 Contrato aprobado por frontend. Base: `/api/v1`. Implementación en `Dev_Hector`.
 
 ## Actualización

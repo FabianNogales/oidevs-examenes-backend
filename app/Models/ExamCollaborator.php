@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use Carbon\Carbon;
+use App\Services\Entries\ExamEntryAvailability;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -39,13 +39,6 @@ class ExamCollaborator extends Model
 
     public static function examIsAvailable(Exam $exam): bool
     {
-        if (! in_array($exam->status, ['SCHEDULED', 'IN_PROGRESS'], true)) {
-            return false;
-        }
-
-        $end = Carbon::parse($exam->exam_date.' '.$exam->start_time, config('app.timezone'))
-            ->addMinutes((int) $exam->duration_minutes);
-
-        return now()->lt($end);
+        return ExamEntryAvailability::reason($exam) === null;
     }
 }
