@@ -27,6 +27,7 @@ use App\Http\Middleware\EnsureActiveAcademicTermAdministrator;
 use App\Http\Middleware\EnsureActiveCourseOfferingAdministrator;
 use App\Http\Middleware\EnsureActiveRoomAdministrator;
 use App\Http\Middleware\EnsureActiveSubjectAdministrator;
+use App\Http\Middleware\EnsureCourseOfferingAccess;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('exams/{exam}/eligibilities')
@@ -161,7 +162,7 @@ Route::prefix('teacher/dashboard')
 
 // HU 07 y HU 08: Bloquear a usuarios sin permisos (RBAC) para inscripciones y exámenes
 Route::prefix('course-offerings/{courseOffering}')
-    ->middleware(['auth:sanctum', 'teacher.role'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'teacher.role', EnsureCourseOfferingAccess::class])
     ->group(function () {
         Route::get('/enrollments', [StudentEnrollmentController::class, 'index']);
         Route::post('/enrollments/manual', [StudentEnrollmentController::class, 'storeManual']);
