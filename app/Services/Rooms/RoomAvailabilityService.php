@@ -13,7 +13,7 @@ class RoomAvailabilityService
 {
     public const TIMEZONE = 'America/La_Paz';
 
-    private const RESERVING_STATUSES = ['ACTIVE', 'SCHEDULED'];
+    private const RESERVING_STATUSES = ['ACTIVE', 'SCHEDULED', 'IN_PROGRESS'];
 
     public function interval(string $date, string $time, int $duration): array
     {
@@ -66,13 +66,17 @@ class RoomAvailabilityService
         $query = Room::where('status', 'ACTIVE')->orderBy('id');
         if (isset($filters['exam_date'])) {
             [$start, $end] = $this->interval($filters['exam_date'], $filters['start_time'], (int) $filters['duration_minutes']);
-            $query->whereNotIn('id', $this->overlaps($start, $end)->select('room_id'));
+            $occupied = $this->overlaps($start, $end);
+            if (isset($filters['exclude_exam_id'])) {
+                $occupied->where('id', '!=', $filters['exclude_exam_id']);
+            }
+            $query->whereNotIn('id', $occupied->select('room_id'));
         }
 
         return $query->get();
     }
 
-    public function ensureReservable(int $roomId, string $date, string $time, int $duration): void
+    public function ensureReservable(int $roomId, string $date, string $time, int $duration, ?int $excludeExamId = null): void
     {
         // Called inside the exam transaction. The same room lock is used by state changes.
         $room = Room::query()->lockForUpdate()->find($roomId);
@@ -80,7 +84,11 @@ class RoomAvailabilityService
             throw ValidationException::withMessages(['room_id' => 'El aula no está activa para nuevas reservas.']);
         }
         [$start, $end] = $this->interval($date, $time, $duration);
-        if ($this->overlaps($start, $end)->where('room_id', $roomId)->exists()) {
+        $occupied = $this->overlaps($start, $end)->where('room_id', $roomId);
+        if ($excludeExamId !== null) {
+            $occupied->where('id', '!=', $excludeExamId);
+        }
+        if ($occupied->exists()) {
             throw ValidationException::withMessages(['room_id' => 'El aula está ocupada durante el horario solicitado.']);
         }
     }
