@@ -129,7 +129,11 @@ class EntryControlService
     private function studentData(object $record, Exam $exam, int $roomId, Collection $verifiers): array
     {
         $enrollment = in_array($record->enrollment_status, ['ACTIVE', 'INACTIVE'], true) ? $record->enrollment_status : null;
-        $eligibility = in_array($record->eligibility_status, ['ELIGIBLE', 'INELIGIBLE'], true) ? $record->eligibility_status : null;
+        $eligibility = match ($record->eligibility_status) {
+            'ELIGIBLE' => 'ELIGIBLE',
+            'INELIGIBLE', 'NOT_ELIGIBLE' => 'INELIGIBLE',
+            default => null,
+        };
         $associated = $record->enrollment_status !== null || $record->eligibility_status !== null;
         $roomStatus = ! $associated ? 'NOT_APPLICABLE' : ((int) $exam->room_id === $roomId ? 'MATCH' : 'MISMATCH');
         $blockers = [];

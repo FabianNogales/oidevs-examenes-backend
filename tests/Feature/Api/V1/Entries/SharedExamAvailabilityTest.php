@@ -48,6 +48,37 @@ class SharedExamAvailabilityTest extends TestCase
         return '/api/v1/exams/'.$this->exam->id.'/entry-control';
     }
 
+    public function test_legacy_ineligibility_is_canonical_in_list_detail_and_posts_without_rewriting_history(): void
+    {
+        $token = $this->qr();
+        DB::table('exam_eligibilities')->update(['status' => 'NOT_ELIGIBLE', 'reason' => 'Motivo histórico', 'observations' => 'Observación histórica']);
+        $this->exam->update(['status' => 'CANCELLED']);
+        foreach ([$this->base().'/students', $this->base().'/students/'.$this->fixture['studentId']] as $url) {
+            $response = $this->getJson($url)->assertOk();
+            $data = str_ends_with($url, '/students') ? $response->json('data.0') : $response->json('data');
+            $this->assertSame('INELIGIBLE', $data['eligibility_status']);
+            $this->assertSame(['INELIGIBLE', 'EXAM_UNAVAILABLE'], array_column($data['blockers'], 'code'));
+            $this->assertFalse($data['meets_entry_conditions']);
+            $this->assertSame('Motivo histórico', $data['reason']);
+            $this->assertSame('Observación histórica', $data['observations']);
+        }
+        foreach ([$this->manual(), $this->scan($token)] as $response) {
+            $response->assertUnprocessable()->assertJsonPath('result', 'DENIED')
+                ->assertJsonPath('data.eligibility_status', 'INELIGIBLE')
+                ->assertJsonPath('data.blockers.0.code', 'INELIGIBLE')
+                ->assertJsonPath('data.blockers.1.code', 'EXAM_UNAVAILABLE');
+        }
+        $this->exam->update(['status' => 'SCHEDULED']);
+        $item = app(StudentQrService::class)->getExamsForStudent($this->fixture['studentId'])->first();
+        $this->assertSame('NOT_ELIGIBLE', $item['qr_status']);
+        $this->assertFalse($item['is_qr_available']);
+        $this->assertDatabaseHas('exam_eligibilities', ['status' => 'NOT_ELIGIBLE', 'reason' => 'Motivo histórico']);
+        DB::table('exam_eligibilities')->delete();
+        $this->getJson($this->base().'/students/'.$this->fixture['studentId'])->assertOk()
+            ->assertJsonPath('data.eligibility_status', null)->assertJsonPath('data.blockers.0.code', 'ELIGIBILITY_PENDING');
+        $this->assertDatabaseCount('exam_entries', 0);
+    }
+
     private function qr(): string
     {
         return app(StudentQrService::class)->getOrGenerateForExam($this->fixture['studentId'], $this->exam->id)['token'];

@@ -39,6 +39,8 @@ Cambiar solo aula conserva token. Registro relee el aula actual y rechaza el roo
 
 Se conserva ELIGIBLE/INELIGIBLE como contrato persistido; el panel QR reconoce INELIGIBLE y mantiene qr_status NOT_ELIGIBLE para compatibilidad. También interpreta el valor legado NOT_ELIGIBLE como negativo al leer, sin escribirlo ni modificar información histórica. Ninguno permite generar un token: se exige ELIGIBLE.
 
+BUG-02: HU13 también normaliza NOT_ELIGIBLE a eligibility_status INELIGIBLE al leer, conservando reason y observations. Aplica al listado, detalle y validación compartida de MANUAL/QR. Una habilitación ausente o desconocida sigue siendo null/ELIGIBILITY_PENDING. Si el examen no está disponible, se mantienen ambos bloqueos INELIGIBLE y EXAM_UNAVAILABLE.
+
 ## Actualización e integración frontend
 
 ```sh
