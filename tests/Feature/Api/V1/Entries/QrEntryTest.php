@@ -222,6 +222,37 @@ class QrEntryTest extends TestCase
         $this->assertDatabaseCount('exam_entries', 0);
     }
 
+    public function test_valid_qr_without_either_association_is_denied_without_personal_data(): void
+    {
+        $token = $this->token();
+        DB::table('enrollments')->where('student_id', $this->student->id)->delete();
+        $this->eligibility->delete();
+        $tokensBefore = DB::table('student_qr_tokens')->orderBy('id')->get()->toJson();
+        $this->actingAs($this->teacherUser);
+
+        $response = $this->scan($token)->assertUnprocessable();
+        $response->assertExactJson([
+            'result' => 'DENIED', 'message' => 'Ingreso no autorizado.',
+            'processed_at' => $response->json('processed_at'), 'data' => null,
+        ]);
+        $this->getJson($this->endpoint().'/students/'.$this->student->id)->assertNotFound()
+            ->assertExactJson(['message' => 'Estudiante no encontrado.']);
+        $this->assertSame($tokensBefore, DB::table('student_qr_tokens')->orderBy('id')->get()->toJson());
+        $this->assertDatabaseCount('exam_entries', 0);
+    }
+
+    public function test_qr_with_eligibility_only_retains_authorized_detail_and_denies_entry(): void
+    {
+        $token = $this->token();
+        DB::table('enrollments')->where('student_id', $this->student->id)->delete();
+        $this->actingAs($this->teacherUser);
+
+        $this->scan($token)->assertUnprocessable()->assertJsonPath('result', 'DENIED')
+            ->assertJsonPath('data.student.student_id', $this->student->id)
+            ->assertJsonPath('data.eligibility_status', 'ELIGIBLE')->assertJsonFragment(['code' => 'NOT_ENROLLED']);
+        $this->assertDatabaseCount('exam_entries', 0);
+    }
+
     public function test_revalidates_each_condition_and_returns_reason(): void
     {
         $this->actingAs($this->teacherUser);

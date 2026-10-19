@@ -252,13 +252,31 @@ class ManualEntryTest extends TestCase
 
     public function test_validation_missing_student_and_unassociated_student(): void
     {
+        config(['app.debug' => true]);
         $this->actingAs($this->teacherUser);
         $this->postJson($this->base().'/students/'.$this->student->id.'/entries', [])->assertUnprocessable()->assertJsonValidationErrors('room_id');
         $this->manual(['room_id' => 999999])->assertUnprocessable()->assertJsonValidationErrors('room_id');
-        $this->manual([], 999999)->assertNotFound();
+        $missingResponse = $this->manual([], 999999)->assertNotFound()
+            ->assertExactJson(['message' => 'Estudiante no encontrado.']);
         DB::table('enrollments')->delete();
         $this->eligibility->delete();
-        $this->manual()->assertUnprocessable()->assertJsonPath('data.blockers.0.code', 'NOT_ENROLLED');
+        $outsideResponse = $this->manual()->assertNotFound()
+            ->assertExactJson(['message' => 'Estudiante no encontrado.']);
+        $this->assertSame($missingResponse->getContent(), $outsideResponse->getContent());
+        $this->assertDatabaseCount('exam_entries', 0);
+    }
+
+    public function test_eligibility_alone_allows_detail_but_not_manual_entry_without_enrollment(): void
+    {
+        DB::table('enrollments')->where('student_id', $this->student->id)->delete();
+        $this->actingAs($this->teacherUser);
+
+        $this->getJson($this->base().'/students/'.$this->student->id)->assertOk()
+            ->assertJsonPath('data.enrollment_status', null)->assertJsonPath('data.eligibility_status', 'ELIGIBLE')
+            ->assertJsonFragment(['code' => 'NOT_ENROLLED']);
+        $this->manual()->assertUnprocessable()->assertJsonPath('result', 'DENIED')
+            ->assertJsonPath('data.student.student_id', $this->student->id)
+            ->assertJsonFragment(['code' => 'NOT_ENROLLED']);
         $this->assertDatabaseCount('exam_entries', 0);
     }
 

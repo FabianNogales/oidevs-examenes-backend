@@ -164,7 +164,7 @@ Route::prefix('teacher/exams')
 
 // HU 06: Seguridad de rutas del panel docente
 Route::prefix('teacher/dashboard')
-    ->middleware(['auth:sanctum', 'throttle:60,1', 'teacher.role', 'block.mutations', 'audit.logger'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'throttle:60,1', 'teacher.role', 'block.mutations', 'audit.logger'])
     ->group(function () {
         Route::get('/subjects', [TeacherDashboardController::class, 'getAssignedSubjects']);
         Route::get('/upcoming-exams', [TeacherDashboardController::class, 'getUpcomingExams']);

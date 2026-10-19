@@ -16,9 +16,12 @@ class StudentQrController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $student = $request->user()->student ?? $request->user();
+        $student = $request->user()->student;
+        if (! $student) {
+            return $this->missingStudentProfileResponse();
+        }
 
-        $exams = $this->qrService->getExamsForStudent($student->id ?? 1);
+        $exams = $this->qrService->getExamsForStudent($student->id);
 
         return response()->json([
             'message' => 'Exámenes obtenidos exitosamente',
@@ -28,10 +31,13 @@ class StudentQrController extends Controller
 
     public function show(Request $request, int $examId): JsonResponse
     {
+        $student = $request->user()->student;
+        if (! $student) {
+            return $this->missingStudentProfileResponse();
+        }
+
         try {
-            $student = $request->user()->student ?? $request->user();
-            
-            $qrData = $this->qrService->getOrGenerateForExam($student->id ?? 1, $examId);
+            $qrData = $this->qrService->getOrGenerateForExam($student->id, $examId);
 
             return response()->json([
                 'message' => 'Código QR generado exitosamente',
@@ -43,5 +49,14 @@ class StudentQrController extends Controller
                 'message' => $e->getMessage()
             ], 403);
         }
+    }
+
+    private function missingStudentProfileResponse(): JsonResponse
+    {
+        return response()->json([
+            'success' => false,
+            'code' => 'STUDENT_PROFILE_MISSING',
+            'message' => 'Tu cuenta no tiene un perfil estudiantil asociado. Comunícate con administración.',
+        ], 403);
     }
 }

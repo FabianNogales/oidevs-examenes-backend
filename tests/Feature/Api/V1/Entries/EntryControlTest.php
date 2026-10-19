@@ -260,16 +260,61 @@ class EntryControlTest extends TestCase
 
     public function test_detail_handles_unassociated_student_and_inactive_enrollment(): void
     {
+        config(['app.debug' => true]);
         $outside = $this->student();
-        $this->actingAs($this->teacherUser)->getJson($this->base().'/'.$outside->id)->assertOk()
-            ->assertJsonPath('data.enrollment_status', null)->assertJsonPath('data.assigned_room_id', null)
-            ->assertJsonPath('data.room_status', 'NOT_APPLICABLE')->assertJsonFragment(['code' => 'NOT_ENROLLED'])
-            ->assertJsonPath('data.meets_entry_conditions', false);
+        $outsideResponse = $this->actingAs($this->teacherUser)->getJson($this->base().'/'.$outside->id)
+            ->assertNotFound()->assertExactJson(['message' => 'Estudiante no encontrado.']);
+        $missingResponse = $this->getJson($this->base().'/999999')->assertNotFound()
+            ->assertExactJson(['message' => 'Estudiante no encontrado.']);
+        $this->assertSame($outsideResponse->getContent(), $missingResponse->getContent());
         $this->getJson($this->base())->assertOk()->assertJsonCount(1, 'data');
         DB::table('enrollments')->where('student_id', $this->student->id)->update(['status' => 'INACTIVE']);
         $this->getJson($this->base().'/'.$this->student->id)->assertOk()
             ->assertJsonPath('data.enrollment_status', 'INACTIVE')->assertJsonPath('data.entry_status', 'NOT_APPLICABLE');
         $this->getJson($this->base().'/999999')->assertNotFound();
+    }
+
+    public function test_foreign_students_cannot_be_read_or_found_by_owner_or_collaborator(): void
+    {
+        $outside = $this->student();
+        $outside->update(['first_names' => 'Persona ajena', 'last_names' => 'Fuera del examen']);
+        $otherExam = $this->exam->replicate();
+        $otherExam->save();
+        ExamEligibility::create(['exam_id' => $otherExam->id, 'student_id' => $outside->id, 'status' => 'ELIGIBLE']);
+        $collaborator = $this->collaborator();
+
+        foreach ([$this->teacherUser, $collaborator] as $operator) {
+            $this->actingAs($operator);
+            foreach ([$outside->first_names, $outside->sis_code, $outside->identity_number] as $search) {
+                $this->getJson($this->base().'?'.http_build_query([
+                    'search' => $search, 'student_id' => $outside->id, 'include_unassociated' => true,
+                ]))->assertOk()->assertJsonCount(0, 'data')->assertJsonPath('meta.total', 0);
+            }
+            $this->getJson($this->base().'/'.$outside->id.'?student_id='.$this->student->id.'&include_unassociated=1')
+                ->assertNotFound()->assertExactJson(['message' => 'Estudiante no encontrado.']);
+            $this->getJson($this->base().'/'.$this->student->id.'?student_id='.$outside->id)
+                ->assertOk()->assertJsonPath('data.student_id', $this->student->id);
+        }
+        $this->assertDatabaseCount('exam_entries', 0);
+    }
+
+    public function test_each_association_alone_keeps_blocked_student_consultable(): void
+    {
+        $enrollmentOnly = $this->student();
+        $this->enroll($enrollmentOnly, 'INACTIVE');
+        $eligibilityOnly = $this->student();
+        $this->eligible($eligibilityOnly, 'INELIGIBLE');
+        $this->actingAs($this->teacherUser);
+
+        $this->getJson($this->base().'/'.$enrollmentOnly->id)->assertOk()
+            ->assertJsonPath('data.enrollment_status', 'INACTIVE')->assertJsonPath('data.eligibility_status', null)
+            ->assertJsonPath('data.meets_entry_conditions', false)->assertJsonFragment(['code' => 'NOT_ENROLLED']);
+        $this->getJson($this->base().'/'.$eligibilityOnly->id)->assertOk()
+            ->assertJsonPath('data.enrollment_status', null)->assertJsonPath('data.eligibility_status', 'INELIGIBLE')
+            ->assertJsonPath('data.reason', 'Documento pendiente')->assertJsonPath('data.meets_entry_conditions', false)
+            ->assertJsonFragment(['code' => 'NOT_ENROLLED'])->assertJsonFragment(['code' => 'INELIGIBLE']);
+        $this->getJson($this->base())->assertOk()->assertJsonCount(3, 'data');
+        $this->assertDatabaseCount('exam_entries', 0);
     }
 
     public function test_room_comparison_and_invalid_parameters(): void

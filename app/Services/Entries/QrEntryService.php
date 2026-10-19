@@ -58,14 +58,23 @@ class QrEntryService
             }
             $student = Student::whereKey($studentId)->lockForUpdate()->first();
             if (! $student) {
-                abort_if($manualStudentId !== null, 404, 'Estudiante no encontrado.');
+                if ($manualStudentId !== null) {
+                    return $this->studentNotFound();
+                }
 
                 return $this->result('INVALID_QR', 'QR inválido.', null, 422);
             }
-            DB::table('enrollments')->where('student_id', $student->id)
+            $enrollments = DB::table('enrollments')->where('student_id', $student->id)
                 ->where('course_offering_id', $exam->course_offering_id)->lockForUpdate()->get();
-            DB::table('exam_eligibilities')->where('student_id', $student->id)
+            $eligibilities = DB::table('exam_eligibilities')->where('student_id', $student->id)
                 ->where('exam_id', $exam->id)->lockForUpdate()->get();
+            if ($enrollments->isEmpty() && $eligibilities->isEmpty()) {
+                if ($manualStudentId !== null) {
+                    return $this->studentNotFound();
+                }
+
+                return $this->result('DENIED', 'Ingreso no autorizado.', null, 422);
+            }
             $data = $this->control->show($exam, $student->id, ['room_id' => $parameters['room_id']])['data'];
             $entry = DB::table('exam_entries')->where('exam_id', $exam->id)->where('student_id', $student->id)
                 ->where('status', 'VALID')->first();
@@ -90,6 +99,11 @@ class QrEntryService
 
             return $this->result('AUTHORIZED', $manualStudentId !== null ? 'Ingreso manual registrado exitosamente.' : 'Ingreso autorizado.', $data, 201);
         });
+    }
+
+    private function studentNotFound(): JsonResponse
+    {
+        return response()->json(['message' => 'Estudiante no encontrado.'], 404);
     }
 
     private function result(string $result, string $message, ?array $data, int $status): JsonResponse
