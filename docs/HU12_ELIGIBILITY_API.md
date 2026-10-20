@@ -38,6 +38,7 @@ El parámetro student_id es el ID del perfil students, no users ni exam_eligibil
 Body:
 {
   "status":"INELIGIBLE",
+  "revision":1,
   "reason_code":"INSTITUTIONAL_REQUIREMENT_PENDING",
   "observations":"Documento pendiente"
 }
@@ -50,6 +51,7 @@ Body:
     "exam_id":1,
     "student_id":5,
     "status":"INELIGIBLE",
+    "revision":2,
     "reason_code":"INSTITUTIONAL_REQUIREMENT_PENDING",
     "reason":"Requisito institucional pendiente",
     "observations":"Documento pendiente",
@@ -59,17 +61,25 @@ Body:
 
 reason_code debe ser válido; el backend determina reason desde la etiqueta.
 observations es opcional, máximo 500 caracteres.
-Para habilitar: {"status":"ELIGIBLE"}. Se limpian reason_code, reason y observations.
-Compatibilidad transitoria: PATCH también acepta {"status":"INELIGIBLE","reason":"Texto libre anterior"}, máximo 500 caracteres, sin código. El frontend nuevo debe enviar reason_code.
+Para habilitar: {"status":"ELIGIBLE","revision":2}. Se limpian reason_code, reason y observations.
+Compatibilidad transitoria: PATCH también acepta {"status":"INELIGIBLE","reason":"Texto libre anterior","revision":2}, máximo 500 caracteres, sin código. El frontend nuevo debe enviar reason_code.
 Si se envían reason_code y reason, prevalece la etiqueta del código. Un código desconocido se rechaza aunque haya texto libre.
 La actualización registra evaluated_by/evaluated_at y una entrada de auditoría en la misma transacción.
+
+### Revisión obligatoria (FIX-015)
+
+La migración incremental `2026_10_20_000001_add_revision_to_exam_eligibilities.php` agrega `revision`, entero positivo no nulo con valor inicial 1, sin cambiar las decisiones ni metadatos existentes. Las habilitaciones nuevas, incluidas las de FIX-014, reciben 1 por defecto de base de datos; FIX-014 no altera filas existentes.
+
+GET devuelve la revisión real como número. PATCH exige la revisión original como entero JSON positivo. Ausencia o formato inválido: 422. Bajo el bloqueo de la fila se compara con la revisión persistida: si coincide, se guarda y aumenta en uno; si difiere, se responde 409 con `code: ELIGIBILITY_CONFLICT` y sin cambios de decisión, metadatos, revisión ni auditoría exitosa. La auditoría de cada cambio aceptado incluye las revisiones anterior y nueva. El cliente no puede elegir la revisión resultante.
+
+El frontend conserva el borrador y el modal ante 409, sin éxito ni reintento automático. «Consultar datos actuales» obtiene nuevamente el listado autorizado y muestra el registro vigente sin reemplazar el borrador. «Descartar borrador y cargar estos datos» reemplaza explícitamente todos los valores y la revisión juntos. Un guardado exitoso conserva la notificación y recarga habituales. Backend y frontend deben actualizarse coordinadamente, aplicando primero la migración: los clientes anteriores que omiten revisión recibirán 422.
 
 ## Listado y foto
 
 GET /exams/{exam_id}/eligibilities
 Filtros existentes: ?status=INELIGIBLE&search={nombre_apellido_sis_ci}
 
-Se mantienen data y los campos previos. Se agregan exam_id, reason_code, observations y profile_photo_url.
+Se mantienen data y los campos previos. Se agregan exam_id, reason_code, observations, profile_photo_url y revision.
 
 Ejemplo de registro:
 {
@@ -83,6 +93,7 @@ Ejemplo de registro:
   "email":"carlos@example.com",
   "profile_photo_url":"https://backend.example.com/storage/profile-photos/student.png",
   "status":"INELIGIBLE",
+  "revision":2,
   "reason_code":"OTHER",
   "reason":"Otro motivo",
   "observations":"Información adicional",
@@ -145,11 +156,14 @@ Solo se actualizan habilitaciones ya asociadas a ese examen; no se crean perfile
 Las filas con error mantienen sus datos anteriores. Las válidas se aplican en una transacción con auditoría.
 Ante un fallo de persistencia se revierte toda la carga, incluyendo auditorías.
 
+Cada fila aceptada aumenta su revisión bajo el bloqueo y la transacción existentes, incluso si el estado solicitado coincide, conforme al contador `updated_rows`. Las rechazadas no cambian su revisión. Se mantienen las cuatro columnas CSV y el esquema de resultados de FIX-012. HU12 no ofrece endpoint de previsualización: seleccionar un archivo no realiza escrituras. Una carga confirmada invalida los formularios abiertos con revisión anterior. Limitación: el propio CSV no detecta archivos preparados con datos antiguos; no incorpora una revisión de origen por fila.
+
 ## Errores
 
 401: sin autenticación.
 403: falta de permisos, docente ajeno al examen o cuenta inactiva.
 404: examen o habilitación inexistente.
+409: revisión obsoleta (`ELIGIBILITY_CONFLICT`); consultar datos actuales antes de volver a editar.
 422: payload inválido o archivo/encabezados/UTF-8/formato/límites inválidos. Errores de archivo se presentan en errors.file y no producen actualizaciones.
 500: fallo inesperado de persistencia; se revierte la transacción.
 

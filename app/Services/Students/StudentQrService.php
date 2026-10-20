@@ -149,7 +149,7 @@ class StudentQrService
 
         // 4. Generar JWT Estándar HS256 (3 partes) con timestamp Unix
         $expTimestamp = $examEnd->timestamp;
-        $signedToken  = $this->generateStandardJwt($studentId, $examId, $tokenValue, $expTimestamp);
+        $signedToken  = $this->generateStandardJwt($tokenValue, $expTimestamp);
 
         // 5. Generar Matriz QR SVG Real escaneable directamente con BaconQrCode v3 (Nivel H, 200px)
         $renderer = new ImageRenderer(
@@ -174,14 +174,13 @@ class StudentQrService
     /**
      * Genera un JWT Estándar con algoritmo HS256 (Header.Payload.Signature)
      */
-    private function generateStandardJwt(int $studentId, int $examId, string $uuid, int $expTimestamp): string
+    private function generateStandardJwt(string $uuid, int $expTimestamp): string
     {
         $header = ['alg' => 'HS256', 'typ' => 'JWT'];
         $payload = [
-            'std' => $studentId,
-            'exm' => $examId,
-            'exp' => $expTimestamp,
+            'v' => 2,
             'jti' => $uuid,
+            'exp' => $expTimestamp,
         ];
 
         $base64UrlHeader  = $this->base64UrlEncode(json_encode($header));

@@ -156,7 +156,7 @@ class ManualEntryTest extends TestCase
     private function token(array $overrides = []): string
     {
         $uuid = (string) Str::uuid();
-        $claims = array_replace(['std' => $this->student->id, 'exm' => $this->exam->id,
+        $claims = array_replace(['v' => 2,
             'exp' => now()->addHours(2)->timestamp, 'jti' => $uuid], $overrides);
         StudentQrToken::create(['student_id' => $this->student->id,
             'exam_id' => $this->exam->id, 'token' => $uuid, 'status' => 'ACTIVE', 'generated_at' => now()]);

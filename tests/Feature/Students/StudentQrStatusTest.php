@@ -434,6 +434,39 @@ class StudentQrStatusTest extends TestCase
             ->where('status', 'ACTIVE')->whereNull('revoked_at')->count());
     }
 
+    public function test_issued_v2_has_only_opaque_claims_and_preserves_existing_uuid_and_svg_contract(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-14 10:00:00', 'America/La_Paz'));
+        $uuid = (string) \Illuminate\Support\Str::uuid();
+        $recordId = DB::table('student_qr_tokens')->insertGetId([
+            'student_id' => $this->studentId, 'exam_id' => $this->examId, 'token' => $uuid,
+            'status' => 'ACTIVE', 'generated_at' => now()->subHour(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $before = DB::table('student_qr_tokens')->where('id', $recordId)->first();
+        Sanctum::actingAs($this->studentUser, ['*']);
+        $endpoint = "/api/v1/students/exams/{$this->examId}/qr";
+        $qr = $this->getJson($endpoint)->assertOk()->assertJsonPath('data.exam_id', $this->examId)->json('data');
+        [$header, $payload, $signature] = explode('.', $qr['token']);
+        $decode = fn (string $part) => base64_decode(strtr($part, '-_', '+/'), true);
+        $this->assertSame(['alg' => 'HS256', 'typ' => 'JWT'], json_decode($decode($header), true));
+        $this->assertSame([
+            'v' => 2, 'jti' => $uuid,
+            'exp' => Carbon::parse('2026-06-15 11:30:00', 'America/La_Paz')->timestamp,
+        ], json_decode($decode($payload), true));
+        $this->assertSame(
+            hash_hmac('sha256', $header.'.'.$payload, config('app.key'), true),
+            $decode($signature),
+        );
+        $this->assertStringStartsWith('data:image/svg+xml;base64,', $qr['qr_code_base64']);
+        $svg = base64_decode(substr($qr['qr_code_base64'], strlen('data:image/svg+xml;base64,')), true);
+        $this->assertIsString($svg);
+        $this->assertStringContainsString('<svg', $svg);
+        $this->getJson($endpoint)->assertOk()->assertJsonPath('data.token', $qr['token'])
+            ->assertJsonPath('data.qr_code_base64', $qr['qr_code_base64']);
+        $this->assertEquals($before, DB::table('student_qr_tokens')->where('id', $recordId)->first());
+        $this->assertDatabaseCount('student_qr_tokens', 1);
+    }
+
     private function createStudentUserWithoutProfile(): User
     {
         $user = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);

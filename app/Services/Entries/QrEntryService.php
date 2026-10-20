@@ -15,11 +15,23 @@ use Illuminate\Support\Facades\DB;
 
 class QrEntryService
 {
-    public function __construct(private QrTokenValidator $tokens, private EntryControlService $control) {}
+    public function __construct(
+        private QrTokenValidator $tokens,
+        private EntryControlService $control,
+        private WrongExamAuditService $wrongExamAudit,
+    ) {}
 
     public function process(int $examId, User $user, array $parameters): JsonResponse
     {
-        return $this->register($examId, $user, $parameters);
+        $wrongExam = null;
+        $response = $this->register($examId, $user, $parameters, wrongExam: $wrongExam);
+
+        // Persist only after the scan transaction has completed and released its locks.
+        if ($wrongExam !== null) {
+            $this->wrongExamAudit->record(...$wrongExam);
+        }
+
+        return $response;
     }
 
     public function processManual(int $examId, int $studentId, User $user, array $parameters): JsonResponse
@@ -27,12 +39,16 @@ class QrEntryService
         return $this->register($examId, $user, $parameters, $studentId);
     }
 
-    private function register(int $examId, User $user, array $parameters, ?int $manualStudentId = null): JsonResponse
+    /** @param array{actorId: int, requestedExamId: int, qrExamId: int, studentId: int}|null $wrongExam */
+    private function register(
+        int $examId, User $user, array $parameters, ?int $manualStudentId = null, ?array &$wrongExam = null,
+    ): JsonResponse
     {
-        return DB::transaction(function () use ($examId, $user, $parameters, $manualStudentId) {
+        return DB::transaction(function () use ($examId, $user, $parameters, $manualStudentId, &$wrongExam) {
             // Serialize registrations for this exam, then read current conditions under row locks.
             $exam = Exam::whereKey($examId)->lockForUpdate()->firstOrFail();
-            $user = User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            // Keep user mutations excluded while allowing HU12 audit/FK key-share checks.
+            $user = User::whereKey($user->id)->lock('FOR NO KEY UPDATE')->firstOrFail();
             $owner = (int) $exam->courseOffering?->teacher?->user_id === $user->id && $user->hasRole(RoleName::DOCENTE);
             $assignment = ExamCollaborator::where('exam_id', $exam->id)->where('user_id', $user->id)
                 ->lockForUpdate()->first();
@@ -47,14 +63,16 @@ class QrEntryService
                     return $this->result('INVALID_QR', 'QR inválido.', null, 422);
                 }
                 $token = StudentQrToken::where('token', $claims['jti'])->lockForUpdate()->first();
-                if (! $token || $token->status !== 'ACTIVE' || $token->revoked_at !== null
-                    || (int) $token->student_id !== $claims['std'] || (int) $token->exam_id !== $claims['exm']) {
+                if (! $token || $token->status !== 'ACTIVE' || $token->revoked_at !== null) {
                     return $this->result('INVALID_QR', 'QR inválido.', null, 422);
                 }
-                if ($claims['exm'] !== $exam->id) {
+                if ((int) $token->exam_id !== $exam->id) {
+                    $wrongExam = ['actorId' => (int) $user->id, 'requestedExamId' => (int) $exam->id,
+                        'qrExamId' => (int) $token->exam_id, 'studentId' => (int) $token->student_id];
+
                     return $this->result('WRONG_EXAM', 'QR de otro examen.', null, 422);
                 }
-                $studentId = $claims['std'];
+                $studentId = (int) $token->student_id;
             }
             $student = Student::whereKey($studentId)->lockForUpdate()->first();
             if (! $student) {

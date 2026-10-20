@@ -1,6 +1,9 @@
 <?php
 
 use App\Enums\RoleName;
+use App\Http\Controllers\Api\V1\Admin\AuditLogController;
+use App\Http\Controllers\Api\V1\Admin\CareerController;
+use App\Http\Middleware\EnsureActiveAdministrator;
 use App\Http\Controllers\Api\V1\Admin\AcademicTermController;
 use App\Http\Controllers\Api\V1\Admin\CourseOfferingController;
 use App\Http\Controllers\Api\V1\Admin\CourseOfferingImportController;
@@ -30,6 +33,14 @@ use App\Http\Middleware\EnsureActiveRoomAdministrator;
 use App\Http\Middleware\EnsureActiveSubjectAdministrator;
 use App\Http\Middleware\EnsureCourseOfferingAccess;
 use Illuminate\Support\Facades\Route;
+
+Route::prefix('admin')->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])
+    ->group(function () {
+        Route::get('/audit-logs', [AuditLogController::class, 'index']);
+        Route::get('/audit-logs/{auditLog}', [AuditLogController::class, 'show'])->whereNumber('auditLog');
+        Route::get('/careers', [CareerController::class, 'index']);
+        Route::get('/careers/{career}', [CareerController::class, 'show'])->whereNumber('career');
+    });
 
 Route::prefix('exams/{exam}/eligibilities')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'teacher.role'])

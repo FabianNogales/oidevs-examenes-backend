@@ -8,6 +8,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class StudentEnrollmentTest extends TestCase
@@ -178,5 +179,77 @@ class StudentEnrollmentTest extends TestCase
             'registered_by' => $this->teacherUserId,
             'status' => 'ACTIVE',
         ]);
+    }
+
+    public static function bulkCounterCases(): array
+    {
+        // Exact uploaded bytes exercise fgetcsv, including LF/CRLF and EOF behavior.
+        $cases = [
+            'header only' => ["sisCode\n", [0, 0, 0, 0], []],
+            'one empty LF record' => ["sisCode\n\n", [1, 0, 0, 1], ['empty']],
+            'two empty CRLF records' => ["sisCode\r\n\r\n\r\n", [2, 0, 0, 2], ['empty', 'empty']],
+            'valid then empty' => ["sisCode\n202600001\n\n", [2, 1, 0, 1], ['success', 'empty']],
+            'empty then valid' => ["sisCode\n\n202600001\n", [2, 1, 0, 1], ['empty', 'success']],
+            'valid duplicate and unknown' => ["sisCode\n202600001\n202600001\n999999999\n",
+                [3, 1, 1, 1], ['success', 'duplicate', 'not_found']],
+            'all columns empty' => ["sisCode,optional,another\n,,\n", [1, 0, 0, 1], ['empty']],
+            'only spaces' => ["sisCode\n   \n", [1, 0, 0, 1], ['not_found']],
+            'padded SIS' => ["sisCode\n 202600001 \n", [1, 0, 0, 1], ['not_found']],
+            'missing SIS with another value' => ["sisCode,optional\n,comment\n", [1, 0, 0, 1], ['missing']],
+            'single final newline is not another record' => ["sisCode\n202600001\n", [1, 1, 0, 0], ['success']],
+        ];
+        $datasets = [];
+        foreach ([true, false] as $preview) {
+            foreach ($cases as $name => [$csv, $counts, $results]) {
+                $datasets[($preview ? 'preview: ' : 'confirm: ').$name] = [$preview, $csv, $counts, $results];
+            }
+        }
+
+        return $datasets;
+    }
+
+    #[DataProvider('bulkCounterCases')]
+    public function testBulkCountsEveryParsedRecordExactlyOnce(
+        bool $preview, string $csv, array $counts, array $results,
+    ): void {
+        [$total, $successful, $duplicates, $failed] = $counts;
+        $response = $this->postJson("/api/v1/course-offerings/{$this->courseOfferingId}/enrollments/bulk".($preview ? '/preview' : ''), [
+            'file' => UploadedFile::fake()->createWithContent('enrollments.csv', $csv),
+        ])->assertOk()->assertJsonPath('data.totalProcessed', $total)
+            ->assertJsonPath('data.successfulRecords', $successful)
+            ->assertJsonPath('data.duplicateRecords', $duplicates)
+            ->assertJsonPath('data.failedCount', $failed);
+
+        $data = $response->json('data');
+        $this->assertSame($data['totalProcessed'],
+            $data['successfulRecords'] + $data['duplicateRecords'] + $data['failedCount']);
+        $this->assertCount($total, $data['records']);
+        // failedRecords includes duplicates, in addition to failedCount.
+        $this->assertCount($failed + $duplicates, $data['failedRecords']);
+        foreach ($results as $index => $result) {
+            $record = $data['records'][$index];
+            $this->assertSame($index + 2, $record['row']);
+            [$status, $reason] = match ($result) {
+                'empty' => ['INVALID', 'La fila está vacía'],
+                'missing' => ['INVALID', 'Missing sisCode column data'],
+                'not_found' => ['NOT_FOUND', 'Student not found in institutional registry'],
+                'duplicate' => ['DUPLICATE', 'Duplicate sisCode in CSV file'],
+                'success' => [$preview ? 'VALID' : 'ADDED', $preview ? 'Listo para importar.' : 'Agregado correctamente.'],
+            };
+            $this->assertSame($status, $record['status']);
+            $this->assertSame($reason, $record['reason']);
+            if (in_array($result, ['empty', 'missing'], true)) {
+                $this->assertNull($record['sisCode']);
+            }
+        }
+
+        $persisted = $preview ? 0 : $successful;
+        $this->assertDatabaseCount('enrollments', $persisted);
+        $this->assertSame($persisted, DB::table('audit_logs')->where('entity_type', 'Enrollment')->where('action', 'WRITE')->count());
+        $this->assertDatabaseCount('students', 1);
+        if ($persisted > 0) {
+            $this->assertDatabaseHas('enrollments', ['student_id' => $this->studentId,
+                'course_offering_id' => $this->courseOfferingId, 'status' => 'ACTIVE', 'registered_by' => $this->teacherUserId]);
+        }
     }
 }
