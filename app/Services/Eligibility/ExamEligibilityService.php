@@ -26,14 +26,16 @@ class ExamEligibilityService
 
     public function save(ExamEligibility $eligibility, array $data, Request $request): ExamEligibility
     {
-        $old = $eligibility->only(['status', 'reason_code', 'reason', 'observations', 'evaluated_by', 'evaluated_at']);
-        $eligibility->update(EligibilityRules::values($data) + [
+        $old = $eligibility->only(['status', 'reason_code', 'reason', 'observations', 'evaluated_by', 'evaluated_at', 'revision']);
+        // Both callers hold the row lock until the update and its audit commit.
+        $eligibility->forceFill(EligibilityRules::values($data) + [
             'evaluated_by' => $request->user()->id,
             'evaluated_at' => now(),
-        ]);
+            'revision' => $eligibility->revision + 1,
+        ])->save();
         app(AuditLogService::class)->log($request, $request->user()->id, 'EXAM_ELIGIBILITY_UPDATED',
             'ExamEligibility', $eligibility->id, $old,
-            $eligibility->only(['exam_id', 'student_id', 'status', 'reason_code', 'reason', 'observations', 'evaluated_by', 'evaluated_at']));
+            $eligibility->only(['exam_id', 'student_id', 'status', 'reason_code', 'reason', 'observations', 'evaluated_by', 'evaluated_at', 'revision']));
 
         return $eligibility;
     }

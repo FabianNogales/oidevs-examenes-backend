@@ -5,6 +5,7 @@ namespace App\Services\Entries;
 use App\Models\Exam;
 use App\Models\User;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -57,6 +58,8 @@ class EntryControlService
             'duration_minutes' => (int) $exam->duration_minutes,
             'evaluation_type' => $exam->evaluation_type,
             'status' => $exam->status,
+            'entry_available' => ExamEntryAvailability::reason($exam) === null,
+            'entry_unavailable_reason' => ExamEntryAvailability::reason($exam),
             'room' => $exam->room ? $exam->room->only(['id', 'code', 'name', 'location']) : null,
         ];
     }
@@ -108,8 +111,10 @@ class EntryControlService
 
     public function show(Exam $exam, int $studentId, array $parameters): array
     {
-        $record = $this->query($exam)->where('s.id', $studentId)->select($this->columns())->first();
-        abort_unless($record, 404, 'Estudiante no encontrado.');
+        $record = $this->associatedQuery($exam)->where('s.id', $studentId)->select($this->columns())->first();
+        if (! $record) {
+            throw new HttpResponseException(response()->json(['message' => 'Estudiante no encontrado.'], 404));
+        }
         $verifiers = $this->verifiers(collect([$record]));
 
         return [
@@ -138,6 +143,7 @@ class EntryControlService
             'INELIGIBLE' => 'El estudiante se encuentra inhabilitado para este examen.',
             'ROOM_MISMATCH' => 'El ambiente controlado no corresponde al ambiente asignado al examen.',
             'ALREADY_REGISTERED' => 'El estudiante ya tiene un ingreso registrado para este examen.',
+            'EXAM_UNAVAILABLE' => 'El examen no está disponible para registrar ingresos.',
         ];
         $failed = [
             'STUDENT_INACTIVE' => $record->student_status !== 'ACTIVE',
@@ -146,6 +152,7 @@ class EntryControlService
             'INELIGIBLE' => $eligibility === 'INELIGIBLE',
             'ROOM_MISMATCH' => $roomStatus === 'MISMATCH',
             'ALREADY_REGISTERED' => $record->entry_id !== null,
+            'EXAM_UNAVAILABLE' => ExamEntryAvailability::reason($exam) !== null,
         ];
         foreach ($failed as $code => $condition) {
             if ($condition) {

@@ -61,7 +61,7 @@ class ExamCollaboratorController extends Controller
         $this->collaboratorService->responsibleExam($examId, $request->user()->id);
         $validated = $request->validate(['user_id' => 'required|integer|exists:users,id']);
         $collaborator = $this->collaboratorService->assignCollaborator(
-            $examId, $validated['user_id'], $request->user()->id
+            $examId, $validated['user_id'], $request
         );
 
         return response()->json([
@@ -73,7 +73,7 @@ class ExamCollaboratorController extends Controller
     public function destroy(Request $request, int $examId, int $userId): JsonResponse
     {
         $this->collaboratorService->responsibleExam($examId, $request->user()->id);
-        $this->collaboratorService->revokeCollaborator($examId, $userId);
+        $this->collaboratorService->revokeCollaborator($examId, $userId, $request);
 
         return response()->json(['message' => 'Autorización de colaborador revocada exitosamente.']);
     }

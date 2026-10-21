@@ -6,15 +6,14 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Exams\StoreExamRequest;
 use App\Models\CourseOffering;
 use App\Models\Exam;
+use App\Services\Audit\AuditLogService;
+use App\Services\Eligibility\ExamEligibilityInitializer;
 use App\Services\Rooms\RoomAvailabilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 
 class ExamSchedulingController extends Controller
 {
-    private const ACTIVE_STATUS = 'ACTIVE';
-    private const ELIGIBLE_STATUS = 'ELIGIBLE';
-
     public function store(StoreExamRequest $request, int $courseOfferingId): JsonResponse
     {
         $courseOffering = CourseOffering::findOrFail($courseOfferingId);
@@ -43,38 +42,16 @@ class ExamSchedulingController extends Controller
                 'created_by' => $request->user()->id,
             ]);
 
-            $now = now();
-            $eligibleStudentIds = DB::table('enrollments')
-                ->join('students', 'students.id', '=', 'enrollments.student_id')
-                ->where('enrollments.course_offering_id', $courseOffering->id)
-                ->where('enrollments.status', self::ACTIVE_STATUS)
-                ->where('students.status', self::ACTIVE_STATUS)
-                ->distinct()
-                ->pluck('students.id');
+            app(ExamEligibilityInitializer::class)->forExam($exam, $request->user()->id);
 
-            if ($eligibleStudentIds->isNotEmpty()) {
-                DB::table('exam_eligibilities')->insert(
-                    $eligibleStudentIds->map(fn (int $studentId) => [
-                        'exam_id' => $exam->id,
-                        'student_id' => $studentId,
-                        'status' => self::ELIGIBLE_STATUS,
-                        'reason' => null,
-                        'evaluated_by' => $request->user()->id,
-                        'evaluated_at' => $now,
-                        'created_at' => $now,
-                        'updated_at' => $now,
-                    ])->all()
-                );
-            }
-
-            DB::table('audit_logs')->insert([
-                'user_id' => $request->user()->id,
-                'action' => 'WRITE',
-                'entity_type' => 'Exam',
-                'ip_address' => $request->ip(),
-                'user_agent' => $request->userAgent(),
-                'created_at' => $now,
-            ]);
+            app(AuditLogService::class)->log($request, $request->user()->id, 'WRITE', 'Exam', $exam->id,
+                newValues: [
+                    'source' => 'APPLICATION', 'operation' => 'EXAM_SCHEDULED', 'outcome' => 'CONFIRMED',
+                    'course_offering_id' => $exam->course_offering_id, 'room_id' => $exam->room_id,
+                    'exam_date' => $exam->exam_date, 'start_time' => $exam->start_time,
+                    'duration_minutes' => $exam->duration_minutes, 'evaluation_type' => $exam->evaluation_type,
+                    'status' => $exam->status,
+                ]);
 
             return $exam;
         });

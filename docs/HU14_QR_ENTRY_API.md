@@ -1,5 +1,7 @@
 # HU14 — Registro de ingreso mediante QR
 
+Actualización de integración HU18: [disponibilidad compartida](EXAM_ENTRY_AVAILABILITY.md) reemplaza la restricción previa a SCHEDULED/IN_PROGRESS. Se admite también ACTIVE legado y se usa America/La_Paz con fin excluido, conservando revocación y bloqueo transaccional de HU18.
+
 Contrato aprobado por frontend. Base: `/api/v1`. Implementación en `Dev_Hector`.
 
 ## Actualización
@@ -25,7 +27,7 @@ Ambas rutas requieren Sanctum, sesión vigente, contraseña inicial cambiada y `
 
 Ambos campos obligatorios; token string máximo 4096 caracteres y room_id entero de ambiente existente. No enviar imagen, base64, student_id, verificador, fecha ni mecanismo.
 
-Se verifica el JWT HS256 con la misma clave y formato del generador existente: std, exm, exp y jti. Se exige token persistido ACTIVE, sin revocación y asociado a los mismos estudiante y examen. Tokens expirados, desconocidos, alterados o con claims inválidos son rechazados.
+Se verifica el JWT HS256 del generador vigente con exactamente tres claims: `v` entero igual a 2, `exp` entero futuro y `jti` UUID. Los contratos v1 y los claims adicionales se rechazan. Se exige un registro persistido ACTIVE y sin revocación; el estudiante y el examen se obtienen exclusivamente de `student_qr_tokens`, nunca de claims de identidad. Tokens expirados, desconocidos, alterados o con claims inválidos son rechazados.
 
 Se vuelven a comprobar condiciones de HU13: estudiante ACTIVE, inscripción ACTIVE, habilitación ELIGIBLE (null bloquea), ambiente coincidente y ausencia de ingreso VALID. También disponibilidad del examen conforme a la regla vigente de autorización (SCHEDULED/IN_PROGRESS y antes de su finalización). No se agrega hora mínima de ingreso; la emisión del QR conserva su ventana actual de 24 horas.
 
@@ -68,6 +70,16 @@ Mismo envoltorio result/message/processed_at/data:
 Se priorizan validación del token, correspondencia de examen, duplicado y demás condiciones. Bloqueos de HU13: STUDENT_INACTIVE, NOT_ENROLLED, ELIGIBILITY_PENDING, INELIGIBLE, ROOM_MISMATCH y ALREADY_REGISTERED. EXAM_UNAVAILABLE indica que el examen no admite nuevos ingresos. Para colaboradores sin autorización vigente se devuelve 403 antes de procesar el token.
 
 Los errores de parámetros son 422 con `errors`, sin `result`. Autenticación 401 (incluye ACCOUNT_INACTIVE del middleware compartido), permisos 403, examen inexistente 404. No guardar el JWT en logs ni en la lista de escaneos.
+
+### Auditoría interna de WRONG_EXAM (FIX-009)
+
+Tras autorizar al operador, validar el JWT v2 y resolver su registro activo no revocado, un examen distinto produce el mismo HTTP 422, `result: WRONG_EXAM`, `message: "QR de otro examen."` y `data: null`. No revela identidad ni el examen real del QR en la respuesta, ni crea asistencia.
+
+Después de terminar la transacción del escaneo, una transacción independiente guarda `ENTRY_QR_WRONG_EXAM` mediante el servicio de auditoría existente. `user_id` identifica al actor autenticado; `entity_type: Exam` y `entity_id` identifican al examen solicitado. `new_values` contiene solamente `qr_exam_id`, `student_id` (ambos del registro QR validado), `reason: WRONG_EXAM` y `method: QR`. Se reutilizan la fecha del servidor, IP y agente de usuario habituales. No se guarda JWT, UUID de credencial, firma, imagen ni datos personales adicionales.
+
+Si falla esa escritura, su transacción se revierte antes de emitir una alerta técnica que solo incluye el tipo de excepción. Se mantiene el rechazo 422, sin asistencia; en ese caso no se garantiza la persistencia del evento. No hay reintentos ni cola. No se auditan otros resultados, errores de autorización o validación con esta acción.
+
+Dos solicitudes independientes pueden generar dos eventos. Describen solicitudes procesadas: no acreditan presencia física ni infracción disciplinaria. No cambian el historial de asistencias, contadores ni estados VALID/ANNULLED. La auditoría persiste aunque desaparezca la lista temporal de escaneos recientes. No se crean API, interfaz ni permisos de consulta; consultas internas, retención y reportes requieren una definición futura de permisos y respeto de la inmutabilidad existente.
 
 ## Historial persistente
 

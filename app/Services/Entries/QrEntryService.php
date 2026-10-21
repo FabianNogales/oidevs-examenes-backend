@@ -15,14 +15,40 @@ use Illuminate\Support\Facades\DB;
 
 class QrEntryService
 {
-    public function __construct(private QrTokenValidator $tokens, private EntryControlService $control) {}
+    public function __construct(
+        private QrTokenValidator $tokens,
+        private EntryControlService $control,
+        private WrongExamAuditService $wrongExamAudit,
+    ) {}
 
     public function process(int $examId, User $user, array $parameters): JsonResponse
     {
-        return DB::transaction(function () use ($examId, $user, $parameters) {
+        $wrongExam = null;
+        $response = $this->register($examId, $user, $parameters, wrongExam: $wrongExam);
+
+        // Persist only after the scan transaction has completed and released its locks.
+        if ($wrongExam !== null) {
+            $this->wrongExamAudit->record(...$wrongExam);
+        }
+
+        return $response;
+    }
+
+    public function processManual(int $examId, int $studentId, User $user, array $parameters): JsonResponse
+    {
+        return $this->register($examId, $user, $parameters, $studentId);
+    }
+
+    /** @param array{actorId: int, requestedExamId: int, qrExamId: int, studentId: int}|null $wrongExam */
+    private function register(
+        int $examId, User $user, array $parameters, ?int $manualStudentId = null, ?array &$wrongExam = null,
+    ): JsonResponse
+    {
+        return DB::transaction(function () use ($examId, $user, $parameters, $manualStudentId, &$wrongExam) {
             // Serialize registrations for this exam, then read current conditions under row locks.
             $exam = Exam::whereKey($examId)->lockForUpdate()->firstOrFail();
-            $user = User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            // Keep user mutations excluded while allowing HU12 audit/FK key-share checks.
+            $user = User::whereKey($user->id)->lock('FOR NO KEY UPDATE')->firstOrFail();
             $owner = (int) $exam->courseOffering?->teacher?->user_id === $user->id && $user->hasRole(RoleName::DOCENTE);
             $assignment = ExamCollaborator::where('exam_id', $exam->id)->where('user_id', $user->id)
                 ->lockForUpdate()->first();
@@ -30,26 +56,43 @@ class QrEntryService
                 && ExamCollaborator::examIsAvailable($exam)
                 && app(ExamCollaboratorService::class)->isCandidate($exam, $user->id))), 403);
 
-            $claims = $this->tokens->decode($parameters['qr_token']);
-            if (! $claims) {
-                return $this->result('INVALID_QR', 'QR inválido.', null, 422);
+            $studentId = $manualStudentId;
+            if ($manualStudentId === null) {
+                $claims = $this->tokens->decode($parameters['qr_token']);
+                if (! $claims) {
+                    return $this->result('INVALID_QR', 'QR inválido.', null, 422);
+                }
+                $token = StudentQrToken::where('token', $claims['jti'])->lockForUpdate()->first();
+                if (! $token || $token->status !== 'ACTIVE' || $token->revoked_at !== null) {
+                    return $this->result('INVALID_QR', 'QR inválido.', null, 422);
+                }
+                if ((int) $token->exam_id !== $exam->id) {
+                    $wrongExam = ['actorId' => (int) $user->id, 'requestedExamId' => (int) $exam->id,
+                        'qrExamId' => (int) $token->exam_id, 'studentId' => (int) $token->student_id];
+
+                    return $this->result('WRONG_EXAM', 'QR de otro examen.', null, 422);
+                }
+                $studentId = (int) $token->student_id;
             }
-            $token = StudentQrToken::where('token', $claims['jti'])->lockForUpdate()->first();
-            if (! $token || $token->status !== 'ACTIVE' || $token->revoked_at !== null
-                || (int) $token->student_id !== $claims['std'] || (int) $token->exam_id !== $claims['exm']) {
-                return $this->result('INVALID_QR', 'QR inválido.', null, 422);
-            }
-            if ($claims['exm'] !== $exam->id) {
-                return $this->result('WRONG_EXAM', 'QR de otro examen.', null, 422);
-            }
-            $student = Student::whereKey($claims['std'])->lockForUpdate()->first();
+            $student = Student::whereKey($studentId)->lockForUpdate()->first();
             if (! $student) {
+                if ($manualStudentId !== null) {
+                    return $this->studentNotFound();
+                }
+
                 return $this->result('INVALID_QR', 'QR inválido.', null, 422);
             }
-            DB::table('enrollments')->where('student_id', $student->id)
+            $enrollments = DB::table('enrollments')->where('student_id', $student->id)
                 ->where('course_offering_id', $exam->course_offering_id)->lockForUpdate()->get();
-            DB::table('exam_eligibilities')->where('student_id', $student->id)
+            $eligibilities = DB::table('exam_eligibilities')->where('student_id', $student->id)
                 ->where('exam_id', $exam->id)->lockForUpdate()->get();
+            if ($enrollments->isEmpty() && $eligibilities->isEmpty()) {
+                if ($manualStudentId !== null) {
+                    return $this->studentNotFound();
+                }
+
+                return $this->result('DENIED', 'Ingreso no autorizado.', null, 422);
+            }
             $data = $this->control->show($exam, $student->id, ['room_id' => $parameters['room_id']])['data'];
             $entry = DB::table('exam_entries')->where('exam_id', $exam->id)->where('student_id', $student->id)
                 ->where('status', 'VALID')->first();
@@ -57,7 +100,8 @@ class QrEntryService
             if ($entry) {
                 return $this->result('ALREADY_REGISTERED', 'Ingreso ya registrado.', $data, 409);
             }
-            if (! ExamCollaborator::examIsAvailable($exam)) {
+            if (! ExamCollaborator::examIsAvailable($exam)
+                && ! in_array('EXAM_UNAVAILABLE', array_column($data['blockers'], 'code'), true)) {
                 $data['blockers'][] = ['code' => 'EXAM_UNAVAILABLE', 'message' => 'El examen no está disponible para registrar ingresos.'];
             }
             if ($data['blockers'] !== []) {
@@ -65,14 +109,19 @@ class QrEntryService
             }
             $entryId = DB::table('exam_entries')->insertGetId([
                 'exam_id' => $exam->id, 'student_id' => $student->id, 'room_id' => $parameters['room_id'],
-                'verified_by' => $user->id, 'verification_method' => 'QR', 'entered_at' => now(),
+                'verified_by' => $user->id, 'verification_method' => $manualStudentId !== null ? 'MANUAL' : 'QR', 'entered_at' => now(),
                 'status' => 'VALID', 'created_at' => now(), 'updated_at' => now(),
             ]);
             $data['entry_status'] = 'REGISTERED';
             $data['entry'] = $this->entryData(DB::table('exam_entries')->find($entryId), $user);
 
-            return $this->result('AUTHORIZED', 'Ingreso autorizado.', $data, 201);
+            return $this->result('AUTHORIZED', $manualStudentId !== null ? 'Ingreso manual registrado exitosamente.' : 'Ingreso autorizado.', $data, 201);
         });
+    }
+
+    private function studentNotFound(): JsonResponse
+    {
+        return response()->json(['message' => 'Estudiante no encontrado.'], 404);
     }
 
     private function result(string $result, string $message, ?array $data, int $status): JsonResponse

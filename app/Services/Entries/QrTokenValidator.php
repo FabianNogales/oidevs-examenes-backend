@@ -21,13 +21,11 @@ class QrTokenValidator
             || ! hash_equals(hash_hmac('sha256', $parts[0].'.'.$parts[1], config('app.key'), true), $signature)) {
             return null;
         }
-        foreach (['std', 'exm', 'exp'] as $claim) {
-            if (! isset($payload[$claim]) || ! is_int($payload[$claim]) || $payload[$claim] <= 0) {
-                return null;
-            }
-        }
-        if ($payload['exp'] <= now()->timestamp || ! is_string($payload['jti'] ?? null)
-            || ! preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $payload['jti'])) {
+        // Only v2's three claims are accepted, including when a legacy claim is null.
+        if (count($payload) !== 3 || ($payload['v'] ?? null) !== 2
+            || ! is_int($payload['exp'] ?? null) || $payload['exp'] <= now()->timestamp
+            || ! is_string($payload['jti'] ?? null)
+            || ! preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iD', $payload['jti'])) {
             return null;
         }
 

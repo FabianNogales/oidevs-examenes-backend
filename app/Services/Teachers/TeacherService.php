@@ -121,7 +121,16 @@ class TeacherService
 
             $teacher->user->forceFill([
                 'status' => $newStatus->value,
-            ])->save();
+            ]);
+
+            if ($newStatus === UserStatus::INACTIVE) {
+                // Revocar la cuenta desactivada sin reinicializar sus credenciales.
+                // El marcador no nulo impide revivir cookies previas al reactivar.
+                $teacher->user->forceFill(['active_session_id' => Str::random(40)]);
+                $teacher->user->tokens()->delete();
+            }
+
+            $teacher->user->save();
 
             $teacher->refresh()->load('user');
 

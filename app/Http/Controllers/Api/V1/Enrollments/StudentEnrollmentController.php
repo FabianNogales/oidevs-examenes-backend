@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\V1\Enrollments;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Enrollments\StoreManualEnrollmentRequest;
 use App\Http\Requests\Enrollments\StoreBulkEnrollmentRequest;
+use App\Services\Audit\AuditLogService;
+use App\Services\Eligibility\ExamEligibilityInitializer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -63,7 +65,7 @@ class StudentEnrollmentController extends Controller
 
         DB::beginTransaction();
         try {
-            DB::table('enrollments')->insert([
+            $enrollmentId = DB::table('enrollments')->insertGetId([
                 'course_offering_id' => $courseOfferingId,
                 'student_id' => $student->id,
                 'status' => 'ACTIVE',
@@ -72,17 +74,15 @@ class StudentEnrollmentController extends Controller
                 'updated_at' => now(),
             ]);
 
-            DB::table('audit_logs')->insert([
-                'user_id' => $userId,
-                'action' => 'WRITE',
-                'entity_type' => 'Enrollment',
-                'ip_address' => $request->ip(),
-                'user_agent' => $request->userAgent(),
-                'new_values' => json_encode([
-                    'incorporated_sis_codes' => [$sisCode]
-                ]),
-                'created_at' => now(),
-            ]);
+            app(ExamEligibilityInitializer::class)->forNewEnrollments($courseOfferingId, [$student->id], $userId);
+
+            app(AuditLogService::class)->log($request, $userId, 'WRITE', 'Enrollment', $enrollmentId,
+                newValues: [
+                    'source' => 'APPLICATION', 'operation' => 'ENROLLMENT_CREATED', 'outcome' => 'CONFIRMED',
+                    'scope' => 'ENROLLMENT', 'mode' => 'MANUAL', 'course_offering_id' => $courseOfferingId,
+                    'student_ids' => [$student->id],
+                    'summary' => ['totalProcessed' => 1, 'successfulRecords' => 1, 'duplicateRecords' => 0, 'failedCount' => 0],
+                ]);
 
             DB::commit();
         } catch (Exception $e) {
@@ -137,13 +137,13 @@ class StudentEnrollmentController extends Controller
         
         $studentsToInsert = [];
         $processedSisCodes = []; 
-        $successfulSisCodes = [];
         $rowResults = [];
 
         DB::beginTransaction();
         try {
             while (($row = fgetcsv($handle)) !== false) {
                 $rowNum++;
+                $totalProcessed++;
                 
                 if (empty(array_filter($row))) {
                     $records[] = [
@@ -156,7 +156,6 @@ class StudentEnrollmentController extends Controller
                     continue;
                 }
                 
-                $totalProcessed++;
                 $sisCode = $row[$sisCodeIndex] ?? null;
 
                 if (!$sisCode) {
@@ -199,7 +198,6 @@ class StudentEnrollmentController extends Controller
                     'created_at' => now(),
                     'updated_at' => now(),
                 ];
-                $successfulSisCodes[] = $sisCode;
                 $rowResults[] = [
                     'row' => $rowNum,
                     'sisCode' => $sisCode,
@@ -211,18 +209,19 @@ class StudentEnrollmentController extends Controller
 
             if (!$preview && !empty($studentsToInsert)) {
                 DB::table('enrollments')->insert($studentsToInsert);
+                app(ExamEligibilityInitializer::class)->forNewEnrollments(
+                    $courseOfferingId, array_column($studentsToInsert, 'student_id'), $userId
+                );
                 
-                DB::table('audit_logs')->insert([
-                    'user_id' => $userId,
-                    'action' => 'WRITE',
-                    'entity_type' => 'Enrollment',
-                    'ip_address' => $request->ip(),
-                    'user_agent' => $request->userAgent(),
-                    'new_values' => json_encode([
-                        'incorporated_sis_codes' => $successfulSisCodes
-                    ]),
-                    'created_at' => now(),
-                ]);
+                // A batch has no single enrollment id; its offering and confirmed students identify its scope.
+                app(AuditLogService::class)->log($request, $userId, 'WRITE', 'Enrollment',
+                    newValues: [
+                        'source' => 'APPLICATION', 'operation' => 'ENROLLMENTS_IMPORTED', 'outcome' => 'CONFIRMED',
+                        'scope' => 'COURSE_OFFERING', 'mode' => 'CSV', 'course_offering_id' => $courseOfferingId,
+                        'student_ids' => array_column($studentsToInsert, 'student_id'),
+                        'summary' => ['totalProcessed' => $totalProcessed, 'successfulRecords' => $successfulCount,
+                            'duplicateRecords' => $duplicateCount, 'failedCount' => $failedCount],
+                    ]);
             }
             DB::commit();
         } catch (Exception $e) {
