@@ -2,7 +2,7 @@
 
 namespace App\Http\Requests\Exams;
 
-use Carbon\CarbonImmutable;
+use App\Services\Exams\ExamScheduleTime;
 use Illuminate\Validation\Validator;
 
 class UpdateExamRequest extends StoreExamRequest
@@ -46,9 +46,8 @@ class UpdateExamRequest extends StoreExamRequest
                 $validator->errors()->add($field, 'Este campo no se puede modificar.');
             }
             if (! $validator->errors()->has('exam_date') && ! $validator->errors()->has('start_time')) {
-                $start = CarbonImmutable::parse($this->input('exam_date').' '.$this->input('start_time'), 'America/La_Paz');
-                if ($start->lessThanOrEqualTo(CarbonImmutable::now('America/La_Paz'))) {
-                    $validator->errors()->add('start_time', 'La fecha y hora del examen deben estar en el futuro.');
+                if (! ExamScheduleTime::isFutureStart($this->input('exam_date'), $this->input('start_time'))) {
+                    $validator->errors()->add('start_time', ExamScheduleTime::FUTURE_START_ERROR);
                 }
             }
         });

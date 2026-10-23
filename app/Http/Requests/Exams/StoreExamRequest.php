@@ -2,8 +2,8 @@
 
 namespace App\Http\Requests\Exams;
 
+use App\Services\Exams\ExamScheduleTime;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Support\Carbon;
 
 class StoreExamRequest extends FormRequest
 {
@@ -24,12 +24,12 @@ class StoreExamRequest extends FormRequest
                     $date = $this->input('exam_date');
                     if (is_string($date) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
                         try {
-                            $examDateTime = Carbon::parse($date.' '.$value, 'America/La_Paz');
+                            $isFuture = ExamScheduleTime::isFutureStart($date, $value);
                         } catch (\Throwable $exception) {
                             return;
                         }
-                        if ($examDateTime->isPast()) {
-                            $fail('La hora del examen no puede estar en el pasado si se programa para hoy.');
+                        if (! $isFuture) {
+                            $fail(ExamScheduleTime::FUTURE_START_ERROR);
                         }
                     }
                 },

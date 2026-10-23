@@ -8,9 +8,11 @@ use App\Models\CourseOffering;
 use App\Models\Exam;
 use App\Services\Audit\AuditLogService;
 use App\Services\Eligibility\ExamEligibilityInitializer;
+use App\Services\Exams\ExamScheduleTime;
 use App\Services\Rooms\RoomAvailabilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class ExamSchedulingController extends Controller
 {
@@ -29,6 +31,10 @@ class ExamSchedulingController extends Controller
                 (int) $request->validated('room_id'), $request->validated('exam_date'),
                 $request->validated('start_time'), (int) $request->validated('duration_minutes')
             );
+            // Reservation may wait for a lock; validate again at insertion time.
+            if (! ExamScheduleTime::isFutureStart($request->validated('exam_date'), $request->validated('start_time'))) {
+                throw ValidationException::withMessages(['start_time' => ExamScheduleTime::FUTURE_START_ERROR]);
+            }
             $exam = Exam::create([
                 'course_offering_id' => $courseOffering->id,
                 'room_id' => $request->validated('room_id'),
