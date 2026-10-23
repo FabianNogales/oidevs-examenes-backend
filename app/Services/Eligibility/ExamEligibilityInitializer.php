@@ -34,7 +34,7 @@ class ExamEligibilityInitializer
     private function availableExams(int $courseOfferingId)
     {
         return Exam::where('course_offering_id', $courseOfferingId)->whereIn('status', ExamEntryAvailability::STATES)
-            ->orderBy('id')->get()->filter(fn (Exam $exam) => ExamEntryAvailability::reason($exam) === null);
+            ->orderBy('id')->get()->filter(fn (Exam $exam) => ExamEntryAvailability::preparationReason($exam) === null);
     }
 
     private function activeStudentIds(int $courseOfferingId, ?array $only = null): array

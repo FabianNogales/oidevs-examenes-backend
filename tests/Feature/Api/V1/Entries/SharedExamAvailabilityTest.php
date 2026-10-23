@@ -48,6 +48,36 @@ class SharedExamAvailabilityTest extends TestCase
         return '/api/v1/exams/'.$this->exam->id.'/entry-control';
     }
 
+    public function test_preparation_is_allowed_before_start_but_both_operators_and_methods_must_wait(): void
+    {
+        $token = $this->qr();
+        $user = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);
+        $this->postJson('/api/v1/exams/'.$this->exam->id.'/collaborators', ['user_id' => $user->id])->assertCreated();
+        foreach ([$this->fixture['user'], $user] as $operator) {
+            Sanctum::actingAs($operator);
+            $this->getJson($this->base().'/students')->assertOk()
+                ->assertJsonPath('exam.entry_available', false)->assertJsonPath('exam.entry_unavailable_reason', 'EXAM_NOT_STARTED')
+                ->assertJsonPath('data.0.entry_status', 'PENDING')->assertJsonPath('data.0.meets_entry_conditions', false)
+                ->assertJsonPath('data.0.blockers.0.code', 'EXAM_UNAVAILABLE')
+                ->assertJsonStructure(['exam' => ['entry_opens_at', 'entry_closes_at', 'server_time']]);
+            $this->getJson($this->base().'/entries')->assertOk();
+            $this->manual()->assertUnprocessable()->assertJsonPath('result', 'DENIED');
+            $this->scan($token)->assertUnprocessable()->assertJsonPath('result', 'DENIED');
+        }
+        $this->assertDatabaseCount('exam_entries', 0);
+        $this->travelTo(CarbonImmutable::parse('2026-10-16 09:59:59', 'America/La_Paz'));
+        $this->manual()->assertUnprocessable();
+        $this->travelTo(CarbonImmutable::parse('2026-10-16 10:00:00', 'America/La_Paz'));
+        $this->getJson($this->base().'/students')->assertOk()->assertJsonPath('exam.entry_available', true);
+        $this->manual()->assertCreated()->assertJsonPath('data.entry.verification_method', 'MANUAL');
+        DB::table('exam_entries')->update(['status' => 'ANNULLED']);
+        $this->scan($token)->assertCreated()->assertJsonPath('data.entry.verification_method', 'QR');
+        $this->travelTo(CarbonImmutable::parse('2026-10-16 11:00:00', 'America/La_Paz'));
+        Sanctum::actingAs($this->fixture['user']);
+        DB::table('exam_entries')->update(['status' => 'ANNULLED']);
+        $this->manual()->assertUnprocessable()->assertJsonPath('result', 'DENIED');
+    }
+
     public function test_legacy_ineligibility_is_canonical_in_list_detail_and_posts_without_rewriting_history(): void
     {
         $token = $this->qr();
@@ -103,6 +133,7 @@ class SharedExamAvailabilityTest extends TestCase
 
     public function test_state_matrix_and_reason_priority_preserve_counters_and_history(): void
     {
+        $this->travelTo(CarbonImmutable::parse('2026-10-16 10:00:00', 'America/La_Paz'));
         $cases = ['CANCELLED' => 'EXAM_CANCELLED', 'COMPLETED' => 'EXAM_FINISHED',
             'FINISHED' => 'EXAM_FINISHED', 'UNKNOWN' => 'EXAM_STATE_NOT_ALLOWED',
             'SCHEDULED' => null, 'ACTIVE' => null, 'IN_PROGRESS' => null];
@@ -184,6 +215,8 @@ class SharedExamAvailabilityTest extends TestCase
         $this->assertSame(CarbonImmutable::parse('2026-10-19 01:00:00', 'America/La_Paz')->timestamp, $claims['exp']);
         $this->assertSame(1, StudentQrToken::where('status', 'REVOKED')->count());
         $this->assertSame(1, StudentQrToken::where('status', 'ACTIVE')->count());
+        $this->scan($new)->assertUnprocessable()->assertJsonPath('result', 'DENIED');
+        $this->travelTo(CarbonImmutable::parse('2026-10-18 23:30:00', 'America/La_Paz'));
         $this->scan($new)->assertCreated();
     }
 
@@ -194,6 +227,7 @@ class SharedExamAvailabilityTest extends TestCase
         $room = Room::create(['code' => 'B-202', 'name' => 'Nueva aula', 'status' => 'ACTIVE']);
         $this->edit(['room_id' => $room->id])->assertOk();
         $this->exam->refresh();
+        $this->travelTo(CarbonImmutable::parse('2026-10-16 10:00:00', 'America/La_Paz'));
         $this->scan($token, $oldRoom)->assertUnprocessable()->assertJsonPath('data.blockers.0.code', 'ROOM_MISMATCH');
         $this->assertSame(0, StudentQrToken::where('status', 'REVOKED')->count());
         $this->scan($token)->assertCreated()->assertJsonPath('data.entry.room_id', $room->id);

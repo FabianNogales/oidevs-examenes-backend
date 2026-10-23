@@ -27,7 +27,7 @@ GET /exams/{exam_id}/eligibilities/reasons
 }
 
 Catálogo fijo definido por backend. No exige seeders ni administración adicional.
-El frontend debe consumir estos valores.
+Se conserva para consumidores anteriores y CSV. El formulario oficial exige justificación escrita en reason; el catálogo no debe sustituirla.
 
 ## Actualización individual
 
@@ -39,7 +39,7 @@ Body:
 {
   "status":"INELIGIBLE",
   "revision":1,
-  "reason_code":"INSTITUTIONAL_REQUIREMENT_PENDING",
+  "reason":"No presentó el requisito institucional solicitado",
   "observations":"Documento pendiente"
 }
 
@@ -52,18 +52,18 @@ Body:
     "student_id":5,
     "status":"INELIGIBLE",
     "revision":2,
-    "reason_code":"INSTITUTIONAL_REQUIREMENT_PENDING",
-    "reason":"Requisito institucional pendiente",
+    "reason_code":null,
+    "reason":"No presentó el requisito institucional solicitado",
     "observations":"Documento pendiente",
     "evaluated_at":"2026-10-08T21:30:00+00:00"
   }
 }
 
-reason_code debe ser válido; el backend determina reason desde la etiqueta.
+reason contiene el motivo libre del formulario oficial, máximo 500 caracteres. reason_code es opcional y, si se envía, debe ser válido. Se conserva compatibilidad con clientes anteriores y CSV que envían solo código.
 observations es opcional, máximo 500 caracteres.
 Para habilitar: {"status":"ELIGIBLE","revision":2}. Se limpian reason_code, reason y observations.
-Compatibilidad transitoria: PATCH también acepta {"status":"INELIGIBLE","reason":"Texto libre anterior","revision":2}, máximo 500 caracteres, sin código. El frontend nuevo debe enviar reason_code.
-Si se envían reason_code y reason, prevalece la etiqueta del código. Un código desconocido se rechaza aunque haya texto libre.
+Compatibilidad transitoria: PATCH también acepta {"status":"INELIGIBLE","reason":"Texto libre anterior","revision":2}, máximo 500 caracteres, sin código. El frontend oficial debe enviar reason escrito por el docente.
+Si se envían reason_code y reason, prevalece el texto libre explícito. Un código desconocido se rechaza aunque haya texto libre.
 La actualización registra evaluated_by/evaluated_at y una entrada de auditoría en la misma transacción.
 
 ### Revisión obligatoria (FIX-015)
@@ -176,3 +176,5 @@ Conservar el detalle de errores de bulk para que el usuario corrija el CSV.
     php artisan test
 
 Cobertura: catálogo, códigos, límites, limpieza, compatibilidad antigua, fotos, permisos reales, carga parcial, duplicados, aislamiento por examen, SIS con ceros, BOM, líneas físicas, límites de archivo, CSV malformado, preservación de datos en migración y rollback ante fallo.
+
+Contrato oficial, compatibilidad transitoria y validaciones: [alineación Sprint 2](SPRINT2_OFFICIAL_QA_ALIGNMENT.md).

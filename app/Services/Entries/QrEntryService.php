@@ -42,8 +42,7 @@ class QrEntryService
     /** @param array{actorId: int, requestedExamId: int, qrExamId: int, studentId: int}|null $wrongExam */
     private function register(
         int $examId, User $user, array $parameters, ?int $manualStudentId = null, ?array &$wrongExam = null,
-    ): JsonResponse
-    {
+    ): JsonResponse {
         return DB::transaction(function () use ($examId, $user, $parameters, $manualStudentId, &$wrongExam) {
             // Serialize registrations for this exam, then read current conditions under row locks.
             $exam = Exam::whereKey($examId)->lockForUpdate()->firstOrFail();
@@ -100,7 +99,7 @@ class QrEntryService
             if ($entry) {
                 return $this->result('ALREADY_REGISTERED', 'Ingreso ya registrado.', $data, 409);
             }
-            if (! ExamCollaborator::examIsAvailable($exam)
+            if (ExamEntryAvailability::reason($exam) !== null
                 && ! in_array('EXAM_UNAVAILABLE', array_column($data['blockers'], 'code'), true)) {
                 $data['blockers'][] = ['code' => 'EXAM_UNAVAILABLE', 'message' => 'El examen no está disponible para registrar ingresos.'];
             }

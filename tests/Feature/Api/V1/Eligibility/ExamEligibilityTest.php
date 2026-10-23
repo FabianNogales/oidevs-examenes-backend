@@ -295,9 +295,9 @@ class ExamEligibilityTest extends TestCase
             'status' => 'INELIGIBLE',
             'reason_code' => 'INSTITUTIONAL_REQUIREMENT_PENDING',
             'observations' => 'Documento pendiente',
-            'reason' => 'Texto que no debe reemplazar la etiqueta',
+            'reason' => 'Justificación escrita por el docente',
             'revision' => 1,
-        ])->assertOk()->assertJsonPath('data.reason', 'Requisito institucional pendiente')
+        ])->assertOk()->assertJsonPath('data.reason', 'Justificación escrita por el docente')
             ->assertJsonPath('data.observations', 'Documento pendiente');
         $this->getJson($base)->assertOk()->assertJsonPath('data.0.reason_code', 'INSTITUTIONAL_REQUIREMENT_PENDING')
             ->assertJsonPath('data.0.observations', 'Documento pendiente');

@@ -39,6 +39,6 @@ class ExamCollaborator extends Model
 
     public static function examIsAvailable(Exam $exam): bool
     {
-        return ExamEntryAvailability::reason($exam) === null;
+        return ExamEntryAvailability::preparationReason($exam) === null;
     }
 }

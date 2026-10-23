@@ -1,12 +1,12 @@
-# Nueva HU — Registrar manualmente el ingreso de estudiantes a un examen
+# HU27 — Registrar manualmente el ingreso de estudiantes a un examen
 
 Actualización de integración HU18: aplicar la [disponibilidad compartida](EXAM_ENTRY_AVAILABILITY.md), incluida ACTIVE legado, America/La_Paz y fin excluido. El contrato MANUAL y el historial compartido se conservan.
 
-Estado: contrato aceptado explícitamente por frontend e implementado en Dev_Hector. El ID y la estimación siguen pendientes de asignación por el equipo.
+Estado: contrato aceptado explícitamente por frontend e implementado en Dev_Hector. El backlog oficial asigna ID 27; HU26 corresponde a auditoría. La estimación corresponde al equipo.
 
 Actualización: `git pull --ff-only origin Dev_Hector` y `php artisan optimize:clear`. Este cambio no agrega migraciones. La confirmación de identidad y el botón corresponden a frontend; backend agrega el POST y comparte la transacción de registro con QR.
 
-- ID: pendiente de asignación por el equipo.
+- ID: 27 (numeración oficial).
 - Título: Registrar manualmente el ingreso de estudiantes a un examen.
 - Estimación: pendiente de estimación por el equipo.
 - Versión propuesta: 1.0.
@@ -96,7 +96,7 @@ Prioridad: autorización y parámetros; existencia del estudiante; ingreso váli
 
 ### Disponibilidad y concurrencia
 
-Se mantiene la regla vigente del registro QR: examen SCHEDULED/IN_PROGRESS y anterior a su finalización según la configuración temporal del backend. No se incorpora nueva hora mínima. La ventana de emisión del QR no se exige en MANUAL, dado que no requiere token.
+Se mantiene la regla vigente del registro QR: examen SCHEDULED/IN_PROGRESS y anterior a su finalización según la configuración temporal del backend. El registro ahora exige el inicio programado; no basta con que el examen no haya finalizado. La ventana de emisión del QR no se exige en MANUAL, dado que no requiere token.
 
 Se reutilizarán reglas y protección transaccional con QR: un único ingreso VALID por estudiante/examen, incluida concurrencia entre mecanismos. No se agrega un segundo registro de asistencia separado ni otro estado académico.
 
@@ -111,3 +111,5 @@ Se conserva el historial de HU14: search/page/per_page, orden por entered_at e i
 ## Aceptación
 
 Frontend confirmó explícitamente reutilizar búsqueda y detalle de HU13, consumir el POST con room_id, manejar AUTHORIZED/DENIED/ALREADY_REGISTERED y refrescar detalle, listado y contadores. El historial permanece compartido entre MANUAL y QR.
+
+Actualización de apertura, listado y pendiente: [alineación oficial](SPRINT2_OFFICIAL_QA_ALIGNMENT.md). La consulta sigue disponible antes del inicio; registrar aún no.

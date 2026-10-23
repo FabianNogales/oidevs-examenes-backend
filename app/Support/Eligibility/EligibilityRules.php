@@ -32,11 +32,13 @@ class EligibilityRules
         }
 
         $code = $data['reason_code'] ?? null;
+        // A written justification is authoritative; code-only clients/CSV remain compatible.
+        $reason = filled($data['reason'] ?? null) ? trim($data['reason']) : ($code ? self::REASONS[$code] : null);
 
         return [
             'status' => 'INELIGIBLE',
             'reason_code' => $code,
-            'reason' => $code ? self::REASONS[$code] : trim($data['reason']),
+            'reason' => $reason,
             'observations' => filled($data['observations'] ?? null) ? trim($data['observations']) : null,
         ];
     }

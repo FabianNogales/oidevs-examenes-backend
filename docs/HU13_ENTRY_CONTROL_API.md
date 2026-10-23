@@ -1,8 +1,8 @@
 # HU13 — Consulta de control de ingreso
 
-Actualización de integración HU18: ver [disponibilidad compartida](EXAM_ENTRY_AVAILABILITY.md). Se agregan exam.entry_available, exam.entry_unavailable_reason y EXAM_UNAVAILABLE a blockers; la disponibilidad de ingreso se evalúa con estados acordados y America/La_Paz, sin hora mínima nueva. Se conservan campos, permisos históricos y significado de contadores.
+Actualización de integración HU18: ver [disponibilidad compartida](EXAM_ENTRY_AVAILABILITY.md). Se agregan exam.entry_available, exam.entry_unavailable_reason y EXAM_UNAVAILABLE a blockers; la disponibilidad de ingreso se evalúa con estados acordados y America/La_Paz, con registro desde el inicio programado. Se conservan campos y permisos históricos; el significado oficial de Pendiente se detalla más abajo.
 
-Base: /api/v1. Implementación de consulta para el contrato aprobado con frontend.
+Base: /api/v1. Contraste oficial y cambios de contrato: [alineación Sprint 2](SPRINT2_OFFICIAL_QA_ALIGNMENT.md).
 No registra ingresos, modifica habilitaciones ni evalúa un QR; esas operaciones corresponden a HU14.
 
 ## Actualización
@@ -45,7 +45,7 @@ Parámetros opcionales:
     "status":"SCHEDULED",
     "room":{"id":2,"code":"A-101","name":"Aula 101","location":"Edificio Central"}
   },
-  "summary":{"total_students":30,"registered":10,"pending":15,"not_applicable":5},
+  "summary":{"total_students":30,"registered":10,"pending":20,"not_applicable":0},
   "data":[{
     "student_id":5,
     "first_names":"Carlos",
@@ -70,10 +70,10 @@ Parámetros opcionales:
   "meta":{"current_page":1,"per_page":10,"total":30,"last_page":3}
 }
 
-El listado incluye estudiantes con inscripción (activa o inactiva) en la oferta o con habilitación del examen. Cada estudiante aparece una vez.
+El listado incluye únicamente estudiantes con inscripción ACTIVE en la oferta del examen. Una habilitación aislada no basta. Cada estudiante aparece una vez.
 Orden estable por student_id. La búsqueda ignora mayúsculas y contempla palabras del nombre completo, SIS y CI.
 SIS y CI se devuelven como texto, conservando ceros iniciales.
-summary se calcula sobre todos los estudiantes asociados, sin búsqueda ni página. No depende del ambiente seleccionado.
+summary se calcula sobre todos los estudiantes con inscripción ACTIVE del listado, sin búsqueda ni página. No depende del ambiente seleccionado.
 meta.total cuenta resultados filtrados. Una búsqueda sin resultados o página fuera de rango devuelve data:[] con los contadores globales.
 La columna # puede calcularse como (current_page - 1) * per_page + índice + 1.
 
@@ -83,7 +83,7 @@ GET /exams/{exam_id}/entry-control/students/{student_id}?room_id={room_id}
 
 student_id es el ID de students.
 200: {"exam":{...},"data":{...}}. data tiene los mismos campos que cada registro del listado.
-Un estudiante existente pero sin asociación al examen devuelve 200 con condiciones negativas, assigned_room_id:null, room_status:NOT_APPLICABLE y NOT_ENROLLED entre sus blockers.
+Un estudiante sin asociación al examen devuelve 404 igual que uno inexistente. El detalle asociado puede explicar una inscripción histórica inactiva, sin permitir registro.
 Un estudiante inexistente devuelve 404.
 
 ## Interpretación de estados
@@ -95,8 +95,8 @@ El ambiente del estudiante es el del examen si tiene asociación por inscripció
 
 entry_status:
 - REGISTERED: existe un exam_entries con status VALID. Tiene prioridad aunque cambie posteriormente la habilitación o inscripción.
-- PENDING: sin ingreso VALID y estudiante ACTIVE, inscripción ACTIVE y habilitación ELIGIBLE.
-- NOT_APPLICABLE: no cumple esas condiciones; frontend muestra —.
+- PENDING: no existe ingreso VALID, independientemente de habilitación. No significa autorizado para ingresar.
+El listado oficial solo incluye inscripción ACTIVE; summary.pending cuenta todos los no registrados y summary.not_applicable se conserva con 0.
 
 Los ingresos anulados no cuentan como vigentes. No se mezclan ingresos de otros exámenes.
 La comparación de ambiente afecta meets_entry_conditions/blockers, pero no cambia los contadores ni el hecho de que el estudiante tenga pendiente el registro.
@@ -110,8 +110,8 @@ entry es null o:
   "verified_by_name":"Héctor Pérez"
 }
 
-meets_entry_conditions es true cuando el estudiante está activo, inscrito, habilitado, tiene ambiente correcto y no tiene ingreso VALID.
-No valida QR ni horario de admisión. HU14 deberá revalidar esos requisitos al registrar ingreso; un resultado de HU13 no reserva ni autoriza definitivamente el acceso.
+meets_entry_conditions es true cuando el examen admite ingresos, el estudiante está activo, inscrito, habilitado, tiene ambiente correcto y no tiene ingreso VALID.
+Valida disponibilidad del examen: inicio programado <= ahora del servidor < fin, en America/La_Paz. QR y MANUAL revalidan al guardar; una consulta no reserva ni confirma ingreso.
 
 blockers es una lista de {"code":"...","message":"..."}:
 - STUDENT_INACTIVE
@@ -120,6 +120,7 @@ blockers es una lista de {"code":"...","message":"..."}:
 - INELIGIBLE
 - ROOM_MISMATCH
 - ALREADY_REGISTERED
+- EXAM_UNAVAILABLE (incluye EXAM_NOT_STARTED en exam.entry_unavailable_reason)
 
 Pueden aparecer varias condiciones a la vez.
 reason_code, reason y observations conservan la información de HU12, incluidos motivos antiguos sin código.
@@ -139,3 +140,7 @@ profile_photo_url utiliza users.profile_photo: URL existente, URL pública desde
     php artisan test
 
 Pruebas con middleware activo: contrato, búsqueda, paginación, resumen independiente, estados faltantes, ambientes, ingreso válido/anulado, fotografía, ausencia de escrituras, aislamiento por examen, permisos y revocación/vencimiento.
+
+## Actualización oficial
+
+El listado requiere inscripción ACTIVE en la oferta; una habilitación aislada no incorpora al estudiante. exam incluye entry_opens_at, entry_closes_at y server_time ISO 8601 UTC. Antes del inicio mantiene consulta y preparación autorizada, con entry_available false y EXAM_NOT_STARTED. Ver la matriz completa en SPRINT2_OFFICIAL_QA_ALIGNMENT.md.

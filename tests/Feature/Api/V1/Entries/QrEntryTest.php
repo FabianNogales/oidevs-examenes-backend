@@ -14,8 +14,9 @@ use App\Models\StudentQrToken;
 use App\Models\Teacher;
 use App\Models\User;
 use App\Services\Students\StudentQrService;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -156,6 +157,7 @@ class QrEntryTest extends TestCase
             'status' => 'ELIGIBLE',
         ]);
         DB::table('enrollments')->insert(['student_id' => $this->student->id, 'course_offering_id' => $this->exam->course_offering_id, 'registered_by' => $this->teacherUser->id, 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()]);
+        $this->travelTo(CarbonImmutable::parse($this->exam->exam_date.' '.$this->exam->start_time, 'America/La_Paz'));
     }
 
     private function endpoint(): string

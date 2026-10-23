@@ -11,6 +11,7 @@ use App\Models\Role;
 use App\Models\Student;
 use App\Models\Teacher;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -149,6 +150,7 @@ class EntryControlTest extends TestCase
             'status' => 'ELIGIBLE',
         ]);
         $this->enroll($this->student);
+        $this->travelTo(CarbonImmutable::parse($this->exam->exam_date.' '.$this->exam->start_time, 'America/La_Paz'));
     }
 
     private function base(): string
@@ -229,7 +231,7 @@ class EntryControlTest extends TestCase
         foreach (['Ana', 'López', 'Ana María Gómez López', $student->sis_code, $student->identity_number] as $search) {
             $this->getJson($this->base().'?search='.urlencode($search).'&per_page=1')
                 ->assertOk()->assertJsonPath('meta.total', 1)->assertJsonPath('summary.total_students', 2)
-                ->assertJsonPath('summary.pending', 1)->assertJsonPath('summary.not_applicable', 1)
+                ->assertJsonPath('summary.pending', 2)->assertJsonPath('summary.not_applicable', 0)
                 ->assertJsonPath('data.0.student_id', $student->id);
         }
         $this->getJson($this->base().'?per_page=1&page=2')->assertOk()
@@ -251,7 +253,7 @@ class EntryControlTest extends TestCase
         $this->enroll($denied);
         $this->eligible($denied, 'INELIGIBLE');
         $this->actingAs($this->teacherUser)->getJson($this->base().'/'.$pending->id)->assertOk()
-            ->assertJsonPath('data.eligibility_status', null)->assertJsonPath('data.entry_status', 'NOT_APPLICABLE')
+            ->assertJsonPath('data.eligibility_status', null)->assertJsonPath('data.entry_status', 'PENDING')
             ->assertJsonPath('data.meets_entry_conditions', false)->assertJsonFragment(['code' => 'ELIGIBILITY_PENDING']);
         $this->getJson($this->base().'/'.$inactive->id)->assertOk()->assertJsonFragment(['code' => 'STUDENT_INACTIVE']);
         $this->getJson($this->base().'/'.$denied->id)->assertOk()->assertJsonPath('data.reason', 'Documento pendiente')
@@ -270,7 +272,7 @@ class EntryControlTest extends TestCase
         $this->getJson($this->base())->assertOk()->assertJsonCount(1, 'data');
         DB::table('enrollments')->where('student_id', $this->student->id)->update(['status' => 'INACTIVE']);
         $this->getJson($this->base().'/'.$this->student->id)->assertOk()
-            ->assertJsonPath('data.enrollment_status', 'INACTIVE')->assertJsonPath('data.entry_status', 'NOT_APPLICABLE');
+            ->assertJsonPath('data.enrollment_status', 'INACTIVE')->assertJsonPath('data.entry_status', 'PENDING');
         $this->getJson($this->base().'/999999')->assertNotFound();
     }
 
@@ -313,7 +315,7 @@ class EntryControlTest extends TestCase
             ->assertJsonPath('data.enrollment_status', null)->assertJsonPath('data.eligibility_status', 'INELIGIBLE')
             ->assertJsonPath('data.reason', 'Documento pendiente')->assertJsonPath('data.meets_entry_conditions', false)
             ->assertJsonFragment(['code' => 'NOT_ENROLLED'])->assertJsonFragment(['code' => 'INELIGIBLE']);
-        $this->getJson($this->base())->assertOk()->assertJsonCount(3, 'data');
+        $this->getJson($this->base())->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('meta.total', 1);
         $this->assertDatabaseCount('exam_entries', 0);
     }
 

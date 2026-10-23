@@ -17,15 +17,16 @@ use Tests\TestCase;
 
 class VerifierLockTest extends TestCase
 {
-    use RefreshDatabase, CourseOfferingFixture;
+    use CourseOfferingFixture, RefreshDatabase;
 
     private array $fixture;
+
     private Exam $exam;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->travelTo(CarbonImmutable::parse('2026-10-20 09:00:00', 'America/La_Paz'));
+        $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00:00', 'America/La_Paz'));
         $this->fixture = $this->offeringFixture();
         $this->exam = Exam::create(array_replace($this->examPayload($this->fixture['room']->id), [
             'exam_date' => '2026-10-20', 'course_offering_id' => $this->fixture['offering']->id,

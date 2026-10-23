@@ -64,6 +64,11 @@ class CollaborationConcurrencyTest extends TestCase
         $exam = Exam::create($this->examPayload($fixture['room']->id) + [
             'course_offering_id' => $fixture['offering']->id, 'created_by' => $fixture['user']->id, 'status' => 'SCHEDULED',
         ]);
+        if (str_contains($scenario, 'qr') || str_contains($scenario, 'manual')) {
+            // Ingress races run at the inclusive start; cancellation scenarios remain future.
+            $exam->update(['exam_date' => now('America/La_Paz')->toDateString(),
+                'start_time' => now('America/La_Paz')->format('H:i:s')]);
+        }
         $collaborator = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);
         $base = '/api/v1/exams/'.$exam->id;
         $assign = ['method' => 'POST', 'path' => $base.'/collaborators', 'payload' => ['user_id' => $collaborator->id], 'actor' => $fixture['user']->id];

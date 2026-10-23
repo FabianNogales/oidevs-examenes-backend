@@ -12,6 +12,7 @@ use App\Models\Teacher;
 use App\Models\User;
 use App\Services\Audit\AuditLogService;
 use App\Services\Collaborators\CollaborationAuditService;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -24,7 +25,7 @@ use Tests\TestCase;
 
 class CollaborationEpisodesTest extends TestCase
 {
-    use RefreshDatabase, CourseOfferingFixture;
+    use CourseOfferingFixture, RefreshDatabase;
 
     private array $fixture;
 
@@ -308,12 +309,14 @@ class CollaborationEpisodesTest extends TestCase
         StudentQrToken::create(['exam_id' => $this->exam->id, 'student_id' => $this->fixture['studentId'],
             'token' => $uuid, 'status' => 'ACTIVE', 'generated_at' => now()]);
         $encode = fn ($value) => rtrim(strtr(base64_encode(json_encode($value)), '+/', '-_'), '=');
-        $input = $encode(['alg' => 'HS256', 'typ' => 'JWT']).'.'.$encode(['v' => 2, 'jti' => $uuid, 'exp' => now()->addHour()->timestamp]);
+        $input = $encode(['alg' => 'HS256', 'typ' => 'JWT']).'.'.$encode(['v' => 2, 'jti' => $uuid,
+            'exp' => CarbonImmutable::parse($this->exam->exam_date.' '.$this->exam->start_time, 'America/La_Paz')->addMinutes($this->exam->duration_minutes)->timestamp]);
         $token = $input.'.'.rtrim(strtr(base64_encode(hash_hmac('sha256', $input, config('app.key'), true)), '+/', '-_'), '=');
         $this->assign()->assertCreated();
         $control = '/api/v1/exams/'.$this->exam->id.'/entry-control';
         $payload = ['room_id' => $this->exam->room_id, 'qr_token' => $token];
         $this->actingAs($this->collaborator)->getJson($control.'/students')->assertOk();
+        $this->travelTo(CarbonImmutable::parse($this->exam->exam_date.' '.$this->exam->start_time, 'America/La_Paz'));
         $this->postJson($control.'/qr', $payload)->assertCreated();
         $this->actingAs($this->fixture['user']);
         $this->revoke()->assertOk();

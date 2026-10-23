@@ -17,7 +17,7 @@ use Tests\TestCase;
 
 class LateEnrollmentEligibilityTest extends TestCase
 {
-    use RefreshDatabase, CourseOfferingFixture;
+    use CourseOfferingFixture, RefreshDatabase;
 
     private array $fixture;
 
@@ -215,6 +215,7 @@ class LateEnrollmentEligibilityTest extends TestCase
         $entry = '/api/v1/exams/'.$exam->id.'/entry-control';
         $this->getJson($eligibilities)->assertOk()->assertJsonPath('data.0.student_id', $studentId)
             ->assertJsonPath('data.0.status', 'ELIGIBLE');
+        $this->travelTo(CarbonImmutable::parse($exam->exam_date.' '.$exam->start_time, 'America/La_Paz'));
         $this->getJson($entry.'/students/'.$studentId)->assertOk()->assertJsonPath('data.meets_entry_conditions', true);
 
         $studentUser = User::findOrFail(DB::table('students')->where('id', $studentId)->value('user_id'));

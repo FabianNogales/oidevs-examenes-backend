@@ -48,6 +48,7 @@ class EntryControlService
     public function examData(Exam $exam): array
     {
         $exam->loadMissing(['courseOffering.subject', 'room']);
+        $reason = ExamEntryAvailability::reason($exam);
 
         return [
             'id' => $exam->id,
@@ -58,19 +59,22 @@ class EntryControlService
             'duration_minutes' => (int) $exam->duration_minutes,
             'evaluation_type' => $exam->evaluation_type,
             'status' => $exam->status,
-            'entry_available' => ExamEntryAvailability::reason($exam) === null,
-            'entry_unavailable_reason' => ExamEntryAvailability::reason($exam),
+            'entry_available' => $reason === null,
+            'entry_unavailable_reason' => $reason,
+            'entry_opens_at' => ExamEntryAvailability::startsAt($exam)->toISOString(),
+            'entry_closes_at' => ExamEntryAvailability::endsAt($exam)->toISOString(),
+            'server_time' => now()->toISOString(),
             'room' => $exam->room ? $exam->room->only(['id', 'code', 'name', 'location']) : null,
         ];
     }
 
     public function index(Exam $exam, array $parameters): array
     {
-        $base = $this->associatedQuery($exam);
+        // The official HU13 lists enrolled students; an isolated eligibility is not enrollment.
+        $base = $this->associatedQuery($exam)->where('en.status', 'ACTIVE');
         $counts = (clone $base)->selectRaw(
             'COUNT(*) AS total, SUM(CASE WHEN ent.id IS NOT NULL THEN 1 ELSE 0 END) AS registered,
-             SUM(CASE WHEN ent.id IS NULL AND s.status = ? AND en.status = ? AND el.status = ? THEN 1 ELSE 0 END) AS pending',
-            ['ACTIVE', 'ACTIVE', 'ELIGIBLE']
+             SUM(CASE WHEN ent.id IS NULL THEN 1 ELSE 0 END) AS pending'
         )->first();
         $total = (int) $counts->total;
         $registered = (int) $counts->registered;
@@ -163,7 +167,6 @@ class EntryControlService
                 $blockers[] = ['code' => $code, 'message' => $messages[$code]];
             }
         }
-        $canBePending = $record->student_status === 'ACTIVE' && $enrollment === 'ACTIVE' && $eligibility === 'ELIGIBLE';
         $photo = $record->profile_photo;
 
         return [
@@ -178,7 +181,7 @@ class EntryControlService
             'reason' => $record->reason, 'observations' => $record->observations,
             'assigned_room_id' => $associated ? (int) $exam->room_id : null,
             'controlled_room_id' => $roomId, 'room_status' => $roomStatus,
-            'entry_status' => $record->entry_id !== null ? 'REGISTERED' : ($canBePending ? 'PENDING' : 'NOT_APPLICABLE'),
+            'entry_status' => $record->entry_id !== null ? 'REGISTERED' : 'PENDING',
             'entry' => $record->entry_id !== null ? [
                 'id' => (int) $record->entry_id,
                 'entered_at' => Carbon::parse($record->entered_at, config('app.timezone'))->toISOString(),

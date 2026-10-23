@@ -29,7 +29,7 @@ Ambos campos obligatorios; token string máximo 4096 caracteres y room_id entero
 
 Se verifica el JWT HS256 del generador vigente con exactamente tres claims: `v` entero igual a 2, `exp` entero futuro y `jti` UUID. Los contratos v1 y los claims adicionales se rechazan. Se exige un registro persistido ACTIVE y sin revocación; el estudiante y el examen se obtienen exclusivamente de `student_qr_tokens`, nunca de claims de identidad. Tokens expirados, desconocidos, alterados o con claims inválidos son rechazados.
 
-Se vuelven a comprobar condiciones de HU13: estudiante ACTIVE, inscripción ACTIVE, habilitación ELIGIBLE (null bloquea), ambiente coincidente y ausencia de ingreso VALID. También disponibilidad del examen conforme a la regla vigente de autorización (SCHEDULED/IN_PROGRESS y antes de su finalización). No se agrega hora mínima de ingreso; la emisión del QR conserva su ventana actual de 24 horas.
+Se vuelven a comprobar condiciones de HU13: estudiante ACTIVE, inscripción ACTIVE, habilitación ELIGIBLE (null bloquea), ambiente coincidente y ausencia de ingreso VALID. También disponibilidad del examen conforme a la regla vigente de autorización (SCHEDULED/IN_PROGRESS y antes de su finalización). El registro requiere inicio programado <= ahora del servidor < fin, interpretado en America/La_Paz; la emisión del QR conserva su ventana actual de 24 horas.
 
 La transacción bloquea el examen para serializar registros del mismo examen, relee permisos y bloquea token, estudiante, inscripción y habilitación. El índice único parcial mantiene una sola entrada VALID por examen/estudiante. Inscripción y habilitación no se modifican.
 
@@ -100,3 +100,5 @@ La cámara y lector pertenecen a frontend. Enviar una solicitud por lectura y ev
 Escaneos recientes es una lista local de la sesión, formada desde las respuestas: estudiante/SIS cuando exista, result, message/blockers y processed_at. No persiste rechazos ni tokens. El historial completo corresponde a ingresos persistidos.
 
 Tras AUTHORIZED refrescar los GET de HU13 (listado, detalle y summary) para actualizar ingreso y progreso; no calcular permisos ni sustituir validaciones en frontend.
+
+Solicitud posterior de apertura y contrato frontend: [alineación oficial](SPRINT2_OFFICIAL_QA_ALIGNMENT.md). Se conserva JWT v2, auditoría y revocaciones.
