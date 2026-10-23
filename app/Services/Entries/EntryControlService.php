@@ -5,6 +5,7 @@ namespace App\Services\Entries;
 use App\Models\Exam;
 use App\Models\User;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -110,8 +111,10 @@ class EntryControlService
 
     public function show(Exam $exam, int $studentId, array $parameters): array
     {
-        $record = $this->query($exam)->where('s.id', $studentId)->select($this->columns())->first();
-        abort_unless($record, 404, 'Estudiante no encontrado.');
+        $record = $this->associatedQuery($exam)->where('s.id', $studentId)->select($this->columns())->first();
+        if (! $record) {
+            throw new HttpResponseException(response()->json(['message' => 'Estudiante no encontrado.'], 404));
+        }
         $verifiers = $this->verifiers(collect([$record]));
 
         return [

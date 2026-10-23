@@ -18,7 +18,13 @@ class UpdateEligibilityRequest extends FormRequest
 
     public function rules(): array
     {
-        return EligibilityRules::rules($this->all(), true);
+        return EligibilityRules::rules($this->all(), true) + [
+            'revision' => ['required', 'integer', 'min:1', 'max:2147483647', function ($attribute, $value, $fail) {
+                if (! is_int($value)) {
+                    $fail('La revisión debe ser un número entero positivo.');
+                }
+            }],
+        ];
     }
 
     public function messages(): array

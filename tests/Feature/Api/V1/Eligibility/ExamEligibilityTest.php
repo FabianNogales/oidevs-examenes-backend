@@ -216,6 +216,7 @@ class ExamEligibilityTest extends TestCase
         $payload = [
             'status' => 'INELIGIBLE',
             'reason' => 'No cumple con el porcentaje mínimo de asistencia.',
+            'revision' => 1,
         ];
 
         $response = $this->actingAs($this->teacherUser)
@@ -232,6 +233,7 @@ class ExamEligibilityTest extends TestCase
         $payload = [
             'status' => 'INELIGIBLE',
             'reason' => '',
+            'revision' => 1,
         ];
 
         $response = $this->actingAs($this->teacherUser)
@@ -294,6 +296,7 @@ class ExamEligibilityTest extends TestCase
             'reason_code' => 'INSTITUTIONAL_REQUIREMENT_PENDING',
             'observations' => 'Documento pendiente',
             'reason' => 'Texto que no debe reemplazar la etiqueta',
+            'revision' => 1,
         ])->assertOk()->assertJsonPath('data.reason', 'Requisito institucional pendiente')
             ->assertJsonPath('data.observations', 'Documento pendiente');
         $this->getJson($base)->assertOk()->assertJsonPath('data.0.reason_code', 'INSTITUTIONAL_REQUIREMENT_PENDING')
@@ -302,7 +305,7 @@ class ExamEligibilityTest extends TestCase
             'id' => $this->eligibility->id, 'evaluated_by' => $this->teacherUser->id,
             'reason_code' => 'INSTITUTIONAL_REQUIREMENT_PENDING', 'observations' => 'Documento pendiente',
         ]);
-        $this->patchJson($base.'/'.$this->student->id, ['status' => 'ELIGIBLE'])
+        $this->patchJson($base.'/'.$this->student->id, ['status' => 'ELIGIBLE', 'revision' => 2])
             ->assertOk()->assertJsonPath('data.reason', null)->assertJsonPath('data.reason_code', null)
             ->assertJsonPath('data.observations', null);
         $this->assertDatabaseHas('exam_eligibilities', ['id' => $this->eligibility->id, 'reason' => null, 'reason_code' => null, 'observations' => null]);
@@ -313,14 +316,14 @@ class ExamEligibilityTest extends TestCase
     {
         $url = "/api/v1/exams/{$this->exam->id}/eligibilities/{$this->student->id}";
         $this->actingAs($this->teacherUser);
-        $this->patchJson($url, ['status' => 'INELIGIBLE', 'reason_code' => 'UNKNOWN', 'reason' => 'Legacy'])
+        $this->patchJson($url, ['status' => 'INELIGIBLE', 'reason_code' => 'UNKNOWN', 'reason' => 'Legacy', 'revision' => 1])
             ->assertUnprocessable()->assertJsonValidationErrors('reason_code');
-        $this->patchJson($url, ['status' => 'INELIGIBLE'])->assertUnprocessable();
-        $this->patchJson($url, ['status' => 'INELIGIBLE', 'reason' => str_repeat('x', 501)])
+        $this->patchJson($url, ['status' => 'INELIGIBLE', 'revision' => 1])->assertUnprocessable();
+        $this->patchJson($url, ['status' => 'INELIGIBLE', 'reason' => str_repeat('x', 501), 'revision' => 1])
             ->assertUnprocessable()->assertJsonValidationErrors('reason');
-        $this->patchJson($url, ['status' => 'INELIGIBLE', 'reason_code' => 'OTHER', 'observations' => str_repeat('á', 501)])
+        $this->patchJson($url, ['status' => 'INELIGIBLE', 'reason_code' => 'OTHER', 'observations' => str_repeat('á', 501), 'revision' => 1])
             ->assertUnprocessable()->assertJsonValidationErrors('observations');
-        $this->patchJson($url, ['status' => 'INELIGIBLE', 'reason_code' => 'OTHER', 'observations' => str_repeat('á', 500)])
+        $this->patchJson($url, ['status' => 'INELIGIBLE', 'reason_code' => 'OTHER', 'observations' => str_repeat('á', 500), 'revision' => 1])
             ->assertOk();
     }
 
@@ -337,7 +340,7 @@ class ExamEligibilityTest extends TestCase
         $this->getJson($base)->assertOk()->assertJsonPath('data.0.profile_photo_url', asset('storage/profile-photos/student.png'));
         $user->update(['profile_photo' => 'https://example.com/student.png']);
         $this->getJson($base)->assertOk()->assertJsonPath('data.0.profile_photo_url', 'https://example.com/student.png');
-        $this->patchJson($base.'/'.$this->student->id, ['status' => 'INELIGIBLE', 'reason' => 'Texto libre anterior'])
+        $this->patchJson($base.'/'.$this->student->id, ['status' => 'INELIGIBLE', 'reason' => 'Texto libre anterior', 'revision' => 1])
             ->assertOk()->assertJsonPath('data.reason', 'Texto libre anterior')->assertJsonPath('data.reason_code', null);
     }
 
@@ -353,6 +356,41 @@ class ExamEligibilityTest extends TestCase
         $this->assertDatabaseHas('exam_eligibilities', ['id' => $second->id, 'status' => 'ELIGIBLE', 'reason' => null]);
         $this->assertDatabaseCount('exam_eligibilities', 2);
         $this->assertSame(2, DB::table('audit_logs')->where('action', 'EXAM_ELIGIBILITY_UPDATED')->count());
+    }
+
+    public function test_bulk_partial_response_keeps_null_sis_and_committed_update(): void
+    {
+        $csv = "sis_code,status,reason_code,observations\n{$this->student->sis_code},INELIGIBLE,OTHER,Documento pendiente\nmissing-columns\n";
+        $base = "/api/v1/exams/{$this->exam->id}/eligibilities";
+        $this->actingAs($this->teacherUser)->postJson($base.'/bulk', ['file' => $this->uploadCsv($csv)])
+            ->assertOk()->assertJsonPath('data.total_rows', 2)->assertJsonPath('data.updated_rows', 1)
+            ->assertJsonPath('data.failed_rows', 1)->assertJsonCount(1, 'data.errors')
+            ->assertJsonPath('data.errors.0.row', 3)->assertJsonPath('data.errors.0.sis_code', null)
+            ->assertJsonPath('data.errors.0.messages.row.0', 'La cantidad de columnas no coincide con los encabezados.');
+        $this->assertDatabaseHas('exam_eligibilities', [
+            'id' => $this->eligibility->id, 'status' => 'INELIGIBLE', 'reason_code' => 'OTHER',
+            'observations' => 'Documento pendiente', 'evaluated_by' => $this->teacherUser->id,
+        ]);
+        $this->assertDatabaseCount('exam_eligibilities', 1);
+        $this->assertSame(1, DB::table('audit_logs')->where('action', 'EXAM_ELIGIBILITY_UPDATED')->count());
+        $this->getJson($base)->assertOk()->assertJsonPath('data.0.status', 'INELIGIBLE')
+            ->assertJsonPath('data.0.evaluated_by', $this->teacherUser->email);
+    }
+
+    public function test_empty_csv_sis_is_string_and_list_evaluator_is_email_or_null(): void
+    {
+        $base = "/api/v1/exams/{$this->exam->id}/eligibilities";
+        $this->actingAs($this->teacherUser)->getJson($base)->assertOk()->assertJsonPath('data.0.evaluated_by', null);
+        $this->postJson($base.'/bulk', [
+            'file' => $this->uploadCsv("sis_code,status,reason_code,observations\n,ELIGIBLE,,\n"),
+        ])->assertOk()->assertJsonPath('data.updated_rows', 0)->assertJsonPath('data.failed_rows', 1)
+            ->assertJsonPath('data.errors.0.sis_code', '')->assertJsonStructure(['data' => ['errors' => [['messages' => ['sis_code']]]]]);
+        $this->assertSame('ELIGIBLE', $this->eligibility->fresh()->status);
+        $this->assertNull($this->eligibility->fresh()->evaluated_by);
+        $this->assertSame(0, DB::table('audit_logs')->where('action', 'EXAM_ELIGIBILITY_UPDATED')->count());
+        $this->patchJson($base.'/'.$this->student->id, ['status' => 'INELIGIBLE', 'reason_code' => 'OTHER', 'revision' => 1])
+            ->assertOk();
+        $this->getJson($base)->assertOk()->assertJsonPath('data.0.evaluated_by', $this->teacherUser->email);
     }
 
     public function test_bulk_rejects_every_duplicate_sis_row(): void
@@ -420,7 +458,7 @@ class ExamEligibilityTest extends TestCase
         $this->assignTeacherRole($other);
         $this->actingAs($other)->getJson($base.'/reasons')->assertForbidden();
         $this->postJson($base.'/bulk')->assertForbidden();
-        $this->patchJson($base.'/'.$this->student->id, ['status' => 'ELIGIBLE'])->assertForbidden();
+        $this->patchJson($base.'/'.$this->student->id, ['status' => 'ELIGIBLE', 'revision' => 1])->assertForbidden();
         $this->actingAs($this->student->user)->getJson($base.'/reasons')->assertForbidden();
         $this->postJson($base.'/bulk')->assertForbidden();
     }

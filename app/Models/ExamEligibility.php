@@ -23,6 +23,7 @@ class ExamEligibility extends Model
 
     protected $casts = [
         'evaluated_at' => 'datetime',
+        'revision' => 'integer',
     ];
 
     public function exam(): BelongsTo

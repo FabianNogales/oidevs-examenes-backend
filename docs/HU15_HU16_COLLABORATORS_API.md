@@ -146,3 +146,45 @@ Una inscripción INACTIVE o una inscripción en otra oferta no impide ser candid
 En esta versión no existe un registro de notas/aprobación: no se exige una aprobación para colaborar ni se infiere una nota desde el estado INACTIVE. Un estudiante que aprobó y ya no tiene inscripción activa puede ser candidato.
 Se mantiene user_id en el contrato y /me/collaborations accesible sin restricción de rol global. Un docente puede conservar sus exámenes y consultar adicionalmente sus colaboraciones en exámenes ajenos. La colaboración no le permite administrar colaboradores de esos exámenes.
 Este ajuste no modifica inscripciones, roles, estados de estudiantes ni otras HUs, y no requiere una migración adicional.
+
+## FIX-010: trazabilidad de períodos administrativos
+
+Se conserva una única fila operativa por `(exam_id, user_id)`, la reutilización al reasignar y los contratos HTTP anteriores. No hay migraciones, tablas nuevas ni historial visual. Los permisos siguen dependiendo de la asociación operativa ACTIVE, la Regla C y la disponibilidad compartida vigente (incluye ACTIVE legado, America/La_Paz y fin excluido). La auditoría no concede acceso.
+
+Cada transición confirmada genera un evento mediante `AuditLogService`:
+
+| Acción | Identificador del período | Efecto operativo |
+| --- | --- | --- |
+| EXAM_COLLABORATOR_ASSIGNED | ID persistido de este evento de apertura | Primera asignación |
+| EXAM_COLLABORATOR_REASSIGNED | ID persistido de esta nueva apertura | Reutilización de fila no activa |
+| EXAM_COLLABORATOR_REVOKED | `new_values.opening_event_id` | Cierre de la asociación activa |
+
+`user_id` del evento identifica al actor autenticado; `entity_type` es `ExamCollaborator` y `entity_id` es el ID de la fila operativa. Los snapshots explícitos contienen únicamente `exam_id`, `collaborator_user_id`, `status`, `assigned_by`, `assigned_at` y `revoked_at`. La fecha de transición es `audit_logs.created_at`, generada por el servidor; se conservan IP y agente de usuario habituales. El cierre añade `opening_event_id` e `history_complete`, relativos a ese período. No se almacena access_code_hash, contraseñas, sesiones, JWT, CI, SIS, nombres ni correo en el payload.
+
+La apertura es el propio evento: no se actualiza un registro de auditoría para referenciarse a sí mismo. El cierre utiliza el ID de la última transición compatible, únicamente si es una apertura cuyo snapshot coincide con la fila actual. La comparación no depende del orden de claves de JSONB ni relaciona períodos solo por timestamps. Dos períodos en el mismo segundo mantienen IDs de apertura diferentes.
+
+Una fila previa sin apertura comprobable se revoca registrando actor y fecha actuales, `opening_event_id: null` e `history_complete: false`. Se preservan las fechas preexistentes observadas, sin inventar responsables o episodios. En una reasignación, `old_values` representa solamente el estado previo observado, no una reconstrucción completa de su historia. No hay inicialización automática, backfill ni eventos por lecturas, duplicados rechazados, cancelaciones o cambios ajenos a este servicio.
+
+### Atomicidad y errores
+
+La mutación y su evento se confirman en la misma transacción. Ante un fallo técnico se revierte todo antes de devolver HTTP 500 con `code: INTERNAL_ERROR` y este mensaje seguro:
+
+> No se pudo confirmar la operación de colaboración. No se aplicaron cambios; la autorización conserva su estado anterior. Intenta nuevamente.
+
+La alerta técnica contiene solo el tipo de excepción, sin SQL, bindings ni mensajes internos. Una revocación fallida puede dejar vigente el acceso: no se informa éxito y se permite reintentar. No se aplica la política best-effort de FIX-009. El frontend actual mantiene el modal abierto y muestra su mensaje de fallo; no debe emitir la notificación de revocación exitosa.
+
+### Bloqueos y solicitudes concurrentes
+
+Asignación y revocación bloquean primero el examen y después la asociación, con revalidación del actor y del estado definitivo. Se conserva 201 al asignar, 422 por duplicado, 200 al revocar y 404 cuando no existe la asociación activa correspondiente. Revocar sigue siendo posible si el examen ya no está disponible.
+
+Antes de esperar el bloqueo, la revocación toma una lectura sin bloqueo del período observado. Bajo bloqueo compara su ID y el hash rotativo existente, exclusivamente en memoria, para rechazar con 404 una solicitud que observó un período sustituido. El hash no se añade al historial ni al contrato HTTP. Esto protege solicitudes concurrentes que ya observaron una asociación; el endpoint por user_id no contiene una versión del modal para distinguir intenciones antiguas que lleguen al servidor después de una reasignación.
+
+QR y manual conservan su implementación y orden de bloqueos. Una operación que termina antes de la revocación puede conservar su asistencia válida; después de la revocación confirmada, las nuevas operaciones del colaborador reciben 403. Una colaboración distinta y los roles base permanecen intactos. No hay bloqueos globales nuevos.
+
+### Verificación focalizada
+
+`CollaborationEpisodesTest` cubre ciclos en el mismo segundo, actores, correlación, legado incompleto, privacidad, fallos SQL y rollback, roles, dos exámenes, permisos e intercalado simulado. La simulación SQLite no acredita bloqueos PostgreSQL.
+
+`CollaborationConcurrencyTest` y su worker están protegidos por opt-in `EIDA_FIX010_PG_CONCURRENCY=1`, APP_ENV testing, PDO PostgreSQL, nombre de base `fix010_test_` seguido de 12 caracteres hexadecimales, ausencia de DB_URL, caché/sesiones array, configuración sin cachear y almacenamiento temporal separado. Solo ese entorno aislado puede refrescarse por la prueba. Cubren dos asignaciones/revocaciones, revocación y reasignación, QR/manual en ambos órdenes, cancelación, inactivación e independencia de exámenes. Sin un PostgreSQL aislado verificado se omiten y quedan pendientes; no deben apuntarse a desarrollo o producción.
+
+El historial permanece destinado a consultas internas futuras con permisos específicos. No se añade API de lectura, retención automática, columnas de interfaz ni modificaciones al historial académico de asistencias.

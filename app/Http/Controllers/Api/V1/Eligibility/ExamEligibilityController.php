@@ -8,6 +8,7 @@ use App\Models\ExamEligibility;
 use App\Services\Eligibility\ExamEligibilityService;
 use App\Support\Eligibility\EligibilityRules;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -22,6 +23,7 @@ class ExamEligibilityController extends Controller
             'exam_id' => $eligibility->exam_id,
             'student_id' => $eligibility->student_id,
             'status' => $eligibility->status,
+            'revision' => $eligibility->revision,
             'reason_code' => $eligibility->reason_code,
             'reason' => $eligibility->reason,
             'observations' => $eligibility->observations,
@@ -72,6 +74,13 @@ class ExamEligibilityController extends Controller
         $eligibility = DB::transaction(function () use ($request, $examId, $studentId) {
             $eligibility = ExamEligibility::where('exam_id', $examId)->where('student_id', $studentId)
                 ->lockForUpdate()->firstOrFail();
+
+            if ($request->integer('revision') !== $eligibility->revision) {
+                throw new HttpResponseException(response()->json([
+                    'code' => 'ELIGIBILITY_CONFLICT',
+                    'message' => 'Esta habilitación fue modificada mientras la estabas editando. Actualiza los datos antes de guardar nuevamente.',
+                ], 409));
+            }
 
             return $this->service->save($eligibility, $request->validated(), $request);
         });

@@ -155,6 +155,9 @@ class TeacherDashboardTest extends TestCase
         $this->assertTrue($teacher->user->hasRole(RoleName::DOCENTE));
         $this->assertFalse($teacher->user->hasRole('Docente'));
 
+        // Este escenario verifica el rol con el cambio inicial ya completado.
+        $teacher->user->forceFill(['must_change_password' => false])->save();
+
         DB::table('course_offerings')->insert([
             'subject_id' => 1,
             'academic_term_id' => 1,

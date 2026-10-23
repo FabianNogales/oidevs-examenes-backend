@@ -344,6 +344,187 @@ class StudentQrStatusTest extends TestCase
             ]);
     }
 
+    public function test_qr_routes_use_linked_profile_with_different_user_and_student_ids(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-14 10:00:00', 'America/La_Paz'));
+        [, $otherStudentId] = $this->createStudent('20260004');
+        $otherExamId = $this->createSeparateExamForStudent($otherStudentId);
+        $this->assertNotSame($this->studentUser->id, $this->studentId);
+
+        Sanctum::actingAs($this->studentUser, ['*']);
+
+        $this->getJson('/api/v1/students/exams')->assertOk()
+            ->assertJsonCount(1, 'data')->assertJsonPath('data.0.exam_id', $this->examId)
+            ->assertJsonPath('data.0.qr_status', 'AVAILABLE');
+        $this->getJson("/api/v1/students/exams/{$this->examId}/qr")->assertOk()
+            ->assertJsonPath('data.exam_id', $this->examId)
+            ->assertJsonStructure(['data' => ['token', 'qr_code_base64']]);
+        $this->getJson("/api/v1/students/exams/{$otherExamId}/qr")->assertForbidden();
+
+        $this->assertDatabaseHas('student_qr_tokens', [
+            'student_id' => $this->studentId, 'exam_id' => $this->examId, 'status' => 'ACTIVE',
+        ]);
+        $this->assertDatabaseMissing('student_qr_tokens', ['student_id' => $otherStudentId]);
+    }
+
+    public function test_foreign_student_id_parameters_do_not_change_authenticated_qr_identity(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-14 10:00:00', 'America/La_Paz'));
+        [, $otherStudentId] = $this->createStudent('20260005');
+        $otherExamId = $this->createSeparateExamForStudent($otherStudentId);
+        Sanctum::actingAs($this->studentUser, ['*']);
+
+        $this->getJson("/api/v1/students/exams?student_id={$otherStudentId}")->assertOk()
+            ->assertJsonCount(1, 'data')->assertJsonPath('data.0.exam_id', $this->examId);
+        $this->getJson("/api/v1/students/exams/{$this->examId}/qr?student_id={$otherStudentId}")
+            ->assertOk()->assertJsonPath('data.exam_id', $this->examId);
+        $this->getJson("/api/v1/students/exams/{$otherExamId}/qr?student_id={$otherStudentId}")
+            ->assertForbidden();
+
+        $this->assertDatabaseCount('student_qr_tokens', 1);
+        $this->assertDatabaseHas('student_qr_tokens', ['student_id' => $this->studentId]);
+        $this->assertDatabaseMissing('student_qr_tokens', ['student_id' => $otherStudentId]);
+    }
+
+    public function test_missing_student_profile_is_rejected_before_calling_qr_service(): void
+    {
+        $user = $this->createStudentUserWithoutProfile();
+        $this->assertDatabaseMissing('students', ['id' => $user->id]);
+
+        $this->assertMissingProfileRejected($user, $this->examId);
+    }
+
+    public function test_missing_profile_cannot_use_another_students_colliding_id_or_change_tokens(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-14 10:00:00', 'America/La_Paz'));
+        $user = $this->createStudentUserWithoutProfile();
+        [$otherUser, $otherStudentId] = $this->createStudent('20260006');
+        // Construir la colisión antes de crear relaciones del otro estudiante.
+        DB::table('students')->where('id', $otherStudentId)->update(['id' => $user->id]);
+        $otherStudentId = $user->id;
+        $otherExamId = $this->createSeparateExamForStudent($otherStudentId);
+        app(StudentQrService::class)->getOrGenerateForExam($otherStudentId, $otherExamId);
+
+        $this->assertDatabaseHas('students', ['id' => $user->id, 'user_id' => $otherUser->id]);
+        $this->assertDatabaseMissing('students', ['user_id' => $user->id]);
+        $this->assertDatabaseCount('student_qr_tokens', 1);
+
+        $this->assertMissingProfileRejected($user, $otherExamId);
+    }
+
+    public function test_linked_student_reuses_active_token_and_can_replace_revoked_token(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-14 10:00:00', 'America/La_Paz'));
+        Sanctum::actingAs($this->studentUser, ['*']);
+        $endpoint = "/api/v1/students/exams/{$this->examId}/qr";
+        $firstToken = $this->getJson($endpoint)->assertOk()->json('data.token');
+        $this->getJson($endpoint)->assertOk()->assertJsonPath('data.token', $firstToken);
+        $this->assertDatabaseCount('student_qr_tokens', 1);
+
+        $oldTokenId = DB::table('student_qr_tokens')->value('id');
+        DB::table('student_qr_tokens')->where('id', $oldTokenId)
+            ->update(['status' => 'REVOKED', 'revoked_at' => now()]);
+        $newToken = $this->getJson($endpoint)->assertOk()->json('data.token');
+
+        $this->assertNotSame($firstToken, $newToken);
+        $this->assertDatabaseCount('student_qr_tokens', 2);
+        $this->assertDatabaseHas('student_qr_tokens', ['id' => $oldTokenId, 'status' => 'REVOKED']);
+        $this->assertSame(1, DB::table('student_qr_tokens')
+            ->where('student_id', $this->studentId)->where('exam_id', $this->examId)
+            ->where('status', 'ACTIVE')->whereNull('revoked_at')->count());
+    }
+
+    public function test_issued_v2_has_only_opaque_claims_and_preserves_existing_uuid_and_svg_contract(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-14 10:00:00', 'America/La_Paz'));
+        $uuid = (string) \Illuminate\Support\Str::uuid();
+        $recordId = DB::table('student_qr_tokens')->insertGetId([
+            'student_id' => $this->studentId, 'exam_id' => $this->examId, 'token' => $uuid,
+            'status' => 'ACTIVE', 'generated_at' => now()->subHour(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $before = DB::table('student_qr_tokens')->where('id', $recordId)->first();
+        Sanctum::actingAs($this->studentUser, ['*']);
+        $endpoint = "/api/v1/students/exams/{$this->examId}/qr";
+        $qr = $this->getJson($endpoint)->assertOk()->assertJsonPath('data.exam_id', $this->examId)->json('data');
+        [$header, $payload, $signature] = explode('.', $qr['token']);
+        $decode = fn (string $part) => base64_decode(strtr($part, '-_', '+/'), true);
+        $this->assertSame(['alg' => 'HS256', 'typ' => 'JWT'], json_decode($decode($header), true));
+        $this->assertSame([
+            'v' => 2, 'jti' => $uuid,
+            'exp' => Carbon::parse('2026-06-15 11:30:00', 'America/La_Paz')->timestamp,
+        ], json_decode($decode($payload), true));
+        $this->assertSame(
+            hash_hmac('sha256', $header.'.'.$payload, config('app.key'), true),
+            $decode($signature),
+        );
+        $this->assertStringStartsWith('data:image/svg+xml;base64,', $qr['qr_code_base64']);
+        $svg = base64_decode(substr($qr['qr_code_base64'], strlen('data:image/svg+xml;base64,')), true);
+        $this->assertIsString($svg);
+        $this->assertStringContainsString('<svg', $svg);
+        $this->getJson($endpoint)->assertOk()->assertJsonPath('data.token', $qr['token'])
+            ->assertJsonPath('data.qr_code_base64', $qr['qr_code_base64']);
+        $this->assertEquals($before, DB::table('student_qr_tokens')->where('id', $recordId)->first());
+        $this->assertDatabaseCount('student_qr_tokens', 1);
+    }
+
+    private function createStudentUserWithoutProfile(): User
+    {
+        $user = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);
+        $roleId = DB::table('roles')->where('name', RoleName::ESTUDIANTE->value)->value('id');
+        $user->roles()->attach($roleId, ['assigned_at' => now(), 'status' => 'ACTIVE']);
+
+        return $user;
+    }
+
+    private function assertMissingProfileRejected(User $user, int $examId): void
+    {
+        $profilesBefore = DB::table('students')->orderBy('id')->get()->toJson();
+        $tokensBefore = DB::table('student_qr_tokens')->orderBy('id')->get()->toJson();
+        $service = $this->mock(StudentQrService::class);
+        $service->shouldNotReceive('getExamsForStudent');
+        $service->shouldNotReceive('getOrGenerateForExam');
+        Sanctum::actingAs($user, ['*']);
+
+        foreach (['/api/v1/students/exams', "/api/v1/students/exams/{$examId}/qr"] as $endpoint) {
+            $this->getJson($endpoint)->assertForbidden()->assertExactJson([
+                'success' => false,
+                'code' => 'STUDENT_PROFILE_MISSING',
+                'message' => 'Tu cuenta no tiene un perfil estudiantil asociado. Comunícate con administración.',
+            ]);
+        }
+
+        $this->getJson('/api/v1/me')->assertOk()->assertJsonPath('data.id', $user->id);
+        $this->assertSame($profilesBefore, DB::table('students')->orderBy('id')->get()->toJson());
+        $this->assertSame($tokensBefore, DB::table('student_qr_tokens')->orderBy('id')->get()->toJson());
+    }
+
+    private function createSeparateExamForStudent(int $studentId): int
+    {
+        $subjectId = DB::table('subjects')->insertGetId([
+            'code' => 'QR-OTHER', 'name' => 'Materia ajena', 'status' => 'ACTIVE',
+        ]);
+        $offering = DB::table('course_offerings')->where('id', $this->courseOfferingId)->first();
+        $offeringId = DB::table('course_offerings')->insertGetId([
+            'subject_id' => $subjectId,
+            'academic_term_id' => $offering->academic_term_id,
+            'teacher_id' => $offering->teacher_id,
+            'status' => 'ACTIVE',
+        ]);
+        $examId = $this->createExam('ACTIVE', 'Examen ajeno');
+        DB::table('exams')->where('id', $examId)->update(['course_offering_id' => $offeringId]);
+        DB::table('enrollments')->insert([
+            'course_offering_id' => $offeringId,
+            'student_id' => $studentId,
+            'registered_by' => $this->teacherUser->id,
+            'status' => 'ACTIVE',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $this->setEligibility($studentId, $examId, 'ELIGIBLE');
+
+        return $examId;
+    }
+
     private function createExam(string $status, string $name = 'Midterm Test'): int
     {
         return DB::table('exams')->insertGetId([
