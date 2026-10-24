@@ -18,16 +18,7 @@ class ExamManagementService
     {
         $query = $this->owned($actor)->withManagementRelations();
         $view = $filters['view'] ?? 'upcoming';
-        $now = CarbonImmutable::now(ExamManagementPolicy::TIMEZONE)->format('Y-m-d H:i:s.u');
-        $end = $this->endExpression();
-        if ($view === 'upcoming') {
-            $query->whereIn('exams.status', [...ExamManagementPolicy::SCHEDULED_STATUSES, 'IN_PROGRESS'])->whereRaw($end.' > ?', [$now]);
-        } elseif ($view === 'past') {
-            $query->where('exams.status', '!=', 'CANCELLED')->where(fn ($past) => $past
-                ->whereIn('exams.status', ['COMPLETED', 'FINISHED'])->orWhereRaw($end.' <= ?', [$now]));
-        } elseif ($view === 'cancelled') {
-            $query->where('exams.status', 'CANCELLED');
-        }
+        $this->filterByView($query, $view);
         $search = trim($filters['search'] ?? '');
         if ($search !== '') {
             $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($search)).'%';
@@ -39,6 +30,22 @@ class ExamManagementService
 
         return $query->orderBy('exams.exam_date', $direction)->orderBy('exams.start_time', $direction)
             ->orderBy('exams.id', $direction)->paginate(10, ['exams.*'], 'page', (int) ($filters['page'] ?? 1))->withQueryString();
+    }
+
+    /** Reuse the teacher's time/state semantics for authorized administrative read views. */
+    public function filterByView(Builder $query, string $view): Builder
+    {
+        $now = CarbonImmutable::now(ExamManagementPolicy::TIMEZONE)->format('Y-m-d H:i:s.u');
+        $end = $this->endExpression();
+        if ($view === 'upcoming') {
+            $query->whereIn('exams.status', [...ExamManagementPolicy::SCHEDULED_STATUSES, 'IN_PROGRESS'])->whereRaw($end.' > ?', [$now]);
+        } elseif ($view === 'past') {
+            $query->where('exams.status', '!=', 'CANCELLED')->where(fn ($past) => $past
+                ->whereIn('exams.status', ['COMPLETED', 'FINISHED'])->orWhereRaw($end.' <= ?', [$now]));
+        } elseif ($view === 'cancelled') {
+            $query->where('exams.status', 'CANCELLED');
+        }
+        return $query;
     }
 
     public function find(User $actor, string|int $id): Exam

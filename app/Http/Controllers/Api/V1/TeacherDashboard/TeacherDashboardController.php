@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\V1\TeacherDashboard;
 
 use App\Enums\RoleName;
 use App\Http\Controllers\Controller;
+use App\Models\Exam;
+use App\Services\Exams\ExamManagementService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -62,19 +64,20 @@ class TeacherDashboardController extends Controller
         return DB::table('academic_terms')->where('status', 'ACTIVE')->limit(2)->get(['id'])->count() === 1;
     }
 
-    public function getUpcomingExams(Request $request)
+    public function getUpcomingExams(Request $request, ExamManagementService $examManagement)
     {
         $teacher = DB::table('teachers')->where('user_id', $request->user()->id)->first();
         if (! $teacher) {
             return response()->json(['data' => []]);
         }
 
-        $exams = DB::table('exams')
+        // Share the existing allowed states and end-instant comparison in America/La_Paz.
+        // Do not filter just the date: an exam may still be in progress after midnight.
+        $exams = $examManagement->filterByView(Exam::query(), 'upcoming')
             ->join('course_offerings', 'exams.course_offering_id', '=', 'course_offerings.id')
             ->join('subjects', 'course_offerings.subject_id', '=', 'subjects.id')
             ->join('rooms', 'exams.room_id', '=', 'rooms.id')
             ->where('course_offerings.teacher_id', $teacher->id)
-            ->where('exams.exam_date', '>=', now()->toDateString())
             ->select(
                 'exams.id', 'exams.name', 'exams.exam_date', 'exams.start_time',
                 'exams.duration_minutes', 'exams.evaluation_type', 'exams.status',
@@ -83,6 +86,7 @@ class TeacherDashboardController extends Controller
             )
             ->orderBy('exams.exam_date', 'asc')
             ->orderBy('exams.start_time', 'asc')
+            ->orderBy('exams.id', 'asc')
             ->get()
             ->map(function ($item) {
                 return [

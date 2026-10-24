@@ -36,6 +36,17 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('admin')->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])
     ->group(function () {
+        Route::get('/users/history', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'history']);
+        Route::get('/profiles/{profileType}/{profileId}/records', [\App\Http\Controllers\Api\V1\Admin\AdminProfileRecordsController::class, 'index'])
+            ->where('profileType', 'students|teachers')->whereNumber('profileId');
+        Route::get('/roles', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'roles']);
+        Route::get('/users', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'index']);
+        Route::get('/users/{user}', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'show'])->whereNumber('user');
+        Route::patch('/users/{user}/status', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'status'])->whereNumber('user');
+        Route::get('/users/{user}/history', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'history'])->whereNumber('user');
+        Route::get('/users/{user}/roles', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'roles'])->whereNumber('user');
+        Route::post('/users/{user}/roles', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'assign'])->whereNumber('user');
+        Route::delete('/users/{user}/roles/{role}', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'revoke'])->whereNumber('user')->whereNumber('role');
         Route::get('/audit-logs', [AuditLogController::class, 'index']);
         Route::get('/audit-logs/{auditLog}', [AuditLogController::class, 'show'])->whereNumber('auditLog');
         Route::get('/careers', [CareerController::class, 'index']);
