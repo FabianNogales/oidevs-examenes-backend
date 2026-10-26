@@ -2,6 +2,8 @@
 
 Fuente de verdad: código local revisado el 24 de octubre de 2026. No se ejecutaron Laravel, migraciones, seeders ni pruebas. Este documento describe implementación comprobada, no certificación de ejecución en PostgreSQL.
 
+Actualización posterior: por solicitud del usuario se eliminaron DatabaseSeeder, RoleSeeder, EidaDemoSeeder, StudentPanelDevSeeder y UserSeeder. Solo queda EidaFullDemoSeeder, que integra la creación idempotente de los tres roles oficiales. La tabla de seeders de esta auditoría conserva el inventario histórico previo a esa limpieza; las instrucciones vigentes están en EIDA_FULL_DEMO_SEEDER.md.
+
 ## Modelo real
 
 En las tablas de dominio hay PK `id`. Salvo `audit_logs` y `role_user`, tienen `created_at`/`updated_at`. `NN` significa obligatorio/no nullable; los campos indicados como opcionales admiten null. Los estados siguientes son los que admite el código; solamente los CHECK expresamente mencionados los restringen en PostgreSQL.

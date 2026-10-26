@@ -124,7 +124,7 @@ class EidaFullDemoSeeder extends Seeder
         foreach ($this->termPlan() as $data) {
             app(AcademicTermIntegrity::class)->assertCanSave($data);
         }
-        $this->call(RoleSeeder::class);
+        $this->ensureRoles();
         foreach ([['SIS', 'Sistemas', 'ACTIVE'], ['INF', 'Informatica', 'ACTIVE'], ['LEG', 'Carrera historica', 'INACTIVE']] as [$key, $name, $status]) {
             $this->insert('careers', $key, ['code' => 'FULLQA-'.$key, 'name' => 'FULLQA '.$name, 'status' => $status], ['code']);
         }
@@ -190,6 +190,23 @@ class EidaFullDemoSeeder extends Seeder
             $this->remember('students', $n, $student->id);
             $this->remember('users', 'student'.$n, $student->user_id);
             $this->recordRole($student->user, RoleName::ESTUDIANTE);
+        }
+    }
+
+    /** Bootstrap official roles without depending on another seeder or overwriting existing roles. */
+    private function ensureRoles(): void
+    {
+        $roles = [
+            RoleName::ADMINISTRADOR->value => 'Administracion del sistema EIDA.',
+            RoleName::DOCENTE->value => 'Gestion docente dentro del sistema EIDA.',
+            RoleName::ESTUDIANTE->value => 'Acceso estudiantil al sistema EIDA.',
+        ];
+
+        foreach ($roles as $name => $description) {
+            Role::query()->firstOrCreate(
+                ['name' => $name],
+                ['description' => $description, 'status' => 'ACTIVE'],
+            );
         }
     }
 

@@ -4,7 +4,7 @@
 
 Poblar una PostgreSQL nueva, con todas las migraciones actuales ya aplicadas, mediante una invocación explícita. El diseño se basa en la [auditoría funcional y de esquema](EIDA_FULL_DEMO_AUDIT.md), que contiene el mapa de entidades, FK, UNIQUE, CHECK, estados, rutas y revisión de seeders existentes. No se modificaron reglas de negocio, migraciones, constraints ni frontend.
 
-Se crea `database/seeders/EidaFullDemoSeeder.php`. `DatabaseSeeder` sigue llamando únicamente a `RoleSeeder`. No se ejecutan `EidaDemoSeeder`, `StudentPanelDevSeeder` ni `UserSeeder`.
+`database/seeders/EidaFullDemoSeeder.php` es el único seeder conservado. Integra la creación idempotente de los tres roles oficiales, sin dependencias de otros seeders. Por solicitud del usuario se eliminaron DatabaseSeeder, RoleSeeder, EidaDemoSeeder, StudentPanelDevSeeder y UserSeeder. Indicar siempre la clase explícita: `php artisan db:seed` sin `--class` y `migrate:fresh --seed` sin `--seeder` ya no tienen DatabaseSeeder por defecto.
 
 ## 2. Preparación y comando
 
@@ -26,6 +26,30 @@ php artisan db:seed --class=EidaFullDemoSeeder --force
 ```
 
 Después de completar la carga, volver a `EIDA_ALLOW_DEMO_SEEDING=false` y actualizar la configuración efectiva del despliegue. Para refrescar el reloj de demo se necesita habilitarla otra vez. APP_KEY, conexión PostgreSQL, dominio permitido, cookies/CORS y frontend deben estar configurados por el despliegue; este documento no incluye secretos de infraestructura.
+
+### Vaciar únicamente la BD local y cargar la demo desde cero
+
+**Este procedimiento elimina todas las tablas de la BD seleccionada y sus datos, incluidas auditorías.** Usarlo solo sobre la BD local desechable que quieras reiniciar; conservar una copia si necesitas sus datos actuales. No se ejecutó durante esta tarea.
+
+En Git Bash, desde el backend, los siguientes valores fijan el destino local y anulan una posible DB_URL exportada sin modificar el `.env` ni sus credenciales:
+
+```bash
+export APP_ENV=local DB_CONNECTION=pgsql DB_URL= DB_HOST=127.0.0.1 DB_PORT=5432 DB_DATABASE=oidevs_examenes
+php.exe artisan config:clear
+
+# Comprobación de configuración resuelta; no imprime contraseñas ni consulta registros.
+php.exe artisan tinker --execute='dump(["driver" => DB::connection()->getConfig("driver"), "host" => DB::connection()->getConfig("host"), "port" => DB::connection()->getConfig("port"), "database" => DB::connection()->getConfig("database")]);'
+```
+
+Confirmar en la salida `pgsql`, `127.0.0.1`, `5432`, `oidevs_examenes`. Si tu base local tiene otro nombre, cambiar DB_DATABASE antes de continuar. El `.env` debe conservar DB_USERNAME/DB_PASSWORD locales válidos y al menos un EIDA_INSTITUTIONAL_EMAIL_DOMAINS permitido.
+
+Solo después de revisar ese destino, ejecutar manualmente:
+
+```bash
+EIDA_ALLOW_DEMO_SEEDING=true php.exe artisan migrate:fresh --seed --seeder=EidaFullDemoSeeder
+```
+
+La bandera se habilita únicamente para ese comando. No agregar --force ni ejecutar esto contra Neon/Render. `migrate:fresh` recrea las tablas; no intenta borrar fila a fila las auditorías inmutables. Cerrar esta terminal al terminar elimina los overrides exportados. Si la BD ya tiene el esquema y solo se quiere completar/refrescar la seed sin vaciar datos, usar `db:seed --class=EidaFullDemoSeeder` con la protección de demo habilitada.
 
 ## 3. Dataset final previsto en una base nueva
 
@@ -182,7 +206,7 @@ Se vuelven a comprobar integridad de periodos y reservas destino antes de confir
 
 Repetir dentro del mismo minuto sin cambios no agrega auditorías ni toca ventanas. Repetir después cambia las ventanas y suma un evento de refresh si no hay conflictos; no suma usuarios/roles/pivots/matrículas/habilitaciones/colaboraciones/ingresos. No restaura el escenario original si se cambió una habilitación, se anuló un ingreso, se revocó un colaborador, se desactivó un usuario o se cambió su contraseña. En tal caso las credenciales/escenarios iniciales de este documento pueden dejar de corresponder al estado manual actual.
 
-Una falla en una fase conserva fases anteriores ya confirmadas; la reejecución las reconoce. No hay una transacción gigante ni limpieza destructiva de reintentos. No se programa la seed en arranque, deploy ni DatabaseSeeder.
+Una falla en una fase conserva fases anteriores ya confirmadas; la reejecución las reconoce. No hay una transacción gigante ni limpieza destructiva de reintentos. No se programa la seed en arranque ni deploy; DatabaseSeeder fue eliminado y la ejecución requiere indicar la clase explícita.
 
 ## 10. BD existente, seguridad y reconocimiento
 
@@ -239,28 +263,8 @@ Comparar manualmente con cuentas admin, docente1, docente2, estudiantes01/02/03/
 
 ## 13. Git y archivos entregados
 
-Archivos nuevos: `database/seeders/EidaFullDemoSeeder.php`, este documento y `docs/EIDA_FULL_DEMO_AUDIT.md`. Archivos modificados: `config/eida.php`, `.env.example` (opt-in explícito). Ningún seeder previo ni archivo frontend modificado.
+La implementación original agregó EidaFullDemoSeeder, su auditoría/guía y la protección de demo en config/eida.php y .env.example. La limpieza posterior solicitada por el usuario conserva únicamente EidaFullDemoSeeder.php en database/seeders, integrando dentro de él el bootstrap de roles. Se eliminan los otros cinco archivos PHP de seeders, incluido DatabaseSeeder.
 
-Comprobaciones autorizadas: `php -l database/seeders/EidaFullDemoSeeder.php`, `php -l config/eida.php`, `git diff`, `git diff --stat`, `git diff --check`, `git status --short`, y búsqueda estática de seeders/password/operaciones destructivas. Los archivos nuevos permanecen sin seguimiento; por eso `git diff --stat` normal solo enumera los dos archivos ya versionados. No se agregaron al índice.
+Se actualizan esta guía, DEMO_TEST_DATA.md y las referencias de DEPLOY_RENDER.md para no recomendar clases eliminadas. EIDA_FULL_DEMO_AUDIT.md conserva su inventario histórico con una nota explícita de actualización. No se cambian los perfiles LAN ni archivos privados .env, producción, frontend, migraciones o servicios de negocio.
 
-Resultado de la revisión estática: ambos PHP sin errores de sintaxis; `git diff --check` sin salida y los tres archivos nuevos también revisados con `git diff --no-index --check` sin incidencias. La búsqueda del nuevo seeder no encontró truncate, borrados, drop ni ejecución de migraciones. Los únicos updates de reejecución están acotados a los campos temporales gestionados descritos arriba. `Sprint2DemoSeeder` no existe; sus menciones históricas no se convierten en dependencias.
-
-Salida de `git diff --stat`:
-
-```text
- .env.example    | 3 +++
- config/eida.php | 2 ++
- 2 files changed, 5 insertions(+)
-```
-
-Salida de `git status --short`:
-
-```text
- M .env.example
- M config/eida.php
-?? database/seeders/EidaFullDemoSeeder.php
-?? docs/EIDA_FULL_DEMO_AUDIT.md
-?? docs/EIDA_FULL_DEMO_SEEDER.md
-```
-
-Los nuevos archivos también se inspeccionaron con `git diff --no-index` para que el control de whitespace no dependa de que estén agregados al índice. No se hizo commit ni push.
+Verificación de la limpieza: sintaxis PHP del seeder, búsqueda de dependencias de clases eliminadas en código y revisión de git diff/check/status. No se ejecutan los comandos de reinicio de BD documentados, migraciones, seeders, tests ni servidores. No se hace commit ni push.

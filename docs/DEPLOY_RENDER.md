@@ -138,25 +138,21 @@ php artisan migrate --force
 ```
 
 En una BD vacía, `migrate:status` puede indicar que aún no existe la tabla de
-migraciones. No usar `migrate:fresh`. Para crear únicamente los roles oficiales
-se puede ejecutar, opcionalmente:
+migraciones. No usar `migrate:fresh` en el despliegue.
 
-```sh
-php artisan db:seed --class=RoleSeeder --force
-```
+El único seeder actual es `EidaFullDemoSeeder`, destinado exclusivamente a
+demostración/QA y protegido por EIDA_ALLOW_DEMO_SEEDING. Integra los tres roles
+oficiales mediante firstOrCreate. Los anteriores RoleSeeder, DatabaseSeeder,
+EidaDemoSeeder, UserSeeder y StudentPanelDevSeeder fueron eliminados por
+solicitud del usuario; Sprint2DemoSeeder tampoco existe. No ejecutar comandos
+con esas clases ni cargar datos ficticios automáticamente en producción real.
+El aprovisionamiento de datos iniciales de una producción real debe tratarse
+por separado; este seeder no ofrece un modo de solo roles.
 
-**Sprint2DemoSeeder no existe en este checkout**. No ejecutar el comando con
-ese nombre: fallaría al resolver la clase. El namespace PSR-4
-`Database\\Seeders\\` sí está registrado, pero no crea una clase ausente.
-No se inventó un seeder ni se eligió un sustituto automáticamente.
-
-`EidaDemoSeeder` existe y no depende de Faker, rutas locales o Railway, pero
-actualiza usuarios, contraseñas y catálogos existentes y contiene credenciales
-conocidas de demo; no se certifica como carga no destructiva. `UserSeeder`
-también contiene contraseñas de prueba. `StudentPanelDevSeeder` elimina datos
-y referencia columnas/estados que no coinciden con el esquema actual; además
-intenta borrar auditorías protegidas por trigger. No utilizarlos en producción.
-`DatabaseSeeder` llama únicamente a `RoleSeeder`, que usa `firstOrCreate`.
+Para una base dedicada de demostración en Neon, revisar
+[EIDA_FULL_DEMO_SEEDER.md](EIDA_FULL_DEMO_SEEDER.md) y ejecutar su clase
+explícitamente solo con el entorno de demo autorizado. No se agrega al arranque
+de Render ni se modifican las URLs o secretos de producción.
 
 Generar APP_KEY externamente mediante `php artisan key:generate --show` y
 guardarla solo como secreto del servicio. No se generó ninguna durante la tarea.
@@ -232,7 +228,7 @@ garantiza todavía que todos los enlaces de fotos pasen por el proxy.
 El repositorio queda **LISTO PARA CREAR EL WEB SERVICE EN RENDER**, sujeto al
 build y a las comprobaciones reales posteriores. No equivale a producción ya
 validada: faltan secretos, migraciones manuales, el destino Render de Vercel y,
-si se requiere esa demo específica, el Sprint2DemoSeeder ausente.
+si se necesita una demo, revisar la carga explícita de EidaFullDemoSeeder.
 
 Referencias oficiales: [Render Docker](https://render.com/docs/docker),
 [puerto y TLS](https://render.com/docs/web-services),
