@@ -289,6 +289,8 @@ class ManualEntryTest extends TestCase
         $this->actingAs($user);
         $this->manual()->assertForbidden();
         $this->actingAs($this->teacherUser);
+        $role = Role::firstOrCreate(['name' => 'ESTUDIANTE'], ['status' => 'ACTIVE']);
+        User::findOrFail($user->id)->roles()->syncWithoutDetaching([$role->id => ['status' => 'ACTIVE', 'assigned_at' => now()]]);
         $this->postJson('/api/v1/exams/'.$this->exam->id.'/collaborators', ['user_id' => $user->id])->assertCreated();
         $other = $this->exam->replicate();
         $other->save();

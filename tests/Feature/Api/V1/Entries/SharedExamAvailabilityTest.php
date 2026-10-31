@@ -4,6 +4,7 @@ namespace Tests\Feature\Api\V1\Entries;
 
 use App\Models\Exam;
 use App\Models\ExamCollaborator;
+use App\Models\Role;
 use App\Models\Room;
 use App\Models\StudentQrToken;
 use App\Models\User;
@@ -52,6 +53,8 @@ class SharedExamAvailabilityTest extends TestCase
     {
         $token = $this->qr();
         $user = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);
+        $role = Role::firstOrCreate(['name' => 'ESTUDIANTE'], ['status' => 'ACTIVE']);
+        User::findOrFail($user->id)->roles()->syncWithoutDetaching([$role->id => ['status' => 'ACTIVE', 'assigned_at' => now()]]);
         $this->postJson('/api/v1/exams/'.$this->exam->id.'/collaborators', ['user_id' => $user->id])->assertCreated();
         foreach ([$this->fixture['user'], $user] as $operator) {
             Sanctum::actingAs($operator);
@@ -242,6 +245,8 @@ class SharedExamAvailabilityTest extends TestCase
         $this->assertNull($item['token']);
         $this->exam->update(['status' => 'ACTIVE']);
         $user = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);
+        $role = Role::firstOrCreate(['name' => 'ESTUDIANTE'], ['status' => 'ACTIVE']);
+        User::findOrFail($user->id)->roles()->syncWithoutDetaching([$role->id => ['status' => 'ACTIVE', 'assigned_at' => now()]]);
         $this->postJson('/api/v1/exams/'.$this->exam->id.'/collaborators', ['user_id' => $user->id])->assertCreated();
         Sanctum::actingAs($user);
         $this->getJson($this->base().'/students')->assertOk();

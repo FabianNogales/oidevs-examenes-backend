@@ -103,7 +103,7 @@ class ExamCollaboratorController extends Controller
         ]);
         $exam = $this->collaboratorService->responsibleExam($validated['exam_id'], $request->user()->id);
         $search = trim($validated['search'] ?? '');
-        $query = $this->collaboratorService->candidateUsers($exam);
+        $query = $this->collaboratorService->assignableUsers($exam, $request->user());
 
         if ($search !== '') {
             $query->where(function ($query) use ($search) {

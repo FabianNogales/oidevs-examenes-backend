@@ -70,6 +70,8 @@ class ExamCollaboratorTest extends TestCase
     {
         $user = $user ?? User::factory()->create();
         $career = $this->createCareer();
+        $role = Role::firstOrCreate(['name' => RoleName::ESTUDIANTE->value], ['status' => 'ACTIVE']);
+        $user->roles()->syncWithoutDetaching([$role->id => ['status' => 'ACTIVE', 'assigned_at' => now()]]);
 
         return Student::create([
             'user_id' => $user->id,
@@ -300,7 +302,7 @@ class ExamCollaboratorTest extends TestCase
         $teacherUser = User::factory()->create();
         $exam = $this->createExam($this->createTeacher($teacherUser));
         $student = $this->createStudent();
-        $plainUser = User::factory()->create(['email' => 'registered@example.com']);
+        $plainUser = $this->createStudent(User::factory()->create(['email' => 'registered@example.com']))->user;
         $this->actingAs($teacherUser);
         foreach (['Juan Pérez', $student->identity_number, $student->user->email] as $search) {
             $this->getJson('/api/v1/users?exam_id='.$exam->id.'&search='.urlencode($search))->assertOk()
@@ -426,7 +428,7 @@ class ExamCollaboratorTest extends TestCase
         $candidate = $this->createStudent();
         $this->enroll($enrolled, $exam);
         $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")
-            ->assertOk()->assertJsonCount(2, 'data')->assertJsonFragment(['id' => $candidate->user_id]);
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonFragment(['id' => $candidate->user_id]);
         $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $enrolled->user_id])
             ->assertUnprocessable()->assertJsonValidationErrors('user_id');
         $this->assertDatabaseCount('exam_collaborators', 0);
@@ -443,13 +445,13 @@ class ExamCollaboratorTest extends TestCase
         $other = $this->createStudent();
         $this->enroll($former, $exam, 'INACTIVE');
         $this->enroll($other, $otherExam);
-        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonCount(3, 'data');
+        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonCount(2, 'data');
         foreach ([$former, $other] as $student) {
             $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $student->user_id])->assertCreated();
         }
     }
 
-    public function test_active_users_of_any_role_are_candidates_and_inactive_accounts_are_rejected(): void
+    public function test_hierarchy_excludes_higher_roles_unclassified_users_and_inactive_accounts(): void
     {
         $owner = User::factory()->create();
         $exam = $this->createExam($this->createTeacher($owner));
@@ -461,14 +463,17 @@ class ExamCollaboratorTest extends TestCase
         $admin->roles()->attach($role->id, ['status' => 'ACTIVE', 'assigned_at' => now()]);
         $inactive = User::factory()->create(['status' => 'INACTIVE']);
         $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")
-            ->assertOk()->assertJsonCount(4, 'data')->assertJsonMissing(['id' => $inactive->id]);
-        foreach ([$plain, $teacherUser, $admin] as $candidate) {
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonMissing(['id' => $inactive->id])
+            ->assertJsonMissing(['id' => $admin->id])->assertJsonMissing(['id' => $plain->id]);
+        foreach ([$teacherUser] as $candidate) {
             $roles = $candidate->roles()->pluck('roles.id')->all();
             $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $candidate->id])->assertCreated();
             $this->assertSame($roles, $candidate->roles()->pluck('roles.id')->all());
         }
-        $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $inactive->id])
-            ->assertUnprocessable()->assertJsonValidationErrors('user_id');
+        foreach ([$plain, $admin, $inactive] as $rejected) {
+            $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $rejected->id])
+                ->assertUnprocessable()->assertJsonValidationErrors('user_id');
+        }
     }
 
     public function test_teacher_can_collaborate_on_another_exam_without_managing_its_collaborators(): void
@@ -521,16 +526,112 @@ class ExamCollaboratorTest extends TestCase
         $owner = User::factory()->create();
         $exam = $this->createExam($this->createTeacher($owner));
         $student = $this->createStudent();
-        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonCount(2, 'data');
+        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonCount(1, 'data');
         $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $student->user_id])->assertCreated();
         $this->enroll($student, $exam);
         $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $student->user_id])
             ->assertUnprocessable()->assertJsonValidationErrors('user_id');
-        $this->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonCount(1, 'data');
+        $this->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonCount(0, 'data');
         $this->actingAs($student->user)->getJson('/api/v1/me/collaborations')->assertOk()->assertJsonCount(0, 'data');
         $request = Request::create('/control', 'GET', ['exam_id' => $exam->id]);
         $request->setUserResolver(fn () => $student->user);
         $response = (new VerifyExamAccess)->handle($request, fn () => response()->json(['ok' => true]));
         $this->assertSame(403, $response->getStatusCode());
+    }
+
+    private function grantRole(User $user, string $name, string $assignmentStatus = 'ACTIVE'): Role
+    {
+        $role = Role::firstOrCreate(['name' => $name], ['status' => 'ACTIVE']);
+        $user->roles()->syncWithoutDetaching([$role->id => ['status' => $assignmentStatus, 'assigned_at' => now()]]);
+
+        return $role;
+    }
+
+    public function test_self_assignment_is_hidden_and_rejected_by_api(): void
+    {
+        $owner = User::factory()->create();
+        $exam = $this->createExam($this->createTeacher($owner));
+        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")
+            ->assertOk()->assertJsonMissing(['id' => $owner->id]);
+        $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $owner->id])
+            ->assertUnprocessable()->assertJsonValidationErrors('user_id');
+        $this->assertDatabaseCount('exam_collaborators', 0);
+    }
+
+    public function test_candidate_highest_active_role_is_rechecked_after_search(): void
+    {
+        $owner = User::factory()->create();
+        $exam = $this->createExam($this->createTeacher($owner));
+        $candidate = $this->createStudent()->user;
+        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")
+            ->assertOk()->assertJsonFragment(['id' => $candidate->id]);
+        $this->grantRole($candidate, 'ADMINISTRADOR');
+        $this->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonMissing(['id' => $candidate->id]);
+        $message = 'No puedes asignar como colaborador a un usuario con un rol superior al tuyo.';
+        $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $candidate->id])
+            ->assertUnprocessable()->assertJsonPath('message', $message)->assertJsonPath('errors.user_id.0', $message);
+        $this->assertDatabaseCount('exam_collaborators', 0);
+        $this->assertTrue($candidate->hasRole('ADMINISTRADOR'));
+    }
+
+    public function test_responsible_teacher_uses_highest_role_but_unrelated_admin_is_forbidden(): void
+    {
+        $owner = User::factory()->create();
+        $exam = $this->createExam($this->createTeacher($owner));
+        $this->grantRole($owner, 'ADMINISTRADOR');
+        $candidate = User::factory()->create();
+        $this->grantRole($candidate, 'ADMINISTRADOR');
+        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")
+            ->assertOk()->assertJsonFragment(['id' => $candidate->id]);
+        $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $candidate->id])->assertCreated();
+        $this->actingAs($candidate)->getJson("/api/v1/users?exam_id={$exam->id}")->assertForbidden();
+        $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $owner->id])->assertForbidden();
+    }
+
+    public function test_inactive_role_or_assignment_does_not_increase_effective_level(): void
+    {
+        $owner = User::factory()->create();
+        $exam = $this->createExam($this->createTeacher($owner));
+        $candidate = $this->createStudent()->user;
+        $adminRole = $this->grantRole($candidate, 'ADMINISTRADOR', 'INACTIVE');
+        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")
+            ->assertOk()->assertJsonFragment(['id' => $candidate->id]);
+        $candidate->roles()->updateExistingPivot($adminRole->id, ['status' => 'ACTIVE']);
+        $adminRole->update(['status' => 'INACTIVE']);
+        $this->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonFragment(['id' => $candidate->id]);
+        $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $candidate->id])->assertCreated();
+    }
+
+    public function test_actor_role_demotion_is_rechecked_on_direct_assignment(): void
+    {
+        $owner = User::factory()->create();
+        $exam = $this->createExam($this->createTeacher($owner));
+        $admin = $this->grantRole($owner, 'ADMINISTRADOR');
+        $candidate = User::factory()->create();
+        $this->grantRole($candidate, 'ADMINISTRADOR');
+        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")
+            ->assertOk()->assertJsonFragment(['id' => $candidate->id]);
+        $owner->roles()->updateExistingPivot($admin->id, ['status' => 'INACTIVE']);
+        $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $candidate->id])
+            ->assertUnprocessable()->assertJsonValidationErrors('user_id');
+        $this->assertDatabaseCount('exam_collaborators', 0);
+    }
+
+    public function test_existing_collaboration_survives_promotion_but_reactivation_is_revalidated(): void
+    {
+        $owner = User::factory()->create();
+        $exam = $this->createExam($this->createTeacher($owner));
+        $candidate = $this->createStudent()->user;
+        $url = "/api/v1/exams/{$exam->id}/collaborators";
+        $this->actingAs($owner)->postJson($url, ['user_id' => $candidate->id])->assertCreated();
+        $this->grantRole($candidate, 'ADMINISTRADOR');
+        $this->actingAs($candidate)->getJson('/api/v1/me/collaborations')
+            ->assertOk()->assertJsonFragment(['exam_id' => $exam->id]);
+        $request = Request::create('/control', 'GET', ['exam_id' => $exam->id]);
+        $request->setUserResolver(fn () => $candidate);
+        $this->assertSame(200, (new VerifyExamAccess)->handle($request, fn () => response()->json(['ok' => true]))->getStatusCode());
+        $this->actingAs($owner)->deleteJson($url.'/'.$candidate->id)->assertOk();
+        $this->postJson($url, ['user_id' => $candidate->id])->assertUnprocessable()->assertJsonValidationErrors('user_id');
+        $this->assertDatabaseHas('exam_collaborators', ['exam_id' => $exam->id, 'user_id' => $candidate->id, 'status' => 'REVOKED']);
     }
 }

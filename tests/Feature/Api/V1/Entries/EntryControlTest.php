@@ -200,6 +200,8 @@ class EntryControlTest extends TestCase
     private function collaborator(): User
     {
         $user = User::factory()->create();
+        $role = Role::firstOrCreate(['name' => 'ESTUDIANTE'], ['status' => 'ACTIVE']);
+        User::findOrFail($user->id)->roles()->syncWithoutDetaching([$role->id => ['status' => 'ACTIVE', 'assigned_at' => now()]]);
         $this->actingAs($this->teacherUser)->postJson("/api/v1/exams/{$this->exam->id}/collaborators", ['user_id' => $user->id])->assertCreated();
 
         return $user;
@@ -394,6 +396,8 @@ class EntryControlTest extends TestCase
         $this->getJson($this->base())->assertForbidden();
         $this->exam->update(['exam_date' => now()->addDays(2)->toDateString()]);
         $student = $this->student();
+        $role = Role::firstOrCreate(['name' => 'ESTUDIANTE'], ['status' => 'ACTIVE']);
+        User::findOrFail($student->user_id)->roles()->syncWithoutDetaching([$role->id => ['status' => 'ACTIVE', 'assigned_at' => now()]]);
         $this->actingAs($this->teacherUser)->postJson("/api/v1/exams/{$this->exam->id}/collaborators", ['user_id' => $student->user_id])->assertCreated();
         $this->enroll($student);
         $this->actingAs($student->user)->getJson($this->base())->assertForbidden();

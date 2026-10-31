@@ -43,6 +43,8 @@ class CollaborationEpisodesTest extends TestCase
             'created_by' => $this->fixture['user']->id, 'status' => 'SCHEDULED',
         ]);
         $this->collaborator = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);
+        $candidateRole = Role::firstOrCreate(['name' => 'ESTUDIANTE'], ['status' => 'ACTIVE']);
+        $this->collaborator->roles()->attach($candidateRole->id, ['status' => 'ACTIVE', 'assigned_at' => now()]);
         $this->actingAs($this->fixture['user']);
     }
 
@@ -273,7 +275,7 @@ class CollaborationEpisodesTest extends TestCase
     public function test_roles_and_other_exam_remain_intact_through_all_transitions(string $name): void
     {
         $role = Role::firstOrCreate(['name' => $name], ['status' => 'ACTIVE']);
-        $this->collaborator->roles()->attach($role->id, ['status' => 'ACTIVE', 'assigned_at' => now()]);
+        $this->collaborator->roles()->syncWithoutDetaching([$role->id => ['status' => 'ACTIVE', 'assigned_at' => now()]]);
         if ($name === 'ESTUDIANTE') {
             Student::findOrFail($this->fixture['studentId'])->replicate()->fill([
                 'user_id' => $this->collaborator->id, 'sis_code' => '999900001', 'identity_number' => '99990001',

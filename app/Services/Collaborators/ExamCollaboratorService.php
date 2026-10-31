@@ -49,17 +49,36 @@ class ExamCollaboratorService
         return $this->candidateUsers($exam)->whereKey($userId)->exists();
     }
 
+    public function assignableUsers(Exam $exam, User $actor): Builder
+    {
+        return app(CollaboratorRoleHierarchy::class)->constrainCandidates($this->candidateUsers($exam), $actor);
+    }
+
     public function assignCollaborator(int $examId, int $userId, Request $request): ExamCollaborator
     {
         return $this->transition(function () use ($examId, $userId, $request) {
             // Serializar las asignaciones del mismo examen, incluso la primera.
             $exam = Exam::whereKey($examId)->lockForUpdate()->firstOrFail();
+            // Role changes also lock the account. Read both effective levels after these locks.
+            User::whereIn('id', [$request->user()->id, $userId])->orderBy('id')->lockForUpdate()->get();
             $actorId = $this->authorizeTransition($exam, $request);
             if (! ExamCollaborator::examIsAvailable($exam)) {
                 throw ValidationException::withMessages(['exam_id' => ['El examen ya finalizó o no está disponible.']]);
             }
 
-            User::findOrFail($userId);
+            $candidate = User::findOrFail($userId);
+            $actor = User::findOrFail($actorId);
+            if ($userId === $actorId) {
+                throw ValidationException::withMessages(['user_id' => ['No puedes asignarte como colaborador de tu propio examen.']]);
+            }
+            $hierarchy = app(CollaboratorRoleHierarchy::class);
+            $candidateLevel = $hierarchy->effectiveLevel($candidate);
+            if ($candidateLevel > $hierarchy->effectiveLevel($actor)) {
+                throw ValidationException::withMessages(['user_id' => ['No puedes asignar como colaborador a un usuario con un rol superior al tuyo.']]);
+            }
+            if ($candidateLevel === 0) {
+                throw ValidationException::withMessages(['user_id' => ['El colaborador debe tener un rol permanente activo reconocido.']]);
+            }
             if (! $this->isCandidate($exam, $userId)) {
                 throw ValidationException::withMessages(['user_id' => ['El colaborador debe tener una cuenta activa y no tener una inscripción estudiantil activa en la oferta del examen.']]);
             }

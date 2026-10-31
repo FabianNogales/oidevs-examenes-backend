@@ -407,6 +407,8 @@ class QrEntryTest extends TestCase
         $other->save();
         $collaborator = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);
         $this->actingAs($this->teacherUser);
+        $role = Role::firstOrCreate(['name' => 'ESTUDIANTE'], ['status' => 'ACTIVE']);
+        User::findOrFail($collaborator->id)->roles()->syncWithoutDetaching([$role->id => ['status' => 'ACTIVE', 'assigned_at' => now()]]);
         $this->postJson('/api/v1/exams/'.$other->id.'/collaborators', ['user_id' => $collaborator->id])->assertCreated();
         $this->actingAs($collaborator);
         $this->postJson('/api/v1/exams/'.$other->id.'/entry-control/qr',
@@ -578,6 +580,8 @@ class QrEntryTest extends TestCase
         $this->scan($token)->assertForbidden();
         $this->getJson($this->endpoint().'/entries')->assertForbidden();
         $this->actingAs($this->teacherUser);
+        $role = Role::firstOrCreate(['name' => 'ESTUDIANTE'], ['status' => 'ACTIVE']);
+        User::findOrFail($user->id)->roles()->syncWithoutDetaching([$role->id => ['status' => 'ACTIVE', 'assigned_at' => now()]]);
         $this->postJson('/api/v1/exams/'.$this->exam->id.'/collaborators', ['user_id' => $user->id])->assertCreated();
         $this->actingAs($user);
         $this->scan($token)->assertCreated()->assertJsonPath('data.entry.verified_by', $user->id);

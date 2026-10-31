@@ -5,6 +5,7 @@ namespace Tests\Feature\Api\V1\Collaborators;
 use App\Models\AuditLog;
 use App\Models\Exam;
 use App\Models\ExamCollaborator;
+use App\Models\Role;
 use App\Models\StudentQrToken;
 use App\Models\User;
 use Illuminate\Support\Facades\Artisan;
@@ -70,6 +71,8 @@ class CollaborationConcurrencyTest extends TestCase
                 'start_time' => now('America/La_Paz')->format('H:i:s')]);
         }
         $collaborator = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);
+        $candidateRole = Role::firstOrCreate(['name' => 'ESTUDIANTE'], ['status' => 'ACTIVE']);
+        $collaborator->roles()->attach($candidateRole->id, ['status' => 'ACTIVE', 'assigned_at' => now()]);
         $base = '/api/v1/exams/'.$exam->id;
         $assign = ['method' => 'POST', 'path' => $base.'/collaborators', 'payload' => ['user_id' => $collaborator->id], 'actor' => $fixture['user']->id];
         $revoke = ['method' => 'DELETE', 'path' => $base.'/collaborators/'.$collaborator->id, 'payload' => [], 'actor' => $fixture['user']->id];
