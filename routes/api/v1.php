@@ -34,6 +34,25 @@ use App\Http\Middleware\EnsureActiveSubjectAdministrator;
 use App\Http\Middleware\EnsureCourseOfferingAccess;
 use Illuminate\Support\Facades\Route;
 
+// HU38/HU39: independent public calendar; never derives events from private exams.
+Route::prefix('portal')->name('portal.public.')->group(function () {
+    Route::get('/event-categories', [\App\Http\Controllers\Api\V1\Portal\PortalCalendarController::class, 'categories'])->name('event-categories');
+    Route::get('/events', [\App\Http\Controllers\Api\V1\Portal\PortalCalendarController::class, 'index'])->name('events.index');
+    Route::get('/events/{event}', [\App\Http\Controllers\Api\V1\Portal\PortalCalendarController::class, 'show'])->whereNumber('event')->name('events.show');
+});
+
+Route::prefix('admin/portal')->name('portal.admin.')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])
+    ->group(function () {
+        $controller = \App\Http\Controllers\Api\V1\Portal\PortalCalendarController::class;
+        Route::get('/event-categories', [$controller, 'categories'])->name('event-categories');
+        Route::get('/events', [$controller, 'index'])->name('events.index');
+        Route::post('/events', [$controller, 'store'])->name('events.store');
+        Route::get('/events/{event}', [$controller, 'show'])->whereNumber('event')->name('events.show');
+        Route::patch('/events/{event}', [$controller, 'update'])->whereNumber('event')->name('events.update');
+        Route::patch('/events/{event}/status', [$controller, 'status'])->whereNumber('event')->name('events.status');
+    });
+
 Route::prefix('admin')->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])
     ->group(function () {
         Route::get('/users/history', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'history']);
