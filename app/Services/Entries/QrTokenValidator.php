@@ -6,6 +6,14 @@ class QrTokenValidator
 {
     public function decode(string $token): ?array
     {
+        $claims = $this->decodeAuthentic($token);
+
+        return $claims !== null && $claims['exp'] > now()->timestamp ? $claims : null;
+    }
+
+    // Authenticates evidence only. Offline callers must classify expired evidence as a conflict.
+    public function decodeAuthentic(string $token): ?array
+    {
         $parts = explode('.', $token);
         if (count($parts) !== 3 || ! config('app.key')) {
             return null;
@@ -23,7 +31,7 @@ class QrTokenValidator
         }
         // Only v2's three claims are accepted, including when a legacy claim is null.
         if (count($payload) !== 3 || ($payload['v'] ?? null) !== 2
-            || ! is_int($payload['exp'] ?? null) || $payload['exp'] <= now()->timestamp
+            || ! is_int($payload['exp'] ?? null)
             || ! is_string($payload['jti'] ?? null)
             || ! preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iD', $payload['jti'])) {
             return null;

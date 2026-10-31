@@ -170,6 +170,17 @@ Route::middleware(['auth:sanctum', 'session.current'])->group(function () {
     Route::get('/rooms', [RoomController::class, 'index']);
 });
 
+// HU35-HU37: sync checks historical package ownership itself so revocations become recorded conflicts.
+Route::prefix('exams/{exam_id}/offline')->whereNumber('exam_id')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'throttle:60,1'])
+    ->controller(\App\Http\Controllers\Api\V1\Entries\OfflineExamController::class)
+    ->group(function () {
+        Route::post('/prepare', 'prepare');
+        Route::get('/assignments', 'assignments');
+        Route::get('/package', 'package');
+        Route::post('/sync', 'sync');
+    });
+
 // Health Check
 Route::get('health', HealthCheckController::class)->name('health');
 
