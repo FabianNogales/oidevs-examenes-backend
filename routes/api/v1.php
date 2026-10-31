@@ -36,6 +36,10 @@ use Illuminate\Support\Facades\Route;
 
 // HU38/HU39: independent public calendar; never derives events from private exams.
 Route::prefix('portal')->name('portal.public.')->group(function () {
+    $news = \App\Http\Controllers\Api\V1\Portal\PortalNewsController::class;
+    Route::get('/news', [$news, 'index'])->name('news.index');
+    Route::get('/news/{news}', [$news, 'show'])->whereNumber('news')->name('news.show');
+    Route::get('/news/{news}/image', [$news, 'image'])->whereNumber('news')->name('news.image');
     Route::get('/event-categories', [\App\Http\Controllers\Api\V1\Portal\PortalCalendarController::class, 'categories'])->name('event-categories');
     Route::get('/events', [\App\Http\Controllers\Api\V1\Portal\PortalCalendarController::class, 'index'])->name('events.index');
     Route::get('/events/{event}', [\App\Http\Controllers\Api\V1\Portal\PortalCalendarController::class, 'show'])->whereNumber('event')->name('events.show');
@@ -45,6 +49,15 @@ Route::prefix('admin/portal')->name('portal.admin.')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])
     ->group(function () {
         $controller = \App\Http\Controllers\Api\V1\Portal\PortalCalendarController::class;
+        $news = \App\Http\Controllers\Api\V1\Portal\PortalNewsController::class;
+        Route::get('/news', [$news, 'index'])->name('news.index');
+        Route::post('/news', [$news, 'store'])->name('news.store');
+        Route::get('/news/{news}', [$news, 'show'])->whereNumber('news')->name('news.show');
+        Route::patch('/news/{news}', [$news, 'update'])->whereNumber('news')->name('news.update');
+        Route::patch('/news/{news}/status', [$news, 'status'])->whereNumber('news')->name('news.status');
+        Route::get('/news/{news}/image', [$news, 'image'])->whereNumber('news')->name('news.image');
+        Route::post('/news/{news}/image', [$news, 'changeImage'])->whereNumber('news')->name('news.image.store');
+        Route::delete('/news/{news}/image', [$news, 'changeImage'])->whereNumber('news')->name('news.image.destroy');
         Route::get('/event-categories', [$controller, 'categories'])->name('event-categories');
         Route::get('/events', [$controller, 'index'])->name('events.index');
         Route::post('/events', [$controller, 'store'])->name('events.store');
