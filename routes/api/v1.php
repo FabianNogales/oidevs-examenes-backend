@@ -36,6 +36,7 @@ use Illuminate\Support\Facades\Route;
 
 // HU38/HU39: independent public calendar; never derives events from private exams.
 Route::prefix('portal')->name('portal.public.')->group(function () {
+    Route::get('/information', [\App\Http\Controllers\Api\V1\Portal\PortalInformationController::class, 'publicContent'])->name('information');
     $news = \App\Http\Controllers\Api\V1\Portal\PortalNewsController::class;
     Route::get('/news', [$news, 'index'])->name('news.index');
     Route::get('/news/{news}', [$news, 'show'])->whereNumber('news')->name('news.show');
@@ -49,6 +50,17 @@ Route::prefix('admin/portal')->name('portal.admin.')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])
     ->group(function () {
         $controller = \App\Http\Controllers\Api\V1\Portal\PortalCalendarController::class;
+        Route::prefix('information')->name('information.')->group(function () {
+            $information = \App\Http\Controllers\Api\V1\Portal\PortalInformationController::class;
+            foreach (['sections', 'faqs'] as $type) {
+                Route::get('/'.$type, [$information, 'index'])->name($type.'.index');
+                Route::get('/'.$type.'/{content}', [$information, 'show'])->whereNumber('content')->name($type.'.show');
+                Route::patch('/'.$type.'/{content}', [$information, 'update'])->whereNumber('content')->name($type.'.update');
+                Route::post('/'.$type.'/{content}/publish', [$information, 'publish'])->whereNumber('content')->name($type.'.publish');
+                Route::post('/'.$type.'/{content}/unpublish', [$information, 'unpublish'])->whereNumber('content')->name($type.'.unpublish');
+            }
+            Route::post('/faqs', [$information, 'store'])->name('faqs.store');
+        });
         $news = \App\Http\Controllers\Api\V1\Portal\PortalNewsController::class;
         Route::get('/news', [$news, 'index'])->name('news.index');
         Route::post('/news', [$news, 'store'])->name('news.store');
