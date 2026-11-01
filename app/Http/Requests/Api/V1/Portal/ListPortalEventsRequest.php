@@ -22,6 +22,7 @@ class ListPortalEventsRequest extends FormRequest
             'from' => ['required_with:to', 'date_format:Y-m-d'],
             'to' => ['required_with:from', 'date_format:Y-m-d', 'after_or_equal:from'],
             'status' => ['sometimes', Rule::in(['DRAFT', 'PUBLISHED', 'CANCELLED'])],
+            'visibility' => ['sometimes', Rule::in(['PUBLIC', 'PRIVATE'])],
             'page' => ['sometimes', 'integer', 'min:1'],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ];

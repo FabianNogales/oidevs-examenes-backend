@@ -10,7 +10,7 @@ class PortalEvent extends Model
 {
     protected $fillable = [
         'category_id', 'title', 'description', 'starts_at', 'ends_at', 'all_day',
-        'location', 'status', 'revision', 'published_at', 'created_by', 'updated_by',
+        'location', 'status', 'visibility', 'revision', 'published_at', 'created_by', 'updated_by',
     ];
 
     protected $casts = [
@@ -20,6 +20,8 @@ class PortalEvent extends Model
         'all_day' => 'boolean',
         'revision' => 'integer',
     ];
+
+    protected $attributes = ['visibility' => 'PUBLIC'];
 
     public function category(): BelongsTo
     {
