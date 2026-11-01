@@ -217,6 +217,22 @@ Route::middleware(['auth:sanctum', 'session.current', 'password.changed'])->grou
     Route::get('/users', [ExamCollaboratorController::class, 'users'])->middleware('teacher.role');
 });
 
+Route::prefix('exams/{exam_id}/infractions')
+    ->where(['exam_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureInfractionExamOwner::class])
+    ->group(function () {
+        $controller = \App\Http\Controllers\Api\V1\Infractions\InfractionController::class;
+        Route::get('/options', [$controller, 'options']);
+        Route::get('/students', [$controller, 'students']);
+        Route::get('/students/{student_id}/history', [$controller, 'studentHistory'])->where('student_id', '[1-9][0-9]*');
+        Route::get('/', [$controller, 'index']);
+        Route::post('/', [$controller, 'store']);
+        Route::get('/{infraction_id}', [$controller, 'show'])->where('infraction_id', '[1-9][0-9]*');
+        Route::get('/{infraction_id}/history', [$controller, 'history'])->where('infraction_id', '[1-9][0-9]*');
+        Route::patch('/{infraction_id}', [$controller, 'update'])->where('infraction_id', '[1-9][0-9]*');
+        Route::patch('/{infraction_id}/status', [$controller, 'status'])->where('infraction_id', '[1-9][0-9]*')->name('infractions.status');
+    });
+
 Route::prefix('incident-reports')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
     ->group(function () {
