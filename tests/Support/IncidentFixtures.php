@@ -21,6 +21,11 @@ trait IncidentFixtures
     protected function setUp(): void
     {
         parent::setUp();
+        $this->createIncidentFixtures();
+    }
+
+    protected function createIncidentFixtures(): void
+    {
         $this->owner = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);
         $role = Role::firstOrCreate(['name' => 'DOCENTE'], ['status' => 'ACTIVE']);
         $this->owner->roles()->attach($role->id, ['status' => 'ACTIVE', 'assigned_at' => now()]);
