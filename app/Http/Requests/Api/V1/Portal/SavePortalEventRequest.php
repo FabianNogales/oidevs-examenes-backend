@@ -24,7 +24,6 @@ class SavePortalEventRequest extends FormRequest
             'starts_at' => [$presence, 'required', ...$date],
             'ends_at' => [$presence, 'required', ...$date],
             'all_day' => ['sometimes', 'required', 'boolean'],
-            'visibility' => ['sometimes', 'required', Rule::in(['PUBLIC', 'PRIVATE'])],
             'location' => ['sometimes', 'nullable', 'string', 'max:255'],
             'revision' => [$this->isMethod('POST') ? 'prohibited' : 'required', 'integer', 'min:1'],
             'status' => ['prohibited'],

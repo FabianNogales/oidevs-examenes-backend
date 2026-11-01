@@ -1,11 +1,7 @@
 # HU38 / HU39 — Calendario institucional
 
 Actualización V.2: historial administrativo `GET /admin/portal/events/{id}/history`.
-Ver `SPRINT3_BACKLOG_V2_ALIGNMENT.md` para contrato y resolución de HU38 CA12.
-
-Actualización de privacidad: visibility PUBLIC/PRIVATE es independiente del estado.
-Los eventos privados se consultan exclusivamente en administración. Aplicar también
-la migración `2026_11_01_000001_add_visibility_to_portal_events` antes de integrar.
+Ver `SPRINT3_BACKLOG_V2_ALIGNMENT.md` para contrato y aclaración de HU38 CA12.
 
 Contrato implementado para la primera épica del portal del Sprint 3. Los eventos
 son recursos independientes: no se leen ni publican exámenes privados.
@@ -17,8 +13,8 @@ Base `/api/v1`.
 | Método | Ruta | Acceso |
 | --- | --- | --- |
 | GET | `/portal/event-categories` | Público |
-| GET | `/portal/events` | Público; solo PUBLISHED y PUBLIC |
-| GET | `/portal/events/{id}` | Público; 404 si es privado o no está publicado |
+| GET | `/portal/events` | Público; solo PUBLISHED |
+| GET | `/portal/events/{id}` | Público; 404 si no está publicado |
 | GET | `/admin/portal/event-categories` | Administrador activo |
 | GET | `/admin/portal/events` | Administrador activo |
 | GET | `/admin/portal/events/{id}` | Administrador activo |
@@ -39,7 +35,6 @@ Un DOCENTE o colaborador temporal no obtiene estos permisos.
   "starts_at": "2026-11-05T09:00:00-04:00",
   "ends_at": "2026-11-05T11:00:00-04:00",
   "all_day": false,
-  "visibility": "PUBLIC",
   "location": "Auditorio",
   "category_id": 1
 }
@@ -52,11 +47,6 @@ Obligatorios: title (máximo 200), description (máximo 10000), category_id acti
 starts_at y ends_at. all_day es opcional y por defecto false; location es opcional,
 nullable y de máximo 255 caracteres. Contenido de texto plano: frontend debe
 renderizarlo como texto, no como HTML.
-
-visibility es opcional al crear, con valor inicial PUBLIC por compatibilidad.
-Admite únicamente PUBLIC y PRIVATE. En PATCH, omitirlo conserva el valor actual.
-La respuesta administrativa agrega visibility; la respuesta pública mantiene sus
-campos anteriores, ya que nunca contiene eventos privados.
 
 Las fechas requieren segundos y offset: `YYYY-MM-DDTHH:mm:ss±HH:mm`.
 Se almacenan instantes UTC y se devuelven en America/La_Paz.
@@ -78,7 +68,6 @@ de todo el 5 de noviembre comienza el 5 a las 00:00 y termina el 6 a las 00:00.
     "location": "Auditorio",
     "category": { "id": 1, "name": "Categoría aprobada" },
     "status": "PUBLISHED",
-    "visibility": "PUBLIC",
     "published_at": "2026-11-01T10:00:00-04:00",
     "revision": 2,
     "created_by": 10,
@@ -87,7 +76,7 @@ de todo el 5 de noviembre comienza el 5 a las 00:00 y termina el 6 a las 00:00.
 }
 ```
 
-revision, visibility, created_by y updated_by se devuelven exclusivamente en administración.
+revision, created_by y updated_by se devuelven exclusivamente en administración.
 published_at es null antes de la primera publicación y conserva esa primera fecha
 al despublicar, cancelar y volver a publicar. Las modificaciones posteriores quedan
 registradas en auditoría. No se exponen responsables internos al visitante.
@@ -113,22 +102,6 @@ de nuevo mediante este endpoint. No hay eliminación física. Editar un evento q
 sigue PUBLISHED actualiza su contenido público al guardar; para preparar cambios
 fuera del público se debe despublicar primero. Esta épica no tiene la separación
 draft/published de versiones prevista para HU42/HU43.
-
-Un PRIVATE puede estar DRAFT, PUBLISHED o CANCELLED y siempre queda fuera del portal
-público. Publicar un PRIVATE no cambia su visibilidad. Todos los administradores
-activos pueden consultarlo mediante listado/detalle administrativos e historial;
-no se crean agendas personales, propietarios exclusivos ni permisos por grupos.
-
-Cambiar la visibilidad usa el PATCH habitual y revision:
-
-```json
-{ "visibility": "PRIVATE", "revision": 2 }
-```
-
-El cambio afecta la consulta pública inmediatamente. Si se cambia de PRIVATE a
-PUBLIC un evento ya PUBLISHED, empieza a aparecer sin otra transición de estado;
-frontend debe mostrar claramente ese efecto antes de confirmar. Si sigue DRAFT
-o CANCELLED, pasar a PUBLIC no lo publica. Cada cambio se registra en el historial.
 
 Cada modificación exitosa incrementa revision. El estado, published_at y los
 responsables no pueden alterarse por el endpoint de edición o creación.
@@ -156,10 +129,6 @@ Filtros: search (máximo 200), category_id, from, to, page y per_page. Solo en
 administración status filtra por estado. En público nunca permite ver borradores
 ni cancelados, aunque se envíe status.
 
-Administración admite también visibility=PUBLIC o PRIVATE, combinable con los
-demás filtros. En la ruta pública ese filtro no amplía acceso: incluso solicitando
-PRIVATE solo se devuelven PUBLISHED/PUBLIC y los totales excluyen los privados.
-
 from y to son opcionales, pero deben enviarse juntos en formato YYYY-MM-DD, con
 to >= from y máximo 366 días calendario inclusivos. Sin ellos se pagina todo el
 conjunto visible. Se incluyen eventos que se superpongan con el intervalo, no
@@ -185,9 +154,6 @@ antes de la prueba de integración de creación.
 
 Migración nueva: `2026_10_31_000001_create_portal_calendar_tables`.
 Crea portal_event_categories y portal_events; no modifica tablas de Sprint 2.
-La migración posterior `2026_11_01_000001_add_visibility_to_portal_events` agrega
-visibility con default PUBLIC e índice para el calendario público. Conserva los
-eventos anteriores y no modifica su estado, revisión, fechas ni responsables.
 Aplicar con `php artisan migrate` en el ambiente correspondiente antes de consumir
 los endpoints. No ejecutar migrate:fresh sobre datos existentes.
 

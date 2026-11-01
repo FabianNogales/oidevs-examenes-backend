@@ -9,7 +9,7 @@ de implementación por decisión del equipo.
 
 | HU | CA | Resultado backend / integración |
 | --- | --- | --- |
-| 38 | 1–13 | Fechas, categorías, detalle y filtros disponibles. CA12: se excluyen eventos PRIVATE y no publicados. Vista mensual, navegación y responsive pertenecen a frontend. |
+| 38 | 1–13 | Fechas, categorías, detalle, filtros y exclusión de no publicados disponibles. Vista mensual, navegación y responsive pertenecen a frontend. CA12: confirmar qué significa evento privado. |
 | 39 | 1–15 | CRUD permitido, estados, filtros, permisos y trazabilidad disponibles. Se agrega consulta del historial por evento para CA13/14. Formulario pendiente de integración frontend. |
 | 40 | 1–12 | Listado, detalle, imágenes, búsqueda, orden y exclusión de borradores/archivados disponibles. Home, Ver todas y responsive requieren frontend. |
 | 41 | 1–16 | Mutaciones, imágenes, estados, fecha/responsable y auditoría disponibles. Se agrega historial por noticia para CA10/15. |
@@ -18,10 +18,8 @@ de implementación por decisión del equipo.
 | 44 | 1–14 | Catálogo activo, destinos, flags de login y permisos existentes cubiertos. Tarjetas, redirección al login, errores visuales y responsive requieren integración frontend. |
 | 45 | 1–19 | Validaciones, estado, orden, búsqueda y permisos disponibles. Se agrega historial por servicio para CA16 y prueba explícita de rollback de modificación para CA19. |
 
-El primer ajuste de historial no cambió contratos públicos/escritura ni creó
-migraciones. La resolución posterior de CA12 agrega visibility al contrato
-administrativo del calendario y una migración de columna, descrita más abajo.
-No se modifican roles, HU12–HU16 o ingreso.
+No se cambian los campos ni estados de los contratos públicos o de escritura.
+No se crean tablas ni migraciones. No se modifican roles, HU12–HU16 o ingreso.
 Las categorías/contenidos/rutas iniciales siguen pendientes de aprobación y carga;
 no se consideran cubiertos por tener únicamente el esquema/API implementados.
 
@@ -83,34 +81,20 @@ interpretarse como HTML ni como destinos actualmente aprobados.
 El endpoint general `/admin/audit-logs` conserva exactamente su contrato y máscara
 de datos anterior. Consultar cualquiera de los historiales no genera otra auditoría.
 
-## Resolución de HU38 CA12: eventos privados
+## Aclaración solicitada a QA
 
-QA delegó la decisión al encargado de la HU y el usuario autorizó implementarla.
-Se adopta el alcance mínimo coherente con HU39: un evento privado es una actividad
-reservada al módulo administrativo, consultable por administradores activos.
+HU38 CA12 menciona un evento privado, pero HU39 no define campo de visibilidad ni
+acciones para crearlo. Actualmente todos los eventos institucionales del portal
+son públicos al publicarse, y los exámenes privados están separados.
 
-- visibility PUBLIC/PRIVATE es independiente de DRAFT/PUBLISHED/CANCELLED.
-- Crear sin visibility conserva PUBLIC como valor inicial y compatibilidad.
-- PATCH sin visibility conserva el valor actual, incluso para privados.
-- El público exige simultáneamente PUBLISHED y PUBLIC; un ID conocido o filtro
-  manipulado no permite leer privados. También se excluyen de los totales.
-- Administración devuelve visibility, permite filtrarlo y registra los cambios
-  en su historial. Se mantienen revision y 409.
-- Pasar un evento PUBLISHED de PRIVATE a PUBLIC lo hace visible inmediatamente;
-  frontend debe advertir ese efecto. Un DRAFT no se publica por cambiar visibilidad.
-- No se agregan agendas personales ni acceso de docentes/colaboradores por grupos.
-- Los exámenes privados siguen separados de los eventos institucionales.
-
-Migración nueva: `2026_11_01_000001_add_visibility_to_portal_events`. Agrega una
-columna con default PUBLIC e índice; conserva los datos y estados anteriores.
-No reescribe las auditorías históricas que todavía no incluían visibility.
+Pregunta: ¿privado significa examen privado/evento sin publicar, o se necesita una
+visibilidad PRIVATE independiente de DRAFT/PUBLISHED/CANCELLED? No se incorpora
+esa distinción ni una migración sin confirmar su significado y autorizaciones.
 
 ## Coordinación con frontend
 
 Los endpoints de historial son una ampliación aditiva. Erick debe incorporarlos
 en las vistas administrativas de consulta de historial para satisfacer los CA
-indicados. Para Calendario también debe incorporar el selector PUBLIC/PRIVATE,
-mostrar la visibilidad en administración y admitir su filtro. Debe aplicar la
-migración antes de probar. El resto del contrato aprobado permanece vigente. QA/frontend deben
+indicados. El resto del contrato aprobado permanece vigente. QA/frontend deben
 validar los criterios visuales y de teclado contra la implementación real, no
 solo mediante mocks. Esta revisión backend no certifica esos comportamientos UI.

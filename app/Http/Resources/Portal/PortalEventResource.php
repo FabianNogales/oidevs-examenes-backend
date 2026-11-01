@@ -19,7 +19,6 @@ class PortalEventResource extends JsonResource
             'location' => $this->location,
             'category' => ['id' => $this->category->id, 'name' => $this->category->name],
             'status' => $this->status,
-            'visibility' => $this->when($request->routeIs('portal.admin.*'), $this->visibility),
             'published_at' => $this->published_at?->setTimezone('America/La_Paz')->format('Y-m-d\TH:i:sP'),
             'revision' => $this->when($request->routeIs('portal.admin.*'), $this->revision),
             'created_by' => $this->when($request->routeIs('portal.admin.*'), $this->created_by),
