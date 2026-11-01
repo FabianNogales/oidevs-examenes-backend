@@ -60,6 +60,7 @@ Route::prefix('admin/portal')->name('portal.admin.')
         Route::get('/services', [$services, 'index'])->name('services.index');
         Route::post('/services', [$services, 'store'])->name('services.store');
         Route::get('/services/{service}', [$services, 'show'])->whereNumber('service')->name('services.show');
+        Route::get('/services/{service}/history', [\App\Http\Controllers\Api\V1\Portal\PortalHistoryController::class, 'services'])->whereNumber('service')->name('services.history');
         Route::patch('/services/{service}', [$services, 'update'])->whereNumber('service')->name('services.update');
         Route::patch('/services/{service}/status', [$services, 'status'])->whereNumber('service')->name('services.status');
         Route::prefix('information')->name('information.')->group(function () {
@@ -67,6 +68,7 @@ Route::prefix('admin/portal')->name('portal.admin.')
             foreach (['sections', 'faqs'] as $type) {
                 Route::get('/'.$type, [$information, 'index'])->name($type.'.index');
                 Route::get('/'.$type.'/{content}', [$information, 'show'])->whereNumber('content')->name($type.'.show');
+                Route::get('/'.$type.'/{content}/history', [\App\Http\Controllers\Api\V1\Portal\PortalHistoryController::class, 'information'])->whereNumber('content')->name($type.'.history');
                 Route::patch('/'.$type.'/{content}', [$information, 'update'])->whereNumber('content')->name($type.'.update');
                 Route::post('/'.$type.'/{content}/publish', [$information, 'publish'])->whereNumber('content')->name($type.'.publish');
                 Route::post('/'.$type.'/{content}/unpublish', [$information, 'unpublish'])->whereNumber('content')->name($type.'.unpublish');
@@ -77,6 +79,7 @@ Route::prefix('admin/portal')->name('portal.admin.')
         Route::get('/news', [$news, 'index'])->name('news.index');
         Route::post('/news', [$news, 'store'])->name('news.store');
         Route::get('/news/{news}', [$news, 'show'])->whereNumber('news')->name('news.show');
+        Route::get('/news/{news}/history', [\App\Http\Controllers\Api\V1\Portal\PortalHistoryController::class, 'news'])->whereNumber('news')->name('news.history');
         Route::patch('/news/{news}', [$news, 'update'])->whereNumber('news')->name('news.update');
         Route::patch('/news/{news}/status', [$news, 'status'])->whereNumber('news')->name('news.status');
         Route::get('/news/{news}/image', [$news, 'image'])->whereNumber('news')->name('news.image');
@@ -86,6 +89,7 @@ Route::prefix('admin/portal')->name('portal.admin.')
         Route::get('/events', [$controller, 'index'])->name('events.index');
         Route::post('/events', [$controller, 'store'])->name('events.store');
         Route::get('/events/{event}', [$controller, 'show'])->whereNumber('event')->name('events.show');
+        Route::get('/events/{event}/history', [\App\Http\Controllers\Api\V1\Portal\PortalHistoryController::class, 'events'])->whereNumber('event')->name('events.history');
         Route::patch('/events/{event}', [$controller, 'update'])->whereNumber('event')->name('events.update');
         Route::patch('/events/{event}/status', [$controller, 'status'])->whereNumber('event')->name('events.status');
     });

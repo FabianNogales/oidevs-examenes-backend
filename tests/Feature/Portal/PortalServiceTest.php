@@ -313,4 +313,15 @@ class PortalServiceTest extends TestCase
         $this->patchJson(self::ADMIN."/{$service->id}", ['requires_auth' => false, 'revision' => $service->revision])
             ->assertUnprocessable()->assertJsonValidationErrors('requires_auth');
     }
+
+    public function test_failed_modification_preserves_previous_service_and_public_card(): void
+    {
+        $service = $this->service(true);
+        $revision = $service->revision;
+        $this->mock(AuditLogService::class)->shouldReceive('log')->once()->andThrow(new RuntimeException('Audit unavailable'));
+        $this->patchJson(self::ADMIN."/{$service->id}", ['name' => 'Cambio que debe revertirse', 'revision' => $revision])->assertStatus(500);
+        $this->assertSame($revision, $service->refresh()->revision);
+        $this->getJson(self::PUBLIC."/{$service->id}")->assertOk()->assertJsonPath('data.name', 'Servicio de prueba');
+        $this->assertDatabaseCount('audit_logs', 2);
+    }
 }

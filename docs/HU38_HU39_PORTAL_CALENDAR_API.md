@@ -1,5 +1,8 @@
 # HU38 / HU39 — Calendario institucional
 
+Actualización V.2: historial administrativo `GET /admin/portal/events/{id}/history`.
+Ver `SPRINT3_BACKLOG_V2_ALIGNMENT.md` para contrato y aclaración de HU38 CA12.
+
 Contrato implementado para la primera épica del portal del Sprint 3. Los eventos
 son recursos independientes: no se leen ni publican exámenes privados.
 

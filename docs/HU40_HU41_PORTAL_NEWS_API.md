@@ -1,5 +1,8 @@
 # HU40 / HU41 — Noticias institucionales
 
+Actualización V.2: historial administrativo `GET /admin/portal/news/{id}/history`.
+Ver `SPRINT3_BACKLOG_V2_ALIGNMENT.md` para el contrato de consulta.
+
 Segunda épica implementada del portal del Sprint 3, independiente del calendario.
 Base `/api/v1`. No incorpora comentarios, reacciones ni editor HTML.
 

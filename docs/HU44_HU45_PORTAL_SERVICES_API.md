@@ -1,5 +1,8 @@
 # HU44 / HU45 — Catálogo de servicios institucionales
 
+Actualización V.2: historial administrativo `GET /admin/portal/services/{id}/history`.
+Ver `SPRINT3_BACKLOG_V2_ALIGNMENT.md` para contrato y verificación de HU45 CA19.
+
 Cuarta épica del portal del Sprint 3. Base `/api/v1`. Organiza enlaces a recursos
 existentes; no implementa nuevos servicios académicos ni otorga permisos de módulo.
 
