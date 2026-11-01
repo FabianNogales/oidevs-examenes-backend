@@ -7,6 +7,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class RoomAvailabilityService
@@ -70,25 +71,67 @@ class RoomAvailabilityService
             if (isset($filters['exclude_exam_id'])) {
                 $occupied->where('id', '!=', $filters['exclude_exam_id']);
             }
-            $query->whereNotIn('id', $occupied->select('room_id'));
+
+            $occupiedExamIds = $occupied->pluck('id');
+            if ($occupiedExamIds->isNotEmpty()) {
+                $occupiedRoomIds = DB::table('exams')
+                    ->whereIn('id', $occupiedExamIds)
+                    ->pluck('room_id')
+                    ->all();
+
+                if (Schema::hasTable('exam_rooms')) {
+                    $extraRoomIds = DB::table('exam_rooms')
+                        ->whereIn('exam_id', $occupiedExamIds)
+                        ->pluck('room_id')
+                        ->all();
+                    $occupiedRoomIds = array_values(array_unique(array_merge($occupiedRoomIds, $extraRoomIds)));
+                }
+
+                $query->whereNotIn('id', $occupiedRoomIds);
+            }
         }
 
         return $query->get();
     }
 
-    public function ensureReservable(int $roomId, string $date, string $time, int $duration, ?int $excludeExamId = null): void
-    {
+    public function ensureReservable(
+        int $roomId,
+        string $date,
+        string $time,
+        int $duration,
+        ?int $excludeExamId = null,
+        bool $allowSharing = false
+    ): void {
         // Called inside the exam transaction. The same room lock is used by state changes.
         $room = Room::query()->lockForUpdate()->find($roomId);
         if (! $room || $room->status !== 'ACTIVE') {
             throw ValidationException::withMessages(['room_id' => 'El aula no está activa para nuevas reservas.']);
         }
+
+        if ($allowSharing) {
+            return;
+        }
+
         [$start, $end] = $this->interval($date, $time, $duration);
-        $occupied = $this->overlaps($start, $end)->where('room_id', $roomId);
+        $occupied = $this->overlaps($start, $end);
         if ($excludeExamId !== null) {
             $occupied->where('id', '!=', $excludeExamId);
         }
-        if ($occupied->exists()) {
+
+        $hasOverlapOnPrimary = (clone $occupied)->where('room_id', $roomId)->exists();
+        $hasOverlapOnPivot = false;
+
+        if (! $hasOverlapOnPrimary && Schema::hasTable('exam_rooms')) {
+            $overlappingExamIds = (clone $occupied)->pluck('id');
+            if ($overlappingExamIds->isNotEmpty()) {
+                $hasOverlapOnPivot = DB::table('exam_rooms')
+                    ->whereIn('exam_id', $overlappingExamIds)
+                    ->where('room_id', $roomId)
+                    ->exists();
+            }
+        }
+
+        if ($hasOverlapOnPrimary || $hasOverlapOnPivot) {
             throw ValidationException::withMessages(['room_id' => 'El aula está ocupada durante el horario solicitado.']);
         }
     }
