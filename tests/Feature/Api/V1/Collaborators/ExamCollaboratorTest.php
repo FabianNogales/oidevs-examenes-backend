@@ -634,4 +634,92 @@ class ExamCollaboratorTest extends TestCase
         $this->postJson($url, ['user_id' => $candidate->id])->assertUnprocessable()->assertJsonValidationErrors('user_id');
         $this->assertDatabaseHas('exam_collaborators', ['exam_id' => $exam->id, 'user_id' => $candidate->id, 'status' => 'REVOKED']);
     }
+
+    public function test_mixed_case_administrator_role_cannot_hide_behind_a_lower_canonical_role(): void
+    {
+        $owner = User::factory()->create();
+        $exam = $this->createExam($this->createTeacher($owner));
+        $this->grantRole($owner, 'Docente');
+        $candidate = User::factory()->create(['email' => 'demo.admin@umss.edu.bo']);
+        $this->createTeacher($candidate);
+        $this->grantRole($candidate, 'Administrador');
+        $this->actingAs($owner)->getJson("/api/v1/users?search=admin&exam_id={$exam->id}&page=1&per_page=10")
+            ->assertOk()->assertJsonMissing(['id' => $candidate->id]);
+        $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $candidate->id])
+            ->assertUnprocessable()->assertJsonPath('errors.user_id.0', 'No puedes asignar como colaborador a un usuario con un rol superior al tuyo.');
+        $this->assertDatabaseCount('exam_collaborators', 0);
+    }
+
+    public function test_current_user_returns_canonical_unique_names_without_changing_role_records(): void
+    {
+        $owner = User::factory()->create();
+        $this->createTeacher($owner);
+        $this->grantRole($owner, 'Docente');
+        $this->actingAs($owner)->getJson('/api/v1/me')->assertOk()->assertJsonPath('data.roles', ['DOCENTE']);
+        $this->assertDatabaseHas('roles', ['name' => 'Docente']);
+        $this->assertSame(2, $owner->activeRoles()->count());
+    }
+
+    public function test_legacy_only_role_candidates_use_their_canonical_level_in_search_and_post(): void
+    {
+        $owner = User::factory()->create();
+        $exam = $this->createExam($this->createTeacher($owner));
+        $teacher = User::factory()->create();
+        $this->grantRole($teacher, 'Docente');
+        $administrator = User::factory()->create();
+        $this->grantRole($administrator, 'Administrador');
+        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")
+            ->assertOk()->assertJsonFragment(['id' => $teacher->id])->assertJsonMissing(['id' => $administrator->id]);
+        $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $administrator->id])
+            ->assertUnprocessable()->assertJsonPath('errors.user_id.0', 'No puedes asignar como colaborador a un usuario con un rol superior al tuyo.');
+        $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $teacher->id])->assertCreated();
+    }
+
+    public function test_legacy_actor_highest_role_and_case_variations_are_consistent_between_sql_and_post(): void
+    {
+        $owner = User::factory()->create();
+        $exam = $this->createExam($this->createTeacher($owner));
+        $this->grantRole($owner, ' Administrador ');
+        $candidate = User::factory()->create();
+        $this->grantRole($candidate, 'administrador');
+        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonFragment(['id' => $candidate->id]);
+        $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $candidate->id])->assertCreated();
+    }
+
+    public function test_inactive_legacy_higher_roles_do_not_raise_the_candidate_level(): void
+    {
+        $owner = User::factory()->create();
+        $exam = $this->createExam($this->createTeacher($owner));
+        $candidate = $this->createStudent()->user;
+        $role = $this->grantRole($candidate, 'Administrador', 'INACTIVE');
+        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonFragment(['id' => $candidate->id]);
+        $candidate->roles()->updateExistingPivot($role->id, ['status' => 'ACTIVE']);
+        $role->update(['status' => 'INACTIVE']);
+        $this->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonFragment(['id' => $candidate->id]);
+        $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $candidate->id])->assertCreated();
+    }
+
+    public function test_existing_collaboration_survives_legacy_promotion_but_reactivation_rechecks_level(): void
+    {
+        $owner = User::factory()->create();
+        $exam = $this->createExam($this->createTeacher($owner));
+        $candidate = $this->createStudent()->user;
+        $url = "/api/v1/exams/{$exam->id}/collaborators";
+        $this->actingAs($owner)->postJson($url, ['user_id' => $candidate->id])->assertCreated();
+        $this->grantRole($candidate, 'Administrador');
+        $this->actingAs($candidate)->getJson('/api/v1/me/collaborations')->assertOk()->assertJsonFragment(['exam_id' => $exam->id]);
+        $this->actingAs($owner)->deleteJson($url.'/'.$candidate->id)->assertOk();
+        $this->postJson($url, ['user_id' => $candidate->id])->assertUnprocessable()->assertJsonValidationErrors('user_id');
+        $this->assertDatabaseHas('exam_collaborators', ['exam_id' => $exam->id, 'user_id' => $candidate->id, 'status' => 'REVOKED']);
+    }
+
+    public function test_unknown_role_names_do_not_become_administrators_or_candidates(): void
+    {
+        $owner = User::factory()->create();
+        $exam = $this->createExam($this->createTeacher($owner));
+        $candidate = User::factory()->create();
+        $this->grantRole($candidate, 'ADMIN');
+        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonMissing(['id' => $candidate->id]);
+        $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $candidate->id])->assertUnprocessable();
+    }
 }

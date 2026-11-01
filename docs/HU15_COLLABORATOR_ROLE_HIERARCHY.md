@@ -37,3 +37,22 @@ La vigencia, revocación, cuenta activa y restricción de inscripción existente
 operando. No se modifican roles globales, fotografías ni esquemas de base de datos.
 
 Frontend consume los candidatos y los errores del servidor; no replica la jerarquía.
+
+## Compatibilidad con nombres históricos de roles
+
+La jerarquía reconoce los tres nombres oficiales sin distinguir mayúsculas/minúsculas
+y tolera espacios ASCII exteriores: ADMINISTRADOR/Administrador, DOCENTE/Docente y
+ESTUDIANTE/Estudiante tienen su mismo nivel. SQL y PHP aplican la misma normalización
+en el buscador y el POST; un rol superior histórico no puede quedar oculto detrás
+de otro inferior con nombre canónico. Roles desconocidos como ADMIN no se convierten
+automáticamente en ADMINISTRADOR. Solo cuentan catálogo y asignación activos.
+
+`GET /api/v1/me` devuelve esos nombres oficiales en mayúsculas y sin duplicados.
+No se renombran ni eliminan filas de roles, no se reasignan permisos y no se cambia
+la implementación global de User::hasRole u otros módulos administrativos. La
+consolidación física de catálogos duplicados requiere una revisión coordinada aparte.
+
+Reproducción cubierta: docente con DOCENTE y Docente; candidato con DOCENTE y
+Administrador. Antes el candidato podía aparecer porque el nivel superior no se
+reconocía. Ahora queda excluido y un POST directo recibe el 422 acordado. También
+se cubren roles históricos únicos, roles inactivos, varios roles y reactivaciones.
