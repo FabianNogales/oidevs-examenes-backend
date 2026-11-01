@@ -152,8 +152,10 @@ class QrEntryService
             'verified_by_name' => $verifier?->display_name, 'status' => $entry->status];
     }
 
-    public function history(Exam $exam, array $parameters): array
+    public function history(Exam $exam, array $parameters, ?User $actor = null): array
     {
+        $canAnnul = $actor !== null && $actor->isActive() && $actor->hasRole(RoleName::DOCENTE)
+            && (int) $exam->courseOffering?->teacher?->user_id === (int) $actor->id;
         $query = DB::table('exam_entries as e')->join('students as s', 's.id', '=', 'e.student_id')
             ->leftJoin('users as u', 'u.id', '=', 's.user_id')->where('e.exam_id', $exam->id);
         $search = trim((string) preg_replace('/\s+/u', ' ', $parameters['search'] ?? ''));
@@ -178,13 +180,19 @@ class QrEntryService
             ->paginate((int) ($parameters['per_page'] ?? 10), ['*'], 'page', (int) ($parameters['page'] ?? 1));
         $verifiers = User::with(['teacher', 'student'])->whereIn('id', $page->getCollection()->pluck('verified_by')->unique())->get()->keyBy('id');
 
-        return ['data' => $page->getCollection()->map(function ($row) use ($verifiers) {
+        return ['data' => $page->getCollection()->map(function ($row) use ($verifiers, $canAnnul) {
             $photo = $row->profile_photo;
 
             return ['student' => ['student_id' => (int) $row->student_id, 'first_names' => $row->first_names,
                 'last_names' => $row->last_names, 'sis_code' => $row->sis_code, 'identity_number' => $row->identity_number,
                 'profile_photo_url' => $photo ? (preg_match('#^https?://#', $photo) ? $photo : asset('storage/'.$photo)) : null],
-                'entry' => $this->entryData($row, $verifiers->get($row->verified_by))];
+                'entry' => $this->entryData($row, $verifiers->get($row->verified_by)) + [
+                    'annulled_at' => $row->annulled_at === null ? null
+                        : Carbon::parse($row->annulled_at, config('app.timezone'))->toISOString(),
+                    'annulled_by' => $row->annulled_by === null ? null : (int) $row->annulled_by,
+                    'annulment_reason' => $row->annulment_reason,
+                    'can_annul' => $canAnnul && $row->status === 'VALID',
+                ]];
         })->values(), 'meta' => ['current_page' => $page->currentPage(), 'per_page' => $page->perPage(),
             'total' => $page->total(), 'last_page' => $page->lastPage()]];
     }

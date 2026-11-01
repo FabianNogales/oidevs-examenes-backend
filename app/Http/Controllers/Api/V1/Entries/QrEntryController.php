@@ -21,7 +21,7 @@ class QrEntryController extends Controller
 
     public function index(EntryControlRequest $request, int $examId): JsonResponse
     {
-        return response()->json($this->service->history(Exam::findOrFail($examId), $request->validated()));
+        return response()->json($this->service->history(Exam::findOrFail($examId), $request->validated(), $request->user()));
     }
 
     public function storeManual(ManualEntryRequest $request, int $examId, int $studentId): JsonResponse
