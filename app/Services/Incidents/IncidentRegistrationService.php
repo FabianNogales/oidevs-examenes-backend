@@ -2,19 +2,16 @@
 
 namespace App\Services\Incidents;
 
-use App\Enums\RoleName;
 use App\Models\Exam;
-use App\Models\ExamCollaborator;
 use App\Models\SpecialCase;
 use App\Models\User;
 use App\Services\Audit\AuditLogService;
-use App\Services\Collaborators\ExamCollaboratorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class IncidentRegistrationService
 {
-    public function __construct(private readonly AuditLogService $audit) {}
+    public function __construct(private readonly AuditLogService $audit, private readonly IncidentAccessService $access) {}
 
     public function register(int $examId, array $data, Request $request): SpecialCase
     {
@@ -22,16 +19,7 @@ class IncidentRegistrationService
             // Match the exam-first lock order used by entry control and collaborator changes.
             $exam = Exam::query()->lockForUpdate()->findOrFail($examId);
             $actor = User::query()->lockForUpdate()->findOrFail($request->user()->id);
-            $assignment = ExamCollaborator::query()->where('exam_id', $exam->id)
-                ->where('user_id', $actor->id)->lockForUpdate()->first();
-            $owner = (int) $exam->courseOffering?->teacher?->user_id === (int) $actor->id
-                && $actor->hasRole(RoleName::DOCENTE);
-            $collaborator = $assignment?->status === 'ACTIVE' && $assignment->revoked_at === null
-                && ExamCollaborator::examIsAvailable($exam)
-                && app(ExamCollaboratorService::class)->isCandidate($exam, $actor->id);
-
-            abort_unless($actor->isActive() && ($owner || $collaborator), 403,
-                'No tiene autorización vigente para registrar incidencias de este examen.');
+            $this->access->authorize($exam, $actor, lockAssignment: true);
 
             $incident = SpecialCase::query()->create([
                 'exam_id' => $exam->id,

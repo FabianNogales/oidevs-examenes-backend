@@ -222,6 +222,9 @@ Route::prefix('exams/{exam_id}/incidents')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'verify.exam.access'])
     ->group(function () {
         Route::post('/', [\App\Http\Controllers\Api\V1\Incidents\IncidentController::class, 'store']);
+        Route::get('/', [\App\Http\Controllers\Api\V1\Incidents\IncidentController::class, 'index']);
+        Route::get('/{incident_id}', [\App\Http\Controllers\Api\V1\Incidents\IncidentController::class, 'show'])
+            ->where('incident_id', '[1-9][0-9]*');
     });
 
 Route::prefix('exams/{exam_id}/entry-control')
