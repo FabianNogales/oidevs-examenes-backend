@@ -19,7 +19,7 @@ class IncidentController extends Controller
         return IncidentResource::collection($service->paginate($examId, $request->user(), $request->validated()));
     }
 
-    public function show(Request $request, int $examId, int $incidentId, IncidentQueryService $service): IncidentResource
+    public function show(Request $request, int $examId, string $incidentId, IncidentQueryService $service): IncidentResource
     {
         return new IncidentResource($service->find($examId, $incidentId, $request->user()));
     }

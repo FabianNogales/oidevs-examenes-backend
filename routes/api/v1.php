@@ -224,7 +224,7 @@ Route::prefix('exams/{exam_id}/incidents')
         Route::post('/', [\App\Http\Controllers\Api\V1\Incidents\IncidentController::class, 'store']);
         Route::get('/', [\App\Http\Controllers\Api\V1\Incidents\IncidentController::class, 'index']);
         Route::get('/{incident_id}', [\App\Http\Controllers\Api\V1\Incidents\IncidentController::class, 'show'])
-            ->where('incident_id', '[1-9][0-9]*');
+            ->where('incident_id', '(?:qr-)?[1-9][0-9]*');
     });
 
 Route::prefix('exams/{exam_id}/entry-control')

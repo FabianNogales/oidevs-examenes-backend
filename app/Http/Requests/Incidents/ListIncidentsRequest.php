@@ -20,6 +20,7 @@ class ListIncidentsRequest extends FormRequest
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
             'type' => ['sometimes', Rule::enum(IncidentType::class)],
             'student_id' => ['sometimes', 'integer', 'min:1'],
+            'origin' => ['sometimes', Rule::in(['MANUAL', 'AUTOMATIC_QR'])],
         ];
     }
 
@@ -30,6 +31,7 @@ class ListIncidentsRequest extends FormRequest
             'per_page.*' => 'La cantidad por página debe estar entre 1 y 100.',
             'type.*' => 'Selecciona un tipo de incidencia válido.',
             'student_id.*' => 'El identificador del estudiante debe ser un entero positivo.',
+            'origin.*' => 'El origen debe ser MANUAL o AUTOMATIC_QR.',
         ];
     }
 }
