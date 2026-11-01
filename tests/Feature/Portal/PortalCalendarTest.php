@@ -8,6 +8,7 @@ use App\Models\PortalEventCategory;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Audit\AuditLogService;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -113,7 +114,7 @@ class PortalCalendarTest extends TestCase
             ->assertJsonPath('data.ends_at', '2026-11-05T11:00:00-04:00')
             ->assertJsonMissingPath('data.created_by')->assertJsonMissingPath('data.updated_by')->assertJsonMissingPath('data.revision');
         $this->getJson(self::PUBLIC)->assertJsonCount(1, 'data');
-        $this->assertDatabaseHas('portal_events', ['id' => $event->id, 'starts_at' => '2026-11-05 13:00:00']);
+        $this->assertTrue($event->fresh()->starts_at->equalTo(CarbonImmutable::parse('2026-11-05T13:00:00+00:00')));
         $this->assertDatabaseHas('audit_logs', ['entity_type' => 'PortalEvent', 'entity_id' => $event->id, 'action' => 'PORTAL_EVENT_CREATED']);
         $this->assertDatabaseHas('audit_logs', ['entity_id' => $event->id, 'action' => 'PORTAL_EVENT_STATUS_CHANGED']);
     }
