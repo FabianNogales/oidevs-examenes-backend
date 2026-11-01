@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Collaborators;
 
+use App\Enums\RoleName;
 use App\Http\Controllers\Controller;
 use App\Models\ExamCollaborator;
 use App\Models\User;
@@ -119,6 +120,10 @@ class ExamCollaboratorController extends Controller
             });
         }
 
-        return response()->json(['data' => $query->orderBy('id')->get()->map(fn ($user) => $this->userData($user))]);
+        return response()->json(['data' => $query->orderBy('id')->get()->map(fn ($user) => $this->userData($user) + [
+            'roles' => $user->activeRoles->pluck('name')
+                ->map(fn (string $name) => RoleName::fromStoredName($name)?->value ?? $name)
+                ->unique()->values()->all(),
+        ])]);
     }
 }

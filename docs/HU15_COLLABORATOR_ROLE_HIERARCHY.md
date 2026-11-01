@@ -56,3 +56,23 @@ Reproducción cubierta: docente con DOCENTE y Docente; candidato con DOCENTE y
 Administrador. Antes el candidato podía aparecer porque el nivel superior no se
 reconocía. Ahora queda excluido y un POST directo recibe el 422 acordado. También
 se cubren roles históricos únicos, roles inactivos, varios roles y reactivaciones.
+
+## Roles en el contrato del buscador
+
+Cada candidato de `GET /api/v1/users?exam_id={id}&search={query}` incluye `roles`
+como arreglo de nombres activos normalizados, sin duplicados, igual que `/me`:
+
+```json
+{
+  "id": 15,
+  "display_name": "Estudiante de prueba",
+  "email": "estudiante@example.com",
+  "identity_number": "123456",
+  "roles": ["ESTUDIANTE"]
+}
+```
+
+Solo se incluyen asignaciones y roles de catálogo activos. La relación se carga
+de forma anticipada, evitando una consulta por candidato. Esta ampliación se limita
+al buscador: no cambia los JSON de asignación ni el listado de colaboradores. Se
+mantiene la exclusión de niveles superiores y el rechazo 422 del POST directo.

@@ -722,4 +722,32 @@ class ExamCollaboratorTest extends TestCase
         $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}")->assertOk()->assertJsonMissing(['id' => $candidate->id]);
         $this->postJson("/api/v1/exams/{$exam->id}/collaborators", ['user_id' => $candidate->id])->assertUnprocessable();
     }
+
+    public function test_candidate_response_includes_normalized_unique_active_role_names(): void
+    {
+        $owner = User::factory()->create();
+        $exam = $this->createExam($this->createTeacher($owner));
+        $candidate = $this->createStudent()->user;
+        $this->grantRole($candidate, 'Estudiante');
+        $this->grantRole($candidate, 'Administrador', 'INACTIVE');
+        $inactiveRole = $this->grantRole($candidate, 'Docente');
+        $inactiveRole->update(['status' => 'INACTIVE']);
+        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}&search={$candidate->email}&page=1&per_page=10")
+            ->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $candidate->id)
+            ->assertJsonPath('data.0.roles', ['ESTUDIANTE'])
+            ->assertJsonStructure(['data' => [['id', 'display_name', 'email', 'identity_number', 'roles']]]);
+    }
+
+    public function test_candidate_roles_preserve_multiple_active_levels_and_teacher_candidates(): void
+    {
+        $owner = User::factory()->create();
+        $exam = $this->createExam($this->createTeacher($owner));
+        $candidate = $this->createStudent()->user;
+        $this->createTeacher($candidate);
+        $this->grantRole($candidate, 'Docente');
+        $response = $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}&search={$candidate->email}")->assertOk()->assertJsonCount(1, 'data');
+        $this->assertEqualsCanonicalizing(['DOCENTE', 'ESTUDIANTE'], $response->json('data.0.roles'));
+        $this->assertCount(2, $response->json('data.0.roles'));
+    }
 }
