@@ -217,6 +217,16 @@ Route::middleware(['auth:sanctum', 'session.current', 'password.changed'])->grou
     Route::get('/users', [ExamCollaboratorController::class, 'users'])->middleware('teacher.role');
 });
 
+Route::prefix('incident-reports')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
+    ->group(function () {
+        $controller = \App\Http\Controllers\Api\V1\Incidents\IncidentReportController::class;
+        Route::get('/', [$controller, 'index']);
+        Route::get('/summary', [$controller, 'summary']);
+        Route::get('/export', [$controller, 'export']);
+        Route::get('/{incident_id}', [$controller, 'show'])->where('incident_id', '(?:qr-)?[1-9][0-9]*');
+    });
+
 Route::prefix('exams/{exam_id}/incidents')
     ->where(['exam_id' => '[1-9][0-9]*'])
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'verify.exam.access'])

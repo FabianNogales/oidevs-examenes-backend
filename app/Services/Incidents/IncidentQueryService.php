@@ -6,12 +6,11 @@ use App\Models\Exam;
 use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Query\Builder;
-use Illuminate\Support\Facades\DB;
 use stdClass;
 
 class IncidentQueryService
 {
-    public function __construct(private readonly IncidentAccessService $access) {}
+    public function __construct(private readonly IncidentAccessService $access, private readonly IncidentDataset $dataset) {}
 
     private function authorize(int $examId, User $actor): void
     {
@@ -54,23 +53,6 @@ class IncidentQueryService
 
     private function query(int $examId): Builder
     {
-        // Read the original rejection event. No incident row is copied or created.
-        $studentJson = DB::getDriverName() === 'pgsql'
-            ? "new_values->>'student_id'"
-            : "CAST(json_extract(new_values, '$.student_id') AS TEXT)";
-        $examJson = DB::getDriverName() === 'pgsql'
-            ? "new_values->>'qr_exam_id'"
-            : "CAST(json_extract(new_values, '$.qr_exam_id') AS TEXT)";
-        $manual = DB::table('special_cases')->where('exam_id', $examId)
-            ->selectRaw("id AS source_id, exam_id, CAST(student_id AS TEXT) AS student_id, type, description,
-                reported_by, created_at, status, 'MANUAL' AS origin, NULL AS qr_exam_id");
-        $automatic = DB::table('audit_logs')->where('action', 'ENTRY_QR_WRONG_EXAM')
-            ->where('entity_type', 'Exam')->where('entity_id', $examId)
-            ->selectRaw("id AS source_id, entity_id AS exam_id, {$studentJson} AS student_id,
-                'WRONG_EXAM_QR' AS type, 'Intento de ingreso rechazado: QR de otro examen.' AS description,
-                user_id AS reported_by, created_at, 'REJECTED' AS status, 'AUTOMATIC_QR' AS origin,
-                {$examJson} AS qr_exam_id");
-
-        return DB::query()->fromSub($manual->unionAll($automatic), 'incidents');
+        return $this->dataset->query($examId);
     }
 }
