@@ -11,22 +11,13 @@ use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use Tests\Support\InfractionFixtures;
+use Tests\Support\ExpulsionFixtures;
 use Tests\TestCase;
 
 class ExpulsionRegistrationTest extends TestCase
 {
-    use InfractionFixtures {
-        createIncidentFixtures as private createBaseFixtures;
-    }
+    use ExpulsionFixtures;
     use RefreshDatabase;
-
-    protected function createIncidentFixtures(): void
-    {
-        $this->travelTo(CarbonImmutable::parse('2026-11-02 09:05:00', 'America/La_Paz'));
-        $this->createBaseFixtures();
-        $this->exam->update(['exam_date' => '2026-11-02', 'start_time' => '09:00:00']);
-    }
 
     private function endpoint(): string
     {

@@ -222,6 +222,12 @@ Route::prefix('exams/{exam_id}/expulsions')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureExpulsionExamOwner::class])
     ->group(function () {
         Route::post('/', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'store']);
+        Route::get('/', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'index']);
+        Route::get('/students', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'students']);
+        Route::get('/students/{student_id}/history', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'studentHistory'])
+            ->where('student_id', '[1-9][0-9]*');
+        Route::get('/{expulsion_id}', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'show'])
+            ->where('expulsion_id', '[1-9][0-9]*');
     });
 
 Route::prefix('exams/{exam_id}/infractions')
