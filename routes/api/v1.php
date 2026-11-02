@@ -34,6 +34,15 @@ use App\Http\Middleware\EnsureActiveSubjectAdministrator;
 use App\Http\Middleware\EnsureCourseOfferingAccess;
 use Illuminate\Support\Facades\Route;
 
+Route::prefix('admin/students/{student}')->whereNumber('student')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])
+    ->group(function () {
+        $photo = \App\Http\Controllers\Api\V1\Students\HistoricalPhotoController::class;
+        Route::get('/historical-photo', [$photo, 'show'])->name('students.historical-photo.show');
+        Route::post('/historical-photo', [$photo, 'store'])->name('students.historical-photo.store');
+        Route::post('/historical-photo/corrections', [$photo, 'store'])->name('students.historical-photo.correct');
+    });
+
 // HU38/HU39: independent public calendar; never derives events from private exams.
 Route::prefix('portal')->name('portal.public.')->group(function () {
     $services = \App\Http\Controllers\Api\V1\Portal\PortalServiceController::class;
@@ -282,6 +291,8 @@ Route::prefix('exams/{exam_id}/entry-control')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'verify.exam.access'])
     ->group(function () {
         Route::get('/students', [EntryControlController::class, 'index']);
+        Route::get('/students/{student_id}/historical-photo', [\App\Http\Controllers\Api\V1\Students\HistoricalPhotoController::class, 'entry'])
+            ->whereNumber('student_id')->name('entry-control.historical-photo');
         Route::post('/qr', [QrEntryController::class, 'store']);
         Route::post('/students/{student_id}/entries', [QrEntryController::class, 'storeManual'])
             ->whereNumber('student_id');

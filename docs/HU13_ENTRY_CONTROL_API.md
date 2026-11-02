@@ -134,6 +134,9 @@ reason_code, reason y observations conservan la información de HU12, incluidos 
 
 profile_photo_url utiliza users.profile_photo: URL existente, URL pública desde ruta o null para avatar fallback.
 
+historical_photo_url representa la referencia institucional cargada por administrador,
+sin copiar la foto actual. Contrato de carga/lectura en HU13_HU14_HU15_INTEGRATION_UPDATE.md.
+
 ## Errores
 
 401: sin autenticación o cuenta inactiva según el middleware general vigente de main.

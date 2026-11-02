@@ -132,7 +132,7 @@ class QrEntryService
     private function scanData(array $data, ?object $entry): array
     {
         return [
-            'student' => array_intersect_key($data, array_flip(['student_id', 'first_names', 'last_names', 'sis_code', 'identity_number', 'profile_photo_url'])),
+            'student' => array_intersect_key($data, array_flip(['student_id', 'first_names', 'last_names', 'sis_code', 'identity_number', 'profile_photo_url', 'historical_photo_url'])),
             'student_status' => $data['student_status'], 'enrollment_status' => $data['enrollment_status'],
             'eligibility_status' => $data['eligibility_status'], 'room_status' => $data['room_status'],
             'reason_code' => $data['reason_code'], 'reason' => $data['reason'], 'observations' => $data['observations'],
@@ -173,17 +173,18 @@ class QrEntryService
                 });
             });
         }
-        $page = $query->select('e.*', 's.first_names', 's.last_names', 's.sis_code', 's.identity_number', 'u.profile_photo')
+        $page = $query->select('e.*', 's.first_names', 's.last_names', 's.sis_code', 's.identity_number', 'u.profile_photo', 's.historical_photo')
             ->orderByDesc('e.entered_at')->orderByDesc('e.id')
             ->paginate((int) ($parameters['per_page'] ?? 10), ['*'], 'page', (int) ($parameters['page'] ?? 1));
         $verifiers = User::with(['teacher', 'student'])->whereIn('id', $page->getCollection()->pluck('verified_by')->unique())->get()->keyBy('id');
 
-        return ['data' => $page->getCollection()->map(function ($row) use ($verifiers) {
+        return ['data' => $page->getCollection()->map(function ($row) use ($verifiers, $exam) {
             $photo = $row->profile_photo;
 
             return ['student' => ['student_id' => (int) $row->student_id, 'first_names' => $row->first_names,
                 'last_names' => $row->last_names, 'sis_code' => $row->sis_code, 'identity_number' => $row->identity_number,
-                'profile_photo_url' => $photo ? (preg_match('#^https?://#', $photo) ? $photo : asset('storage/'.$photo)) : null],
+                'profile_photo_url' => $photo ? (preg_match('#^https?://#', $photo) ? $photo : asset('storage/'.$photo)) : null,
+                'historical_photo_url' => $row->historical_photo ? route('entry-control.historical-photo', ['exam_id' => $exam->id, 'student_id' => $row->student_id]) : null],
                 'entry' => $this->entryData($row, $verifiers->get($row->verified_by))];
         })->values(), 'meta' => ['current_page' => $page->currentPage(), 'per_page' => $page->perPage(),
             'total' => $page->total(), 'last_page' => $page->lastPage()]];
