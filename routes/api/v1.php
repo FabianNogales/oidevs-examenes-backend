@@ -217,6 +217,13 @@ Route::middleware(['auth:sanctum', 'session.current', 'password.changed'])->grou
     Route::get('/users', [ExamCollaboratorController::class, 'users'])->middleware('teacher.role');
 });
 
+Route::prefix('exams/{exam_id}/expulsions')
+    ->where(['exam_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureExpulsionExamOwner::class])
+    ->group(function () {
+        Route::post('/', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'store']);
+    });
+
 Route::prefix('exams/{exam_id}/infractions')
     ->where(['exam_id' => '[1-9][0-9]*'])
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureInfractionExamOwner::class])
