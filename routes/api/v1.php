@@ -224,6 +224,7 @@ Route::prefix('exams/{exam_id}/attendance')
         $controller = \App\Http\Controllers\Api\V1\Attendance\AttendanceController::class;
         Route::get('/summary', [$controller, 'summary']);
         Route::get('/students', [$controller, 'students']);
+        Route::get('/collaborators', [$controller, 'collaborators']);
     });
 
 Route::prefix('exams/{exam_id}/expulsions')

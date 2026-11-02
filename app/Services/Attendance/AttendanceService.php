@@ -13,7 +13,7 @@ use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class AttendanceService
 {
-    public function __construct(private readonly AttendanceAccess $access) {}
+    public function __construct(private readonly AttendanceAccess $access, private readonly AttendanceCollaboratorActivity $activity) {}
 
     private function roster(Exam $exam): Builder
     {
@@ -24,14 +24,15 @@ class AttendanceService
             });
     }
 
-    public function snapshot(int $examId, User $actor, array $filters = [], bool $includeStudents = false): array
+    public function snapshot(int $examId, User $actor, array $filters = [], bool $includeStudents = false, bool $includeCollaborators = false): array
     {
         try {
-            return DB::transaction(function () use ($examId, $actor, $filters, $includeStudents) {
+            return DB::transaction(function () use ($examId, $actor, $filters, $includeStudents, $includeCollaborators) {
                 // A single snapshot covers both counters and pagination without blocking entry writes.
                 if (DB::getDriverName() === 'pgsql' && DB::transactionLevel() === 1) {
                     DB::statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
                 }
+                $snapshotAt = now()->toISOString();
                 $exam = $this->access->exam($examId, $actor);
                 $base = $this->roster($exam);
                 $counts = (clone $base)->selectRaw('COUNT(*) AS total, COUNT(entry.id) AS registered')->first();
@@ -46,6 +47,9 @@ class AttendanceService
                     'offline' => ['pending_count' => null, 'available_on_server' => false, 'included_in_official_attendance' => false],
                     'exclusive_lists' => ['available' => false, 'reason' => 'EXCLUSIVE_LISTS_NOT_CONFIGURED'],
                 ];
+                if ($includeCollaborators) {
+                    $response['collaborators'] = $this->activity->collect($exam, $base);
+                }
                 if ($includeStudents) {
                     $view = $filters['view'] ?? 'all';
                     if ($view === 'registered') {
@@ -77,7 +81,7 @@ class AttendanceService
                     $response['meta'] = ['current_page' => $page->currentPage(), 'per_page' => $page->perPage(),
                         'total' => $page->total(), 'last_page' => $page->lastPage()];
                 }
-                $response['last_updated_at'] = now()->toISOString();
+                $response['last_updated_at'] = $snapshotAt;
 
                 return $response;
             });

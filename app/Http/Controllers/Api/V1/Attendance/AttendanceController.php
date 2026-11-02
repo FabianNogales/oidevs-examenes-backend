@@ -9,6 +9,12 @@ use Illuminate\Http\JsonResponse;
 
 class AttendanceController extends Controller
 {
+    public function collaborators(AttendanceRequest $request, int $examId, AttendanceService $service): JsonResponse
+    {
+        return response()->json($service->snapshot($examId, $request->user(), $request->validated(), includeCollaborators: true))
+            ->header('Cache-Control', 'private, no-store, max-age=0');
+    }
+
     public function summary(AttendanceRequest $request, int $examId, AttendanceService $service): JsonResponse
     {
         return response()->json($service->snapshot($examId, $request->user(), $request->validated()))
