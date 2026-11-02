@@ -11,7 +11,8 @@ temporales como colaborador. Una cuenta sin rol activo reconocido no es candidat
 
 - `GET /api/v1/users?exam_id={exam_id}&search={query}` mantiene su respuesta `data`.
   Filtra cuentas inactivas, al propio responsable, inscripciones estudiantiles activas
-  en la oferta y candidatos de nivel superior. No introduce paginación ni campos nuevos.
+  en la oferta y candidatos de nivel superior. La ampliación de integración admite
+  page/per_page y devuelve data + meta, conservando los campos y roles del candidato.
 - `POST /api/v1/exams/{exam_id}/collaborators` mantiene `{ "user_id": 5 }` y el 201
   existente. Revalida actividad, inscripción, autoasignación, roles, disponibilidad y
   duplicados dentro de la transacción. Las cuentas implicadas se bloquean por ID antes

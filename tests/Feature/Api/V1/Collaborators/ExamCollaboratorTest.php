@@ -750,4 +750,22 @@ class ExamCollaboratorTest extends TestCase
         $this->assertEqualsCanonicalizing(['DOCENTE', 'ESTUDIANTE'], $response->json('data.0.roles'));
         $this->assertCount(2, $response->json('data.0.roles'));
     }
+
+    public function test_candidate_pagination_returns_filtered_metadata_and_keeps_roles(): void
+    {
+        $owner = User::factory()->create();
+        $exam = $this->createExam($this->createTeacher($owner));
+        foreach (range(1, 3) as $index) {
+            $this->createStudent(User::factory()->create(['email' => "candidate{$index}@example.com"]));
+        }
+        $admin = User::factory()->create(['email' => 'candidate.admin@example.com']);
+        $this->grantRole($admin, 'ADMINISTRADOR');
+        $this->actingAs($owner)->getJson("/api/v1/users?exam_id={$exam->id}&search=candidate&per_page=2&page=2")
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.roles', ['ESTUDIANTE'])
+            ->assertJsonPath('meta.current_page', 2)->assertJsonPath('meta.per_page', 2)
+            ->assertJsonPath('meta.total', 3)->assertJsonPath('meta.last_page', 2);
+        $this->getJson("/api/v1/users?exam_id={$exam->id}&search=absent")->assertJsonCount(0, 'data')->assertJsonPath('meta.total', 0);
+        $this->getJson("/api/v1/users?exam_id={$exam->id}&per_page=101")->assertUnprocessable();
+        $this->getJson("/api/v1/users?exam_id={$exam->id}&page=0")->assertUnprocessable();
+    }
 }
