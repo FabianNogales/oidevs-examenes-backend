@@ -79,6 +79,20 @@ class EntryControlService
         $total = (int) $counts->total;
         $registered = (int) $counts->registered;
         $pending = (int) $counts->pending;
+        if (($parameters['entry_status'] ?? null) === 'REGISTERED') {
+            $base->whereNotNull('ent.id');
+        } elseif (($parameters['entry_status'] ?? null) === 'PENDING') {
+            $base->whereNull('ent.id');
+        }
+        if (array_key_exists('has_incident', $parameters)) {
+            if ((bool) $parameters['has_incident']) {
+                $base->where(function ($conditions) {
+                    $conditions->where('s.status', '<>', 'ACTIVE')->orWhereNull('el.status')->orWhere('el.status', '<>', 'ELIGIBLE');
+                });
+            } else {
+                $base->where('s.status', 'ACTIVE')->where('el.status', 'ELIGIBLE');
+            }
+        }
         $search = trim((string) preg_replace('/\s+/u', ' ', $parameters['search'] ?? ''));
         if ($search !== '') {
             $words = explode(' ', mb_strtolower($search));

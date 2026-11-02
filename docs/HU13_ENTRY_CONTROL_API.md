@@ -31,6 +31,13 @@ Parámetros opcionales:
 - page: entero desde 1, por defecto 1.
 - per_page: entero entre 1 y 100, por defecto 10.
 - room_id: ID de ambiente existente. Si se omite, se usa exams.room_id.
+- entry_status: REGISTERED (ingreso VALID) o PENDING (sin ingreso VALID).
+- has_incident: true/false o 1/0. Significa estudiante inactivo, habilitación
+  pendiente o inhabilitación (incluye NOT_ELIGIBLE legado); no incidencias HU27.
+  false selecciona los que no tienen esas condiciones. No incluye EXAM_UNAVAILABLE.
+
+Los filtros se combinan con búsqueda antes de paginar; meta.total es filtrado.
+summary permanece global para los inscritos activos del examen.
 
 200:
 {

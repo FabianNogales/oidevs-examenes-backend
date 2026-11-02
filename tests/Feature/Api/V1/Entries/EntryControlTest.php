@@ -158,6 +158,47 @@ class EntryControlTest extends TestCase
         return "/api/v1/exams/{$this->exam->id}/entry-control/students";
     }
 
+    public function test_entry_filters_are_applied_before_pagination_and_summary_stays_global(): void
+    {
+        $registered = $this->student();
+        $this->enroll($registered);
+        $this->eligible($registered);
+        $this->entry($registered);
+        $annulled = $this->student();
+        $this->enroll($annulled);
+        $this->eligible($annulled);
+        $this->entry($annulled, 'ANNULLED');
+        $this->actingAs($this->teacherUser)->getJson($this->base().'?entry_status=REGISTERED&per_page=1')
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.student_id', $registered->id)
+            ->assertJsonPath('meta.total', 1)->assertJsonPath('summary.total_students', 3)->assertJsonPath('summary.pending', 2);
+        $this->getJson($this->base().'?entry_status=PENDING&per_page=1&page=2')
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.student_id', $annulled->id)
+            ->assertJsonPath('meta.total', 2)->assertJsonPath('summary.registered', 1);
+        $this->entry($this->student);
+        $this->entry($annulled);
+        $this->getJson($this->base().'?entry_status=PENDING')->assertJsonCount(0, 'data')->assertJsonPath('meta.total', 0)->assertJsonPath('summary.pending', 0);
+    }
+
+    public function test_verification_incidents_are_independent_of_entries_and_global_exam_blockers(): void
+    {
+        $inactive = $this->student('INACTIVE');
+        $this->enroll($inactive);
+        $this->eligible($inactive);
+        $pendingEligibility = $this->student();
+        $this->enroll($pendingEligibility);
+        $ineligible = $this->student();
+        $this->enroll($ineligible);
+        $this->eligible($ineligible, 'NOT_ELIGIBLE');
+        $this->entry($ineligible);
+        $this->actingAs($this->teacherUser)->getJson($this->base().'?has_incident=true')
+            ->assertOk()->assertJsonCount(3, 'data')->assertJsonPath('meta.total', 3)->assertJsonPath('summary.total_students', 4);
+        $this->getJson($this->base().'?has_incident=true&entry_status=REGISTERED')->assertJsonCount(1, 'data')->assertJsonPath('data.0.student_id', $ineligible->id);
+        $this->getJson($this->base().'?has_incident=true&entry_status=PENDING')->assertJsonCount(2, 'data');
+        $this->getJson($this->base().'?has_incident=false')->assertJsonCount(1, 'data')->assertJsonPath('data.0.student_id', $this->student->id);
+        $this->getJson($this->base().'?entry_status=OTHER')->assertUnprocessable();
+        $this->getJson($this->base().'?has_incident=invalid')->assertUnprocessable();
+    }
+
     private function enroll(Student $student, string $status = 'ACTIVE'): void
     {
         DB::table('enrollments')->insert([
