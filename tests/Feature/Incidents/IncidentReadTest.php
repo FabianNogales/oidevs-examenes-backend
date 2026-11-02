@@ -47,7 +47,7 @@ class IncidentReadTest extends TestCase
             ->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.id', $second->id);
         $this->getJson($this->url().'?type=IDENTIFICATION&student_id='.$this->student->id)->assertOk()
             ->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.id', $third->id);
-        $this->getJson($this->url().'?page=10')->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson($this->url().'?page=10')->assertUnprocessable()->assertJsonValidationErrors('page');
     }
 
     public function test_detail_preserves_report_and_optional_student_without_mutating_data(): void
@@ -59,7 +59,7 @@ class IncidentReadTest extends TestCase
             ->assertJsonPath('data.id', $incident->id)->assertJsonPath('data.origin', 'MANUAL')
             ->assertJsonPath('data.description', 'Documento ilegible.')
             ->assertJsonPath('data.student_id', $this->student->id)
-            ->assertJsonPath('data.reported_by', $this->owner->id)
+            ->assertJsonPath('data.reported_by.id', $this->owner->id)
             ->assertJsonStructure(['data' => ['type', 'reported_at', 'status']]);
         $this->assertSame($before, DB::table('special_cases')->get()->toJson());
         $this->assertSame($auditCount, DB::table('audit_logs')->count());

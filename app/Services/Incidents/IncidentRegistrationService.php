@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\Audit\AuditLogService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class IncidentRegistrationService
 {
@@ -20,6 +21,15 @@ class IncidentRegistrationService
             $exam = Exam::query()->lockForUpdate()->findOrFail($examId);
             $actor = User::query()->lockForUpdate()->findOrFail($request->user()->id);
             $this->access->authorize($exam, $actor, lockAssignment: true);
+            if (isset($data['student_id'])) {
+                $related = DB::table('enrollments')->where('course_offering_id', $exam->course_offering_id)
+                    ->where('student_id', $data['student_id'])->exists()
+                    || DB::table('exam_eligibilities')->where('exam_id', $exam->id)->where('student_id', $data['student_id'])->exists()
+                    || DB::table('exam_entries')->where('exam_id', $exam->id)->where('student_id', $data['student_id'])->exists();
+                if (! $related) {
+                    throw ValidationException::withMessages(['student_id' => 'El estudiante no es válido para este examen.']);
+                }
+            }
 
             $incident = SpecialCase::query()->create([
                 'exam_id' => $exam->id,
@@ -38,7 +48,7 @@ class IncidentRegistrationService
                     'origin' => 'MANUAL', 'status' => $incident->status,
                 ]);
 
-            return $incident;
+            return $incident->load(['student', 'reporter.teacher', 'reporter.student']);
         });
     }
 }

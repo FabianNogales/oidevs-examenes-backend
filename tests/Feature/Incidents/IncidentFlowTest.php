@@ -28,11 +28,16 @@ class IncidentFlowTest extends TestCase
             'v' => 2, 'exp' => now()->addHour()->timestamp, 'jti' => $uuid,
         ]);
         $token = $input.'.'.rtrim(strtr(base64_encode(hash_hmac('sha256', $input, config('app.key'), true)), '+/', '-_'), '=');
-        $this->actingAs($this->owner)
+        $response = $this->actingAs($this->owner)
             ->postJson('/api/v1/exams/'.$this->exam->id.'/entry-control/qr', ['qr_token' => $token, 'room_id' => $this->exam->room_id])
-            ->assertUnprocessable()->assertJsonPath('result', 'WRONG_EXAM');
+            ->assertUnprocessable()->assertJsonPath('result', 'WRONG_EXAM')->assertJsonPath('data', null)
+            ->assertJsonPath('incident.exam_id', $this->exam->id);
+        $incidentId = $response->json('incident.id');
+        $this->assertIsInt($incidentId);
+        $this->getJson($this->url().'/'.$incidentId)->assertOk()->assertJsonPath('data.id', $incidentId)
+            ->assertJsonPath('data.origin', 'AUTOMATIC')->assertJsonPath('data.type', 'WRONG_EXAM');
         $this->getJson($this->url())->assertOk()->assertJsonPath('meta.total', 1)
-            ->assertJsonPath('data.0.origin', 'AUTOMATIC_QR')->assertJsonPath('data.0.reason', 'WRONG_EXAM')
+            ->assertJsonPath('data.0.origin', 'AUTOMATIC')->assertJsonPath('data.0.reason', 'WRONG_EXAM')
             ->assertJsonPath('data.0.qr_exam_id', $other->id);
         $this->getJson('/api/v1/exams/'.$other->id.'/incidents')->assertOk()->assertJsonPath('meta.total', 0);
         $this->assertDatabaseCount('special_cases', 0);
@@ -45,6 +50,7 @@ class IncidentFlowTest extends TestCase
     {
         $clock = CarbonImmutable::parse('2026-11-01 09:20:30', 'America/La_Paz');
         $this->travelTo($clock);
+        DB::table('enrollments')->insert(['course_offering_id' => $this->exam->course_offering_id, 'student_id' => $this->student->id, 'status' => 'ACTIVE', 'registered_by' => $this->owner->id]);
         $response = $this->actingAs($this->owner)->postJson($this->url(), [
             'type' => 'SUSPECTED_IMPERSONATION', 'description' => 'Identidad por verificar.', 'student_id' => $this->student->id,
         ])->assertCreated()->assertJsonPath('data.reported_at', $clock->utc()->toISOString());

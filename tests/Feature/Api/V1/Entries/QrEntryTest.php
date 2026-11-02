@@ -336,7 +336,7 @@ class QrEntryTest extends TestCase
         foreach ([1, 2] as $expectedCount) {
             $this->postJson($endpoint.'/qr', ['qr_token' => $token, 'room_id' => $other->room_id,
                 'student_id' => 99999, 'qr_exam_id' => 99999, 'verified_by' => 99999])
-                ->assertUnprocessable()->assertExactJson([
+                ->assertUnprocessable()->assertJsonStructure(['incident' => ['id', 'exam_id']])->assertJson([
                     'result' => 'WRONG_EXAM', 'message' => 'QR de otro examen.',
                     'processed_at' => now()->toISOString(), 'data' => null,
                 ]);

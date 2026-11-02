@@ -9,6 +9,7 @@ use App\Models\Student;
 use App\Models\StudentQrToken;
 use App\Models\User;
 use App\Services\Collaborators\ExamCollaboratorService;
+use App\Services\Incidents\IncidentIdentity;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -28,7 +29,12 @@ class QrEntryService
 
         // Persist only after the scan transaction has completed and released its locks.
         if ($wrongExam !== null) {
-            $this->wrongExamAudit->record(...$wrongExam);
+            $eventId = $this->wrongExamAudit->record(...$wrongExam);
+            if ($eventId !== null) {
+                $body = $response->getData(true);
+                $body['incident'] = ['id' => IncidentIdentity::automatic($eventId), 'exam_id' => $examId];
+                $response->setData($body);
+            }
         }
 
         return $response;

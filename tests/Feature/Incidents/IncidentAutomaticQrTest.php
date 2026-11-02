@@ -5,6 +5,7 @@ namespace Tests\Feature\Incidents;
 use App\Models\SpecialCase;
 use App\Models\User;
 use App\Services\Entries\WrongExamAuditService;
+use App\Services\Incidents\IncidentIdentity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\IncidentFixtures;
@@ -33,13 +34,13 @@ class IncidentAutomaticQrTest extends TestCase
         $this->actingAs($this->owner);
         for ($i = 0; $i < 2; $i++) {
             $this->getJson($this->url())->assertOk()->assertJsonPath('meta.total', 1)
-                ->assertJsonPath('data.0.id', 'qr-'.$id)->assertJsonPath('data.0.origin', 'AUTOMATIC_QR');
+                ->assertJsonPath('data.0.id', IncidentIdentity::automatic($id))->assertJsonPath('data.0.origin', 'AUTOMATIC');
             $this->getJson($this->url().'/qr-'.$id)->assertOk()
                 ->assertJsonPath('data.student_id', $this->student->id)
                 ->assertJsonPath('data.exam_id', $this->exam->id)
                 ->assertJsonPath('data.source_event_id', $id)->assertJsonPath('data.reason', 'WRONG_EXAM')
-                ->assertJsonPath('data.qr_exam_id', 123)->assertJsonPath('data.status', 'REJECTED')
-                ->assertJsonPath('data.reported_by', $this->owner->id);
+                ->assertJsonPath('data.qr_exam_id', 123)->assertJsonPath('data.status', 'REGISTERED')
+                ->assertJsonPath('data.reported_by.id', $this->owner->id);
         }
         $this->assertSame($before, DB::table('audit_logs')->get()->toJson());
         $this->assertDatabaseCount('special_cases', 0);
@@ -59,11 +60,11 @@ class IncidentAutomaticQrTest extends TestCase
             ->assertJsonPath('meta.total', 2)->assertJsonCount(1, 'data');
         $this->getJson($this->url().'?per_page=1&page=2')->assertOk()->assertJsonCount(1, 'data');
         $this->getJson($this->url().'/'.$manual->id)->assertOk()->assertJsonPath('data.origin', 'MANUAL');
-        $this->getJson($this->url().'/qr-'.$eventId)->assertOk()->assertJsonPath('data.origin', 'AUTOMATIC_QR');
+        $this->getJson($this->url().'/qr-'.$eventId)->assertOk()->assertJsonPath('data.origin', 'AUTOMATIC');
         $this->getJson($this->url().'?origin=MANUAL')->assertOk()->assertJsonPath('meta.total', 1)
             ->assertJsonPath('data.0.id', $manual->id);
         $this->getJson($this->url().'?origin=AUTOMATIC_QR')->assertOk()->assertJsonPath('meta.total', 1)
-            ->assertJsonPath('data.0.id', 'qr-'.$eventId);
+            ->assertJsonPath('data.0.id', IncidentIdentity::automatic($eventId));
         $this->getJson($this->url().'?origin=INVALID')->assertUnprocessable()->assertJsonValidationErrors('origin');
     }
 

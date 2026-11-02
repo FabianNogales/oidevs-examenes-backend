@@ -17,6 +17,9 @@ class StoreIncidentRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
+        if ($this->input('type') === 'WRONG_EXAM') {
+            $this->merge(['type' => 'WRONG_EXAM_QR']);
+        }
         if (is_string($this->input('description'))) {
             $this->merge(['description' => trim($this->input('description'))]);
         }

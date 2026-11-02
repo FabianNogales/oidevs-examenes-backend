@@ -28,7 +28,7 @@ class IncidentRegistrationTest extends TestCase
             $response = $this->postJson($this->url(), array_replace($this->payload(), ['type' => $type->value]))
                 ->assertCreated()->assertJsonPath('data.exam_id', $this->exam->id)
                 ->assertJsonPath('data.student_id', null)->assertJsonPath('data.origin', 'MANUAL')
-                ->assertJsonPath('data.reported_by', $this->owner->id)->assertJsonPath('data.status', 'PENDING')
+                ->assertJsonPath('data.reported_by.id', $this->owner->id)->assertJsonPath('data.status', 'REPORTED')
                 ->assertJsonPath('data.description', 'Identidad por verificar.');
             $this->assertNotEmpty($response->json('data.reported_at'));
             $this->assertDatabaseHas('special_cases', ['id' => $response->json('data.id'), 'type' => $type->value]);
@@ -38,8 +38,9 @@ class IncidentRegistrationTest extends TestCase
         $this->assertSame(5, DB::table('audit_logs')->where('action', 'INCIDENT_REPORTED')->count());
     }
 
-    public function test_identified_student_is_preserved_even_without_enrollment(): void
+    public function test_identified_student_related_to_exam_is_preserved(): void
     {
+        DB::table('enrollments')->insert(['course_offering_id' => $this->exam->course_offering_id, 'student_id' => $this->student->id, 'status' => 'ACTIVE', 'registered_by' => $this->owner->id]);
         $this->actingAs($this->owner)->postJson($this->url(), $this->payload() + ['student_id' => $this->student->id])
             ->assertCreated()->assertJsonPath('data.student_id', $this->student->id);
         $this->assertDatabaseHas('special_cases', ['student_id' => $this->student->id, 'reported_by' => $this->owner->id]);
@@ -49,7 +50,7 @@ class IncidentRegistrationTest extends TestCase
     {
         $collaborator = $this->collaborator();
         $this->actingAs($collaborator)->postJson($this->url(), $this->payload())
-            ->assertCreated()->assertJsonPath('data.reported_by', $collaborator->id);
+            ->assertCreated()->assertJsonPath('data.reported_by.id', $collaborator->id);
         $this->assertDatabaseCount('infractions', 0);
     }
 
