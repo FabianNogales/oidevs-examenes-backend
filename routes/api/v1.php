@@ -217,6 +217,15 @@ Route::middleware(['auth:sanctum', 'session.current', 'password.changed'])->grou
     Route::get('/users', [ExamCollaboratorController::class, 'users'])->middleware('teacher.role');
 });
 
+Route::prefix('exams/{exam_id}/attendance')
+    ->where(['exam_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureAttendanceExamOwner::class])
+    ->group(function () {
+        $controller = \App\Http\Controllers\Api\V1\Attendance\AttendanceController::class;
+        Route::get('/summary', [$controller, 'summary']);
+        Route::get('/students', [$controller, 'students']);
+    });
+
 Route::prefix('exams/{exam_id}/expulsions')
     ->where(['exam_id' => '[1-9][0-9]*'])
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureExpulsionExamOwner::class])
