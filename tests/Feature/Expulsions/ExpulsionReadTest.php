@@ -63,7 +63,7 @@ class ExpulsionReadTest extends TestCase
         foreach (['%', '_', "' OR 1=1 --"] as $search) {
             $this->getJson($this->expulsionBase().'?'.http_build_query(['search' => $search]))->assertOk()->assertJsonPath('meta.total', 0);
         }
-        $this->getJson($this->expulsionBase().'?page=10')->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson($this->expulsionBase().'?page=10')->assertUnprocessable()->assertJsonValidationErrors('page');
     }
 
     public function test_detail_cannot_be_reached_by_using_another_exam_or_malformed_identifier(): void

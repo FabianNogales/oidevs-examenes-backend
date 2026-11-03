@@ -56,7 +56,7 @@ class ExpulsionRegistrationService
                     newValues: $expulsion->only(['exam_id', 'student_id', 'infraction_id', 'reason', 'expelled_by'])
                         + ['expelled_at' => $expulsion->expelled_at->toISOString()]);
 
-                return $expulsion->load(['exam', 'student', 'infraction', 'responsible.teacher', 'responsible.student']);
+                return Expulsion::withContext()->findOrFail($expulsion->id);
             });
         } catch (UniqueConstraintViolationException $exception) {
             if (str_contains($exception->getMessage(), 'expulsions_exam_id_student_id_unique')

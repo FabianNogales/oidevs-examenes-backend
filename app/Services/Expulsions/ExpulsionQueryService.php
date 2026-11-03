@@ -3,15 +3,48 @@
 namespace App\Services\Expulsions;
 
 use App\Models\Expulsion;
+use App\Models\Infraction;
 use App\Models\Student;
 use App\Models\User;
 use App\Services\Entries\ExamEntryAvailability;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Validation\ValidationException;
 
 class ExpulsionQueryService
 {
     public function __construct(private readonly ExpulsionAccess $access) {}
+
+    public function context(int $examId, User $actor): array
+    {
+        $exam = $this->access->exam($examId, $actor);
+
+        return ['exam' => ['id' => (int) $exam->id, 'name' => $exam->name,
+            'subject_name' => $exam->courseOffering->subject->name],
+            'permissions' => ['can_create' => ExamEntryAvailability::reason($exam) === null]];
+    }
+
+    private function validPage(LengthAwarePaginator $page): LengthAwarePaginator
+    {
+        if ($page->currentPage() > $page->lastPage()) {
+            throw ValidationException::withMessages(['page' => 'La página solicitada está fuera de rango.']);
+        }
+
+        return $page;
+    }
+
+    public function eligibleInfractions(int $examId, int $studentId, User $actor, array $filters): array
+    {
+        $exam = $this->access->exam($examId, $actor);
+        abort_unless($this->access->students($exam)->whereKey($studentId)->exists(), 404, 'Estudiante no relacionado con este examen.');
+        $page = $this->validPage(Infraction::query()->where('exam_id', $examId)->where('student_id', $studentId)
+            ->select(['id', 'exam_id', 'student_id', 'type', 'status', 'description'])->orderByDesc('occurred_at')->orderByDesc('id')
+            ->paginate((int) ($filters['per_page'] ?? 10), ['*'], 'page', (int) ($filters['page'] ?? 1)));
+
+        return ['context' => ['exam_id' => $examId, 'student_id' => $studentId], 'data' => $page->getCollection()->values(),
+            'meta' => ['current_page' => $page->currentPage(), 'last_page' => $page->lastPage(),
+                'per_page' => $page->perPage(), 'total' => $page->total()]];
+    }
 
     private function id(string $id): int
     {
@@ -42,8 +75,8 @@ class ExpulsionQueryService
             $query->whereHas('student', fn (Builder $student) => $this->search($student, $filters['search']));
         }
 
-        return $query->orderByDesc('expelled_at')->orderByDesc('id')
-            ->paginate((int) ($filters['per_page'] ?? 15), ['*'], 'page', (int) ($filters['page'] ?? 1));
+        return $this->validPage($query->orderByDesc('expelled_at')->orderByDesc('id')
+            ->paginate((int) ($filters['per_page'] ?? 15), ['*'], 'page', (int) ($filters['page'] ?? 1)));
     }
 
     public function paginate(int $examId, User $actor, array $filters): LengthAwarePaginator

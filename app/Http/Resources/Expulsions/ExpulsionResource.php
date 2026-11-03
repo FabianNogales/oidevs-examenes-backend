@@ -11,11 +11,12 @@ class ExpulsionResource extends JsonResource
     {
         return ['id' => $this->id, 'exam_id' => $this->exam_id, 'student_id' => $this->student_id,
             'infraction_id' => $this->infraction_id, 'reason' => $this->reason,
-            'expelled_at' => $this->expelled_at->toISOString(), 'expelled_by' => $this->expelled_by,
-            'condition' => 'EXPELLED',
+            'expelled_at' => $this->expelled_at->toISOString(),
+            'expelled_by' => ['id' => (int) $this->expelled_by, 'name' => $this->responsible?->display_name],
+            'status' => 'EXPELLED', 'condition' => 'EXPELLED',
             'student' => $this->student?->only(['id', 'first_names', 'last_names', 'sis_code', 'identity_number']),
             'exam' => $this->exam?->only(['id', 'name', 'exam_date']),
-            'infraction' => $this->infraction?->only(['id', 'type', 'status', 'description']),
+            'infraction' => $this->infraction?->only(['id', 'exam_id', 'student_id', 'type', 'status', 'description']),
             'responsible' => ['id' => $this->expelled_by, 'name' => $this->responsible?->display_name]];
     }
 }

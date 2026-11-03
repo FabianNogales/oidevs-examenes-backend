@@ -235,6 +235,7 @@ Route::prefix('exams/{exam_id}/expulsions')
         Route::post('/', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'store']);
         Route::get('/', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'index']);
         Route::get('/students', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'students']);
+        Route::get('/eligible-infractions', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'eligibleInfractions']);
         Route::get('/students/{student_id}/history', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'studentHistory'])
             ->where('student_id', '[1-9][0-9]*');
         Route::get('/{expulsion_id}', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'show'])
@@ -256,6 +257,10 @@ Route::prefix('exams/{exam_id}/infractions')
         Route::patch('/{infraction_id}', [$controller, 'update'])->where('infraction_id', '[1-9][0-9]*');
         Route::patch('/{infraction_id}/status', [$controller, 'status'])->where('infraction_id', '[1-9][0-9]*')->name('infractions.status');
     });
+
+Route::get('exams/{exam_id}/students/{student_id}/expulsions', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'contractStudentHistory'])
+    ->where(['exam_id' => '[1-9][0-9]*', 'student_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureExpulsionExamOwner::class]);
 
 Route::get('exams/{exam_id}/students/{student_id}/infractions', [\App\Http\Controllers\Api\V1\Infractions\InfractionController::class, 'contractStudentHistory'])
     ->where(['exam_id' => '[1-9][0-9]*', 'student_id' => '[1-9][0-9]*'])

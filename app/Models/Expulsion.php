@@ -38,6 +38,6 @@ class Expulsion extends Model
 
     public function scopeWithContext(Builder $query): Builder
     {
-        return $query->with(['exam', 'student', 'infraction', 'responsible.teacher', 'responsible.student']);
+        return $query->with(['exam.courseOffering.subject', 'student', 'infraction', 'responsible.teacher', 'responsible.student']);
     }
 }

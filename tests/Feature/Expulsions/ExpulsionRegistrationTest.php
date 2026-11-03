@@ -41,7 +41,7 @@ class ExpulsionRegistrationTest extends TestCase
         $this->actingAs($this->owner)->postJson($this->endpoint(), $this->payload())->assertCreated()
             ->assertJsonPath('data.exam_id', $this->exam->id)->assertJsonPath('data.student_id', $this->student->id)
             ->assertJsonPath('data.infraction_id', null)->assertJsonPath('data.condition', 'EXPELLED')
-            ->assertJsonPath('data.expelled_by', $this->owner->id)->assertJsonPath('data.expelled_at', now()->toISOString())
+            ->assertJsonPath('data.expelled_by.id', $this->owner->id)->assertJsonPath('data.expelled_at', now()->toISOString())
             ->assertJsonPath('data.reason', 'Medida adoptada por el docente.');
         $this->assertDatabaseCount('expulsions', 1);
         $this->assertSame(1, DB::table('audit_logs')->where('action', 'STUDENT_EXPELLED')->count());
