@@ -6,6 +6,7 @@ use App\Models\Infraction;
 use App\Models\Student;
 use App\Models\User;
 use App\Services\Audit\AuditLogService;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -43,6 +44,44 @@ class InfractionService
             + ['occurred_at' => $infraction->occurred_at->toISOString()];
     }
 
+    private function evidence(Infraction $infraction, Request $request, CarbonImmutable $version): array
+    {
+        $actor = User::with(['teacher', 'student'])->findOrFail($request->user()->id);
+
+        return $this->snapshot($infraction) + ['version_updated_at' => $version->toISOString(),
+            'performed_at' => $version->toISOString(),
+            'performed_by' => ['id' => (int) $actor->id, 'name' => $actor->display_name]];
+    }
+
+    private function hydrateDetail(int $id): Infraction
+    {
+        $infraction = Infraction::withContext()->findOrFail($id);
+        $infraction->setRelation('contractTimeline', $infraction->changes()->with(['user.teacher', 'user.student'])
+            ->orderBy('created_at')->orderBy('id')->get());
+
+        return $infraction;
+    }
+
+    public function detail(int $examId, int $id, User $actor): Infraction
+    {
+        return DB::transaction(function () use ($examId, $id, $actor) {
+            if (DB::getDriverName() === 'pgsql' && DB::transactionLevel() === 1) {
+                DB::statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+            }
+            $this->find($examId, $id, $actor);
+
+            return $this->hydrateDetail($id);
+        });
+    }
+
+    public function context(int $examId, User $actor): array
+    {
+        $exam = $this->access->exam($examId, $actor);
+
+        return ['exam' => ['id' => (int) $exam->id, 'name' => $exam->name,
+            'subject_name' => $exam->courseOffering->subject->name], 'permissions' => ['can_create' => true]];
+    }
+
     public function create(int $examId, array $data, Request $request): Infraction
     {
         return $this->atomic(function () use ($examId, $data, $request) {
@@ -55,9 +94,9 @@ class InfractionService
                 'reported_by' => $request->user()->id, 'occurred_at' => now(), 'status' => 'REPORTED',
             ]);
             $this->audit->log($request, $request->user()->id, 'INFRACTION_REPORTED', 'Infraction', $infraction->id,
-                newValues: $this->snapshot($infraction));
+                newValues: $this->evidence($infraction, $request, InfractionRevision::next()));
 
-            return Infraction::withContext()->findOrFail($infraction->id);
+            return $this->hydrateDetail($infraction->id);
         });
     }
 
@@ -66,8 +105,11 @@ class InfractionService
         return $this->atomic(function () use ($examId, $id, $data, $request, $changeStatus) {
             $this->access->exam($examId, $request->user(), lock: true);
             $infraction = Infraction::where('exam_id', $examId)->lockForUpdate()->findOrFail($id);
-            $revision = (int) $infraction->changes()->max('id');
-            if ((int) $data['expected_revision'] !== $revision) {
+            $latest = $infraction->changes()->orderByDesc('id')->first();
+            $revision = (int) ($latest?->id ?? 0);
+            $current = InfractionRevision::current($infraction, $latest);
+            if ((isset($data['expected_revision']) && (int) $data['expected_revision'] !== $revision)
+                || (isset($data['expected_updated_at']) && ! CarbonImmutable::parse($data['expected_updated_at'])->equalTo($current))) {
                 $this->conflict('INFRACTION_VERSION_CONFLICT', 'La infracción cambió. Recarga sus datos antes de continuar.');
             }
             if ($infraction->status === 'RESOLVED') {
@@ -89,7 +131,7 @@ class InfractionService
             }
             if ($infraction->isDirty()) {
                 $infraction->save();
-                $after = $this->snapshot($infraction);
+                $after = $this->evidence($infraction, $request, InfractionRevision::next($current));
                 if ($changeStatus) {
                     $after['reason'] = $data['reason'];
                 }
@@ -97,7 +139,7 @@ class InfractionService
                     $changeStatus ? 'INFRACTION_STATUS_CHANGED' : 'INFRACTION_UPDATED', 'Infraction', $infraction->id, $before, $after);
             }
 
-            return Infraction::withContext()->findOrFail($infraction->id);
+            return $this->hydrateDetail($infraction->id);
         });
     }
 
@@ -137,9 +179,9 @@ class InfractionService
     {
         $this->access->exam($examId, $actor);
 
-        return $this->filter(Infraction::withContext()->where('exam_id', $examId), $filters)
+        return $this->validPage($this->filter(Infraction::withContext()->where('exam_id', $examId), $filters)
             ->orderByDesc('occurred_at')->orderByDesc('id')
-            ->paginate((int) ($filters['per_page'] ?? 15), ['*'], 'page', (int) ($filters['page'] ?? 1));
+            ->paginate((int) ($filters['per_page'] ?? 15), ['*'], 'page', (int) ($filters['page'] ?? 1)));
     }
 
     public function students(int $examId, User $actor, array $filters): LengthAwarePaginator
@@ -160,8 +202,17 @@ class InfractionService
         $query = Infraction::withContext()->where('student_id', $studentId)
             ->whereHas('exam.courseOffering.teacher', fn ($teacher) => $teacher->where('user_id', $actor->id));
 
-        return $this->filter($query, array_diff_key($filters, ['student_id' => true]))->orderByDesc('occurred_at')->orderByDesc('id')
-            ->paginate((int) ($filters['per_page'] ?? 15), ['*'], 'page', (int) ($filters['page'] ?? 1));
+        return $this->validPage($this->filter($query, array_diff_key($filters, ['student_id' => true]))->orderByDesc('occurred_at')->orderByDesc('id')
+            ->paginate((int) ($filters['per_page'] ?? 15), ['*'], 'page', (int) ($filters['page'] ?? 1)));
+    }
+
+    private function validPage(LengthAwarePaginator $page): LengthAwarePaginator
+    {
+        if ($page->currentPage() > $page->lastPage()) {
+            throw ValidationException::withMessages(['page' => 'La página solicitada está fuera de rango.']);
+        }
+
+        return $page;
     }
 
     public function history(int $examId, int $id, User $actor, array $filters): LengthAwarePaginator

@@ -34,7 +34,9 @@ class SaveInfractionRequest extends FormRequest
     {
         if ($this->isStatusChange()) {
             return ['status' => ['required', Rule::enum(InfractionStatus::class)], 'reason' => ['required', 'string'],
-                'expected_revision' => ['required', 'integer', 'min:0', 'max:'.PHP_INT_MAX]];
+                'expected_revision' => ['required_without:expected_updated_at', 'integer', 'min:0', 'max:'.PHP_INT_MAX],
+                'expected_updated_at' => ['required_without:expected_revision', 'string', 'date',
+                    'regex:/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/']];
         }
         $required = $this->isMethod('POST') ? 'required' : 'sometimes';
         $rules = ['type' => [$required, Rule::enum(InfractionType::class)],
@@ -69,6 +71,7 @@ class SaveInfractionRequest extends FormRequest
             'student_id.*' => 'Selecciona un estudiante existente y válido.',
             'status.*' => 'Selecciona un estado válido: REPORTED, CONFIRMED o RESOLVED.',
             'reason.*' => 'Indica el motivo del cambio de estado.',
-            'expected_revision.*' => 'Envía la versión vigente de la infracción.'];
+            'expected_revision.*' => 'Envía la versión vigente de la infracción.',
+            'expected_updated_at.*' => 'Envía la fecha de revisión vigente con zona horaria y precisión completa.'];
     }
 }

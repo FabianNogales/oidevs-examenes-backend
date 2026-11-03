@@ -15,7 +15,8 @@ class Infraction extends Model
 
     protected function casts(): array
     {
-        return ['exam_id' => 'integer', 'student_id' => 'integer', 'reported_by' => 'integer', 'occurred_at' => 'datetime'];
+        return ['exam_id' => 'integer', 'student_id' => 'integer', 'reported_by' => 'integer', 'occurred_at' => 'datetime',
+            'revision_snapshot' => 'array'];
     }
 
     public function student(): BelongsTo
@@ -40,6 +41,9 @@ class Infraction extends Model
 
     public function scopeWithContext(Builder $query): Builder
     {
-        return $query->with(['student', 'exam', 'reporter.teacher', 'reporter.student'])->withMax('changes as revision', 'id');
+        return $query->with(['student', 'exam.courseOffering.subject', 'reporter.teacher', 'reporter.student'])->withMax('changes as revision', 'id')
+            ->addSelect(['revision_snapshot' => AuditLog::query()->select('new_values')
+                ->whereColumn('entity_id', 'infractions.id')->where('entity_type', 'Infraction')->whereIn('action', self::AUDIT_ACTIONS)
+                ->orderByDesc('id')->limit(1)]);
     }
 }

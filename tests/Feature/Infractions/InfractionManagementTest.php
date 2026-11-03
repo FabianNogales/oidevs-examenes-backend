@@ -61,7 +61,7 @@ class InfractionManagementTest extends TestCase
             $this->assertSame('Descripción del hecho.', $data['description']);
             $this->assertSame('Observación.', $data['observations']);
             $this->assertSame($clock->utc()->toISOString(), $data['occurred_at']);
-            $this->assertSame($this->owner->id, $data['reported_by']);
+            $this->assertSame($this->owner->id, $data['reported_by']['id']);
             $this->assertGreaterThan(0, $data['revision']);
             $this->assertDatabaseHas('infractions', ['id' => $data['id'], 'student_id' => $this->student->id, 'exam_id' => $this->exam->id]);
         }
@@ -118,7 +118,7 @@ class InfractionManagementTest extends TestCase
             ->assertJsonPath('data.0.action', 'INFRACTION_UPDATED')
             ->assertJsonPath('data.0.before.type', 'COPYING')->assertJsonPath('data.0.after.type', 'CHEATING')
             ->assertJsonPath('data.0.actor_id', $this->owner->id);
-        $this->getJson($this->infractionBase().'/'.$data['id'])->assertOk()->assertJsonPath('history.meta.total', 2);
+        $this->getJson($this->infractionBase().'/'.$data['id'])->assertOk()->assertJsonCount(2, 'history');
     }
 
     public function test_status_changes_require_authorized_decision_and_audit_reason_without_sanctions(): void
@@ -176,7 +176,7 @@ class InfractionManagementTest extends TestCase
             ->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.id', $data['id']);
         $this->getJson($this->infractionBase().'?search='.$this->student->sis_code)->assertOk()->assertJsonPath('meta.total', 2);
         $this->getJson($this->infractionBase().'?search=%25')->assertOk()->assertJsonPath('meta.total', 0);
-        $this->getJson($this->infractionBase().'?page=10')->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson($this->infractionBase().'?page=10')->assertUnprocessable()->assertJsonValidationErrors('page');
     }
 
     public function test_student_history_only_contains_exams_owned_by_current_teacher(): void

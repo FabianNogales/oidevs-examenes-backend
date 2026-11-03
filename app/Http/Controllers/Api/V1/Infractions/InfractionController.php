@@ -7,7 +7,10 @@ use App\Http\Requests\Infractions\ListInfractionsRequest;
 use App\Http\Requests\Infractions\SaveInfractionRequest;
 use App\Http\Resources\Infractions\InfractionChangeResource;
 use App\Http\Resources\Infractions\InfractionResource;
+use App\Http\Resources\Infractions\InfractionTimelineResource;
+use App\Models\Infraction;
 use App\Services\Infractions\InfractionService;
+use Illuminate\Http\Request;
 
 class InfractionController extends Controller
 {
@@ -33,7 +36,8 @@ class InfractionController extends Controller
 
     public function index(ListInfractionsRequest $request, int $examId)
     {
-        return InfractionResource::collection($this->service->paginate($examId, $request->user(), $request->validated()));
+        return InfractionResource::collection($this->service->paginate($examId, $request->user(), $request->validated()))
+            ->additional($this->service->context($examId, $request->user()));
     }
 
     public function students(ListInfractionsRequest $request, int $examId)
@@ -48,12 +52,32 @@ class InfractionController extends Controller
 
     public function show(ListInfractionsRequest $request, int $examId, string $infractionId)
     {
-        $id = $this->id($infractionId);
-        $resource = new InfractionResource($this->service->find($examId, $id, $request->user()));
-        $history = $this->service->history($examId, $id, $request->user(), ['per_page' => 15]);
-        $history->withPath($request->url().'/history');
+        return response()->json($this->detailPayload($this->service->detail($examId, $this->id($infractionId), $request->user()), $request));
+    }
 
-        return $resource->additional(['history' => InfractionChangeResource::collection($history)->response()->getData(true)]);
+    private function detailPayload(Infraction $infraction, Request $request): array
+    {
+        return ['exam' => ['id' => (int) $infraction->exam_id, 'name' => $infraction->exam->name,
+            'subject_name' => $infraction->exam->courseOffering->subject->name],
+            'data' => (new InfractionResource($infraction))->resolve($request),
+            'history' => InfractionTimelineResource::collection($infraction->getRelation('contractTimeline'))->resolve($request)];
+    }
+
+    public function contractStudentHistory(ListInfractionsRequest $request, int $examId, string $studentId)
+    {
+        $studentId = $this->id($studentId);
+        $page = $this->service->studentHistory($examId, $studentId, $request->user(), $request->validated());
+        $rows = $page->getCollection()->map(function ($infraction) use ($request) {
+            $resource = new InfractionResource($infraction);
+            $resource->readOnly = true;
+
+            return ['exam' => ['id' => (int) $infraction->exam_id, 'name' => $infraction->exam->name,
+                'subject_name' => $infraction->exam->courseOffering->subject->name], 'infraction' => $resource->resolve($request)];
+        })->values();
+
+        return response()->json(['context' => ['exam_id' => $examId, 'student_id' => $studentId], 'data' => $rows,
+            'meta' => ['current_page' => $page->currentPage(), 'last_page' => $page->lastPage(),
+                'per_page' => $page->perPage(), 'total' => $page->total()]]);
     }
 
     public function history(ListInfractionsRequest $request, int $examId, string $infractionId)
@@ -74,6 +98,7 @@ class InfractionController extends Controller
 
     public function status(SaveInfractionRequest $request, int $examId, string $infractionId)
     {
-        return new InfractionResource($this->service->update($examId, $this->id($infractionId), $request->validated(), $request, changeStatus: true));
+        return response()->json($this->detailPayload(
+            $this->service->update($examId, $this->id($infractionId), $request->validated(), $request, changeStatus: true), $request));
     }
 }

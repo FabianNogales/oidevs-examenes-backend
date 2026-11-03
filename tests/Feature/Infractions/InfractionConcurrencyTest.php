@@ -3,6 +3,7 @@
 namespace Tests\Feature\Infractions;
 
 use App\Models\Infraction;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\InfractionFixtures;
@@ -22,6 +23,7 @@ class InfractionConcurrencyTest extends TestCase
             $this->markTestSkipped('Requires a disposable hu30_test_* PostgreSQL database.');
         }
         Artisan::call('migrate:fresh', ['--force' => true]);
+        $this->travelTo(CarbonImmutable::parse('2026-11-03T14:00:00Z'));
         $this->createIncidentFixtures();
         $this->infraction = $this->actingAs($this->owner)->postJson($this->infractionBase(), $this->infractionPayload())
             ->assertCreated()->json('data');
@@ -31,7 +33,7 @@ class InfractionConcurrencyTest extends TestCase
     {
         return ['user_id' => $this->owner->id, 'exam_id' => $this->exam->id, 'clock' => now()->toISOString(),
             'path' => $this->infractionBase().'/'.$this->infraction['id'].($status ? '/status' : ''), 'method' => 'PATCH',
-            'payload' => $payload + ['expected_revision' => $this->infraction['revision']]];
+            'payload' => $payload + ($status ? ['expected_updated_at' => $this->infraction['updated_at']] : ['expected_revision' => $this->infraction['revision']])];
     }
 
     public function test_simultaneous_edits_with_same_revision_apply_once_without_lost_update(): void
