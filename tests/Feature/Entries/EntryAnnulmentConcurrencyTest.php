@@ -31,7 +31,7 @@ class EntryAnnulmentConcurrencyTest extends TestCase
 
     private function annulOperation(int $id, string $reason = 'Registro incorrecto.'): array
     {
-        return $this->operation($this->annulPath($id), ['confirmed' => true, 'reason' => $reason]);
+        return $this->operation($this->entryBase().'/entries/'.$id.'/annulment', ['reason' => $reason]);
     }
 
     public function test_two_annulments_apply_once_and_keep_first_reason_and_audit(): void

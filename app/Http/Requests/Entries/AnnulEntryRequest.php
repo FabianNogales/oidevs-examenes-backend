@@ -24,7 +24,7 @@ class AnnulEntryRequest extends FormRequest
     {
         return [
             'reason' => ['required', 'string'],
-            'confirmed' => ['required', function (string $attribute, mixed $value, Closure $fail) {
+            'confirmed' => [$this->routeIs('entries.annulment') ? 'prohibited' : 'required', function (string $attribute, mixed $value, Closure $fail) {
                 if ($value !== true) {
                     $fail('Debes confirmar explícitamente la anulación.');
                 }
@@ -35,7 +35,8 @@ class AnnulEntryRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator) {
-            foreach (array_diff(array_keys($this->all()), ['reason', 'confirmed']) as $field) {
+            $allowed = $this->routeIs('entries.annulment') ? ['reason'] : ['reason', 'confirmed'];
+            foreach (array_diff(array_keys($this->all()), $allowed) as $field) {
                 $validator->errors()->add($field, 'Este campo no está permitido en la anulación.');
             }
         });

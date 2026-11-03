@@ -19,7 +19,7 @@ class EntryAnnulmentController extends Controller
 
         return response()->json([
             'message' => 'Registro de ingreso anulado correctamente.',
-            'data' => (new ExamEntryResource($entry))->resolve($request),
+            'data' => $request->routeIs('entries.annulment') ? $entry->history_record : (new ExamEntryResource($entry))->resolve($request),
         ]);
     }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Entries;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Entries\EntryControlRequest;
 use App\Models\Exam;
+use App\Services\Entries\EntryAnnulmentAccess;
 use App\Services\Entries\EntryControlService;
 use Illuminate\Http\JsonResponse;
 
@@ -14,7 +15,11 @@ class EntryControlController extends Controller
 
     public function index(EntryControlRequest $request, int $examId): JsonResponse
     {
-        return response()->json($this->service->index(Exam::findOrFail($examId), $request->validated()));
+        $exam = Exam::findOrFail($examId);
+        $data = $this->service->index($exam, $request->validated());
+        $data['permissions'] = ['can_annul_entries' => app(EntryAnnulmentAccess::class)->allows($exam, $request->user())];
+
+        return response()->json($data);
     }
 
     public function show(EntryControlRequest $request, int $examId, int $studentId): JsonResponse

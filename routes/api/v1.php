@@ -285,6 +285,8 @@ Route::prefix('exams/{exam_id}/entry-control')
         Route::post('/students/{student_id}/entries', [QrEntryController::class, 'storeManual'])
             ->whereNumber('student_id');
         Route::get('/entries', [QrEntryController::class, 'index']);
+        Route::post('/entries/{entry_id}/annulment', [\App\Http\Controllers\Api\V1\Entries\EntryAnnulmentController::class, 'store'])
+            ->where('entry_id', '[1-9][0-9]*')->name('entries.annulment');
         Route::post('/entries/{entry_id}/annul', [\App\Http\Controllers\Api\V1\Entries\EntryAnnulmentController::class, 'store'])
             ->where('entry_id', '[1-9][0-9]*');
         Route::get('/students/{student_id}', [EntryControlController::class, 'show'])
