@@ -34,6 +34,8 @@ use App\Http\Middleware\EnsureActiveSubjectAdministrator;
 use App\Http\Middleware\EnsureCourseOfferingAccess;
 use Illuminate\Support\Facades\Route;
 
+require __DIR__.'/eligibility-automation.php';
+
 Route::prefix('admin/students/{student}')->whereNumber('student')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])
     ->group(function () {

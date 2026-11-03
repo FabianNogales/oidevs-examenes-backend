@@ -59,6 +59,7 @@ class ExamEligibilityInitializer
         foreach (array_chunk($missing, 500) as $chunk) {
             DB::table('exam_eligibilities')->insertOrIgnore(array_map(fn (int $studentId) => [
                 'exam_id' => $exam->id, 'student_id' => $studentId, 'status' => 'ELIGIBLE', 'reason' => null,
+                'decision_source' => 'INITIALIZED',
                 'evaluated_by' => $actorId, 'evaluated_at' => $now, 'created_at' => $now, 'updated_at' => $now,
             ], $chunk));
         }
