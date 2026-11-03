@@ -24,7 +24,7 @@ class AttendanceCollaboratorActivity
 
                 return ['user_id' => $id, 'name' => $users->get($id)?->display_name,
                     'role' => $id === $ownerId ? 'RESPONSIBLE_TEACHER' : ($assignment ? 'COLLABORATOR' : 'HISTORICAL_VERIFIER'),
-                    'assignment_status' => $assignment?->status,
+                    'assignment_status' => $assignment?->revoked_at !== null ? 'REVOKED' : $assignment?->status,
                     'valid_registered' => (int) $counts->get($id, 0),
                     'assigned_total' => null, 'pending' => null, 'attendance_percentage' => null,
                     'progress_unavailable_reason' => 'EXCLUSIVE_LISTS_NOT_CONFIGURED'];
