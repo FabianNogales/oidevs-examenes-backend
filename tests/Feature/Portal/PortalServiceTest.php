@@ -7,6 +7,7 @@ use App\Models\PortalServiceCategory;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Audit\AuditLogService;
+use Database\Seeders\PortalServiceDemoCategorySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -110,16 +111,42 @@ class PortalServiceTest extends TestCase
         $this->actingAs($admin)->getJson(self::ADMIN)->assertForbidden()->assertJsonPath('code', 'PASSWORD_CHANGE_REQUIRED');
     }
 
-    public function test_options_are_backend_owned_and_internal_routes_start_empty(): void
+    public function test_options_include_verified_teacher_route_and_reject_unapproved_destinations(): void
     {
         $this->actingAs($this->actor());
         $this->getJson('/api/v1/admin/portal/service-options')->assertOk()
-            ->assertJsonPath('data.internal_destinations', [])
+            ->assertJsonPath('data.internal_destinations', [
+                ['path' => '/teacher/exams', 'label' => 'Mis exámenes (docente)', 'requires_auth' => true],
+            ])
             ->assertJsonPath('data.destination_types', ['INTERNAL', 'EXTERNAL'])
             ->assertJsonPath('data.icon_keys', ['calendar', 'book', 'info', 'link', 'users']);
         $this->postJson(self::ADMIN, $this->payload(['destination_type' => 'INTERNAL', 'destination' => '/estudiante/examenes']))
             ->assertUnprocessable()->assertJsonValidationErrors('destination');
         $this->assertDatabaseCount('portal_services', 0);
+    }
+
+    public function test_seeded_category_and_real_internal_route_support_the_complete_service_lifecycle(): void
+    {
+        $this->seed(PortalServiceDemoCategorySeeder::class);
+        $this->seed(PortalServiceDemoCategorySeeder::class);
+        $category = PortalServiceCategory::where('name', 'Servicios académicos')->sole();
+        $this->assertTrue($category->is_active);
+        $this->actingAs($this->actor());
+        $this->getJson('/api/v1/admin/portal/service-categories')->assertOk()->assertJsonPath('data.0.id', $category->id);
+        $response = $this->postJson(self::ADMIN, $this->payload([
+            'name' => 'Mis exámenes', 'category_id' => $category->id,
+            'destination_type' => 'INTERNAL', 'destination' => '/teacher/exams', 'requires_auth' => true,
+        ]))->assertCreated()->assertJsonPath('data.status', 'INACTIVE');
+        $id = $response->json('data.id');
+        $this->getJson(self::PUBLIC)->assertJsonPath('meta.total', 0);
+        $this->patchJson(self::ADMIN.'/'.$id.'/status', ['revision' => 1, 'status' => 'ACTIVE'])->assertOk();
+        $this->getJson(self::PUBLIC)->assertOk()->assertJsonPath('data.0.destination', '/teacher/exams')->assertJsonPath('data.0.requires_auth', true);
+        $this->patchJson(self::ADMIN.'/'.$id, ['revision' => 2, 'name' => 'Consultar mis exámenes'])->assertOk();
+        $this->getJson(self::PUBLIC.'/'.$id)->assertOk()->assertJsonPath('data.name', 'Consultar mis exámenes');
+        $this->patchJson(self::ADMIN.'/'.$id.'/status', ['revision' => 3, 'status' => 'INACTIVE'])->assertOk();
+        $this->getJson(self::PUBLIC)->assertJsonPath('meta.total', 0);
+        $this->getJson(self::PUBLIC.'/'.$id)->assertNotFound();
+        $this->getJson(self::ADMIN.'/'.$id.'/history')->assertOk()->assertJsonPath('meta.total', 4);
     }
 
     public function test_creation_is_inactive_and_activation_exposes_only_public_fields(): void

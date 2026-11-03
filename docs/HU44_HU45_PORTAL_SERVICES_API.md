@@ -37,7 +37,9 @@ GET `/admin/portal/service-options`:
   "data": {
     "icon_keys": ["calendar", "book", "info", "link", "users"],
     "destination_types": ["INTERNAL", "EXTERNAL"],
-    "internal_destinations": []
+    "internal_destinations": [
+      {"path": "/teacher/exams", "label": "Mis exámenes (docente)", "requires_auth": true}
+    ]
   }
 }
 ```
@@ -46,13 +48,18 @@ Estas opciones se centralizan en config/portal_services.php. Frontend obtiene la
 claves permitidas desde backend y renderiza los iconos correspondientes; no envía
 HTML/SVG ni mantiene otra lista de destinos válidos.
 
-**Pendiente de coordinación:** las rutas reales de Dev_Erick todavía no fueron
-confirmadas. internal_destinations empieza vacío y backend rechaza la creación
-de destinos internos mientras no estén registrados. No se usa como ruta definitiva
-el ejemplo anterior /estudiante/examenes ni se deducen rutas de otra rama.
+**Integración local:** se verificó `/teacher/exams` en el router de Dev_Erick y se
+habilitó como destino inicial. Requiere autenticación y rol docente en frontend;
+la tarjeta no concede permisos. Para probar que abre, usar Docente Principal Demo.
+Backend sigue rechazando rutas no registradas, incluido `/estudiante/examenes`.
 
-Después del acuerdo, cada opción interna tendrá este formato (ejemplo de esquema,
-no una ruta ya cargada):
+Ejecutar `php artisan db:seed --class=PortalServiceDemoCategorySeeder` para agregar
+la categoría activa `Servicios académicos` si no existe. Es explícito y repetible;
+no crea servicios ni publica contenido. El destino está en configuración, no en BD:
+se incorpora con el código y requiere `php artisan config:clear` si había caché.
+No se necesitan migraciones nuevas.
+
+Para futuras rutas acordadas, cada opción interna mantiene este formato:
 
 ```json
 {
@@ -209,6 +216,7 @@ Pruebas: `php vendor/phpunit/phpunit/phpunit tests/Feature/Portal/PortalServiceT
 Cubren permisos, activación, opciones, URLs, iconos, categorías, revisión, orden,
 paginación, retiro de rutas y ausencia de concesión de privilegios.
 
-Con esta épica queda implementada la API base de HU38–HU45. Siguen pendientes el
-contenido institucional, categorías/rutas acordadas e integración frontend.
-HU34 continúa pendiente de definición funcional; no se cambia HU12 ni el ingreso.
+La integración puede crear, activar, editar y desactivar un servicio dirigido a
+`/teacher/exams`, comprobando su presencia pública e historial. Las categorías y
+servicios adicionales se incorporarán según coordinación del equipo. HU34 tiene
+su propio contrato en `HU34_ELIGIBILITY_AUTOMATION_API.md`.
