@@ -16,7 +16,7 @@ class EligibilityPolicyController extends Controller
 
     public function index(Request $request)
     {
-        $request->validate(['search' => ['sometimes', 'string', 'max:200'], 'status' => ['sometimes', 'in:DRAFT,ACTIVE']]);
+        $request->validate(['search' => ['sometimes', 'nullable', 'string', 'max:200'], 'status' => ['sometimes', 'in:DRAFT,ACTIVE']]);
         $query = EligibilityPolicy::query();
         if ($request->filled('search')) {
             $query->whereRaw('LOWER(name) LIKE ?', ['%'.mb_strtolower(trim($request->string('search'))).'%']);

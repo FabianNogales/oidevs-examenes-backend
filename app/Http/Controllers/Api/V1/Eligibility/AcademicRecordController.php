@@ -41,7 +41,7 @@ class AcademicRecordController extends Controller
     public function index(Request $request, int $offering)
     {
         $this->support->offering($request, $offering);
-        $request->validate(['search' => ['sometimes', 'string', 'max:200']]);
+        $request->validate(['search' => ['sometimes', 'nullable', 'string', 'max:200']]);
         $query = AcademicRecord::join('students', 'students.id', '=', 'academic_records.student_id')->where('academic_records.course_offering_id', $offering)
             ->select('academic_records.*', 'students.sis_code', 'students.first_names', 'students.last_names');
         if ($request->filled('search')) {

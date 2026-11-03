@@ -70,6 +70,22 @@ class EligibilityAutomationTest extends TestCase
         return $this->postJson($this->academic.'/imports/'.$id.'/confirm')->assertOk()->json('data.record_ids.0');
     }
 
+    public function test_empty_search_is_an_unfiltered_paginated_list_and_invalid_types_remain_rejected(): void
+    {
+        foreach (['', '?search=', '?search=%20%20'] as $suffix) {
+            $this->getJson($this->academic.$suffix)->assertOk()->assertJsonPath('data', [])->assertJsonPath('meta.total', 0);
+        }
+        $this->import();
+        foreach (['', '?search=', '?search=%20%20'] as $suffix) {
+            $this->getJson($this->academic.$suffix)->assertOk()->assertJsonPath('meta.total', 1)->assertJsonCount(1, 'data');
+        }
+        $this->getJson($this->academic.'?search=does-not-exist')->assertOk()->assertJsonPath('meta.total', 0);
+        $this->getJson($this->academic.'?search[]=bad')->assertUnprocessable();
+        $this->getJson($this->academic.'/history?search=')->assertOk();
+        $this->getJson('/api/v1/admin/eligibility-policies?search=')->assertOk()->assertJsonPath('meta.total', 1);
+        $this->getJson('/api/v1/admin/eligibility-policies?search[]=bad')->assertUnprocessable();
+    }
+
     public function test_team_proposal_operational_without_external_approval_and_second_instance_locked(): void
     {
         $this->getJson($this->base.'/options')->assertOk()->assertJsonCount(5, 'data.criteria')->assertJsonPath('data.revision', 0);
