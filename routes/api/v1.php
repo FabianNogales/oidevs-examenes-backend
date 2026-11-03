@@ -36,6 +36,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('admin')->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])
     ->group(function () {
+        Route::get('/incidents/exams', [\App\Http\Controllers\Api\V1\Incidents\ExamIncidentReportController::class, 'exams']);
         Route::get('/users/history', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'history']);
         Route::get('/profiles/{profileType}/{profileId}/records', [\App\Http\Controllers\Api\V1\Admin\AdminProfileRecordsController::class, 'index'])
             ->where('profileType', 'students|teachers')->whereNumber('profileId');
@@ -268,10 +269,11 @@ Route::prefix('incident-reports')
 
 Route::prefix('exams/{exam_id}/incidents')
     ->where(['exam_id' => '[1-9][0-9]*'])
-    ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'verify.exam.access'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
     ->group(function () {
         Route::post('/', [\App\Http\Controllers\Api\V1\Incidents\IncidentController::class, 'store']);
         Route::get('/', [\App\Http\Controllers\Api\V1\Incidents\IncidentController::class, 'index']);
+        Route::get('/export', [\App\Http\Controllers\Api\V1\Incidents\ExamIncidentReportController::class, 'export']);
         Route::get('/{incident_id}', [\App\Http\Controllers\Api\V1\Incidents\IncidentController::class, 'show'])
             ->where('incident_id', '(?:qr-)?[1-9][0-9]*');
     });

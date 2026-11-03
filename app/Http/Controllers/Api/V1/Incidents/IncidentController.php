@@ -16,8 +16,9 @@ class IncidentController extends Controller
 {
     public function index(ListIncidentsRequest $request, int $examId, IncidentQueryService $service): AnonymousResourceCollection
     {
-        return IncidentResource::collection($service->paginate($examId, $request->user(), $request->validated()))
-            ->additional($service->context($examId, $request->user()));
+        $result = $service->listing($examId, $request->user(), $request->validated());
+
+        return IncidentResource::collection($result['page'])->additional($result['context']);
     }
 
     public function show(Request $request, int $examId, string $incidentId, IncidentQueryService $service): IncidentResource

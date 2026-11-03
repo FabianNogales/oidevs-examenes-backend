@@ -12,6 +12,13 @@ class IncidentAccessService
 {
     public function authorize(Exam $exam, User $actor, bool $lockAssignment = false): void
     {
+        $permissions = $this->permissions($exam, $actor, $lockAssignment);
+        abort_unless($permissions['can_create'], 403,
+            'No tiene autorización vigente para registrar incidencias de este examen.');
+    }
+
+    public function permissions(Exam $exam, User $actor, bool $lockAssignment = false): array
+    {
         $query = ExamCollaborator::query()->where('exam_id', $exam->id)->where('user_id', $actor->id);
         if ($lockAssignment) {
             $query->lockForUpdate();
@@ -23,7 +30,10 @@ class IncidentAccessService
             && ExamCollaborator::examIsAvailable($exam)
             && app(ExamCollaboratorService::class)->isCandidate($exam, $actor->id);
 
-        abort_unless($actor->isActive() && ($owner || $collaborator), 403,
+        $admin = $actor->hasRole(RoleName::ADMINISTRADOR);
+        abort_unless($actor->isActive() && ($owner || $collaborator || $admin), 403,
             'No tiene autorización vigente para acceder a las incidencias de este examen.');
+
+        return ['can_create' => $owner || $collaborator, 'can_export' => $owner || $admin];
     }
 }
