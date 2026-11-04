@@ -222,9 +222,11 @@ class ExamIncidentReportContractTest extends TestCase
             $this->assertSame('00099', $row[14]);
             $this->assertSame('America/La_Paz', $row[18]);
             $this->assertSame('EXAM_INCIDENTS', $row[19]);
-            $this->assertSame(['type' => 'IDENTIFICATION'], json_decode($row[20], true));
+            $this->assertCount(20, $row);
         }
         $this->assertStringNotContainsString('PRIVADO', $csv);
+        $this->assertStringNotContainsString('Filtros', $csv);
+        $this->assertStringNotContainsString('"type":', $csv);
         $this->assertSame($before, [DB::table('special_cases')->get()->toJson(), DB::table('audit_logs')->get()->toJson()]);
         $this->assertDatabaseCount('infractions', 0);
     }

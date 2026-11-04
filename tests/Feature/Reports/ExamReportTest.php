@@ -250,9 +250,15 @@ class ExamReportTest extends TestCase
                 $response->assertHeader('Content-Type', 'application/pdf');
                 $this->assertStringStartsWith('%PDF-', $response->getContent());
                 $this->assertStringContainsString($snapshot['report']['id'], $response->getContent());
+                $this->assertStringNotContainsString('Filtros:', $response->getContent());
+                $this->assertStringNotContainsString('"date_from":', $response->getContent());
             } else {
                 $response->assertHeader('Content-Type', 'text/csv; charset=UTF-8');
                 $rows = $this->csvRows($response->getContent());
+                $this->assertNotContains('Filtros', $rows[0]);
+                $this->assertCount(11, $rows[0]);
+                $this->assertCount(11, $rows[1]);
+                $this->assertStringNotContainsString('"date_from":', $response->getContent());
                 $this->assertSame('00123', $rows[4][6]);
                 $this->assertSame('00099', $rows[4][7]);
                 $this->assertStringStartsWith("'", $rows[4][10]);

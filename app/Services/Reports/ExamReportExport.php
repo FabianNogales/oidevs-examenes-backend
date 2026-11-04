@@ -10,13 +10,11 @@ class ExamReportExport
     {
         $exam = $snapshot['exam'];
         $report = $snapshot['report'];
-        $filters = json_encode($report['filters'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         if ($format === 'pdf') {
             $lines = ['Reporte: '.$report['id'], 'Examen #'.$exam['id'].': '.$exam['name'],
                 'Materia: '.$exam['subject']['name'].' | Periodo: '.$exam['academic_term']['name'],
                 'Generado: '.$report['generated_at'], 'Alcance: examen | Padrón: inscripciones activas',
-                'Participantes: '.$report['total_participants'].' | Registros: '.$report['total_records'],
-                'Fechas de filtro: America/La_Paz', 'Filtros: '.$filters, ''];
+                'Participantes: '.$report['total_participants'].' | Registros: '.$report['total_records'], ''];
             foreach ($snapshot['rows'] as $row) {
                 $student = $row['student'];
                 $lines[] = '#'.$row['source_id'].' | '.$row['record_type'].' | '.$row['state'];
@@ -45,9 +43,9 @@ class ExamReportExport
         try {
             fwrite($stream, "\xEF\xBB\xBF");
             $this->csv($stream, ['Reporte ID', 'Generado UTC', 'Tipo de reporte', 'Alcance', 'Examen ID', 'Examen', 'Materia',
-                'Periodo', 'Padrón', 'Participantes', 'Total de registros', 'Filtros']);
+                'Periodo', 'Padrón', 'Participantes', 'Total de registros']);
             $this->csv($stream, [$report['id'], $report['generated_at'], $report['type'], $report['scope'], $exam['id'], $exam['name'],
-                $exam['subject']['name'], $exam['academic_term']['name'], $report['roster_scope'], $report['total_participants'], $report['total_records'], $filters]);
+                $exam['subject']['name'], $exam['academic_term']['name'], $report['roster_scope'], $report['total_participants'], $report['total_records']]);
             $this->csv($stream, []);
             $this->csv($stream, ['Origen ID', 'Clase', 'Examen ID', 'Estudiante ID', 'Nombres', 'Apellidos', 'SIS', 'CI', 'Estado',
                 'Categoría', 'Descripción', 'Fecha UTC', 'Método', 'Origen', 'Responsable ID', 'Responsable', 'Infracción relacionada ID']);
