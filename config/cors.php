@@ -34,7 +34,7 @@ return [
 
     'allowed_headers' => ['*'],
 
-    'exposed_headers' => [],
+    'exposed_headers' => ['X-Report-Id', 'X-Report-Generated-At', 'Content-Disposition'],
 
     'max_age' => 0,
 

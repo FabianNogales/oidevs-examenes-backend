@@ -228,6 +228,17 @@ Route::prefix('exams/{exam_id}/attendance')
         Route::get('/collaborators', [$controller, 'collaborators']);
     });
 
+Route::get('/exam-reports/catalog', [\App\Http\Controllers\Api\V1\Reports\ExamReportController::class, 'catalog'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])->name('exam-reports.catalog');
+
+Route::prefix('exams/{exam_id}/reports')->where(['exam_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
+    ->group(function () {
+        $controller = \App\Http\Controllers\Api\V1\Reports\ExamReportController::class;
+        Route::get('/{type}/export', [$controller, 'export'])->name('exam-reports.export');
+        Route::get('/{type}', [$controller, 'show'])->name('exam-reports.show');
+    });
+
 Route::prefix('exams/{exam_id}/expulsions')
     ->where(['exam_id' => '[1-9][0-9]*'])
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureExpulsionExamOwner::class])
