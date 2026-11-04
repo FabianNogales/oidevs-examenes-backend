@@ -9,6 +9,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Services\Audit\AuditLogService;
 use Carbon\CarbonImmutable;
+use Database\Seeders\PortalCalendarDemoCategorySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -28,6 +29,39 @@ class PortalCalendarTest extends TestCase
         $user->roles()->attach($record->id, ['status' => 'ACTIVE', 'assigned_at' => now()]);
 
         return $user;
+    }
+
+    public function test_initialization_is_repeatable_and_preserves_existing_category_state(): void
+    {
+        $base = PortalEventCategory::where('name', 'Actividades académicas')->firstOrFail();
+        $this->assertTrue($base->is_active);
+        $migration = require database_path('migrations/2026_11_04_000002_initialize_portal_calendar_category.php');
+        $migration->up();
+        $this->seed(PortalCalendarDemoCategorySeeder::class);
+        $this->seed(PortalCalendarDemoCategorySeeder::class);
+        $this->assertSame(1, PortalEventCategory::where('name', 'Actividades académicas')->count());
+        $this->assertSame($base->id, PortalEventCategory::where('name', 'Actividades académicas')->value('id'));
+        $base->update(['is_active' => false]);
+        $migration->up();
+        $this->seed(PortalCalendarDemoCategorySeeder::class);
+        $migration->down();
+        $this->assertFalse($base->fresh()->is_active);
+        $this->assertDatabaseCount('portal_events', 0);
+    }
+
+    public function test_inactive_category_preserves_published_history_and_category_identity(): void
+    {
+        $category = PortalEventCategory::where('name', 'Actividades académicas')->firstOrFail();
+        $event = $this->event('PUBLISHED', ['category_id' => $category->id]);
+        $this->patchJson(self::ADMIN.'/'.$event->id, ['revision' => 2, 'title' => 'Título actualizado'])->assertOk()
+            ->assertJsonPath('data.category.id', $category->id);
+        $before = $event->fresh()->getAttributes();
+        $category->update(['is_active' => false]);
+        $this->getJson(self::PUBLIC.'/'.$event->id)->assertOk()->assertJsonPath('data.category.id', $category->id);
+        $this->getJson(self::ADMIN.'/'.$event->id)->assertOk()->assertJsonPath('data.category.id', $category->id);
+        $this->getJson(self::PUBLIC)->assertJsonPath('data.0.category.id', $category->id);
+        $this->postJson(self::ADMIN, $this->payload(['category_id' => $category->id]))->assertUnprocessable()->assertJsonValidationErrors('category_id');
+        $this->assertSame($before, $event->fresh()->getAttributes());
     }
 
     private function payload(array $changes = []): array
@@ -60,7 +94,7 @@ class PortalCalendarTest extends TestCase
     public function test_guests_can_consult_empty_calendar_and_categories_without_writing_data(): void
     {
         $this->getJson(self::PUBLIC)->assertOk()->assertJsonCount(0, 'data')->assertJsonPath('meta.total', 0);
-        $this->getJson('/api/v1/portal/event-categories')->assertOk()->assertExactJson(['data' => []]);
+        $this->getJson('/api/v1/portal/event-categories')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.name', 'Actividades académicas');
         $this->assertDatabaseCount('portal_events', 0);
         $this->assertDatabaseCount('audit_logs', 0);
     }
@@ -224,8 +258,8 @@ class PortalCalendarTest extends TestCase
     {
         $event = $this->event();
         $event->category->update(['is_active' => false]);
-        $this->getJson('/api/v1/portal/event-categories')->assertExactJson(['data' => []]);
-        $this->getJson('/api/v1/admin/portal/event-categories')->assertExactJson(['data' => []]);
+        $this->getJson('/api/v1/portal/event-categories')->assertJsonCount(1, 'data')->assertJsonPath('data.0.name', 'Actividades académicas');
+        $this->getJson('/api/v1/admin/portal/event-categories')->assertJsonCount(1, 'data')->assertJsonPath('data.0.name', 'Actividades académicas');
         $this->patchJson(self::ADMIN."/{$event->id}/status", ['status' => 'PUBLISHED', 'revision' => 1])
             ->assertUnprocessable()->assertJsonValidationErrors('category_id');
     }

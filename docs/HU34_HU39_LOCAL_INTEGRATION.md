@@ -48,10 +48,10 @@ Seeder explícito y repetible:
 php artisan db:seed --class=PortalCalendarDemoCategorySeeder
 ```
 
-Agrega `Actividades académicas` si no existe. No cambia categorías existentes ni crea/publica eventos. No forma parte del arranque automático ni exige volver a ejecutar el seeder general de demo.
+Agrega `Actividades académicas` si no existe. No cambia categorías existentes ni crea/publica eventos. Desde la corrección de HU39, la migración 2026_11_04_000002 instala automáticamente esta categoría si falta al ejecutar migrate. El seeder sigue disponible para comprobaciones y no exige ejecutar el seeder general de demo.
 
 Consultar con ADMINISTRADOR activo: GET `/api/v1/admin/portal/event-categories`. Usar el ID real devuelto.
 
 Luego probar: crear DRAFT → publicar PUBLIC → consultar portal → PRIVATE (desaparece, detalle público 404) → PUBLIC (reaparece) → despublicar → cancelar → historial. El evento creado durante la prueba puede quedar cancelado como evidencia histórica.
 
-Los datos de la base local de Héctor no se transfieren por Git. Para otra BD, ejecutar el seeder y cargar el CSV mediante la API/UI.
+Los datos de la base local de Héctor no se transfieren por Git. Para otra BD, ejecutar las migraciones (incluida la inicialización de categorías) y cargar el CSV mediante la API/UI.

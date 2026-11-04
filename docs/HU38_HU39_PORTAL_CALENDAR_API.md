@@ -200,3 +200,31 @@ rangos, paginación, medianoche y zonas horarias.
 
 HU40–HU45 no están implementadas en esta entrega. HU34 permanece pendiente de
 reglas académicas y no cambia HU12 ni introduce PENDING como estado persistente.
+
+## Inicialización automática de categorías — corrección HU39
+
+Ejecutar `php artisan migrate --force` en el despliegue aplica
+`2026_11_04_000002_initialize_portal_calendar_category` y crea
+`Actividades académicas` con `is_active=true` únicamente si no existe.
+No requiere ejecutar un seeder manual adicional. La restricción UNIQUE(name)
+y la inserción insertOrIgnore impiden duplicados. El seeder específico
+`PortalCalendarDemoCategorySeeder` sigue disponible y es repetible.
+Ni migración ni seeder reactivan una categoría existente desactivada deliberadamente.
+El rollback no elimina categorías ni modifica eventos históricos.
+
+Contrato vigente, sin cambios:
+- GET /api/v1/portal/event-categories: público.
+- GET /api/v1/admin/portal/event-categories: administrador activo autenticado.
+- Respuesta 200: {"data":[{"id":1,"name":"Actividades académicas"}]}.
+- Sin paginación. Solo activas, ordenadas por name e id. is_active no se serializa.
+- IDs de ejemplo: usar siempre el ID real devuelto por la API.
+- Sin categorías activas: 200 con data: [].
+- Administración: 401 sin sesión válida, 403 sin permisos o cambio inicial pendiente.
+- POST/PATCH de eventos recibe category_id; respuesta conserva category.id/category.name.
+- Crear o enviar una categoría inactiva/inexistente: 422 con errors.category_id.
+- Publicar con categoría inactiva: 422. Revisión obsoleta: 409 REVISION_CONFLICT.
+- Desactivar categoría no oculta eventos ya publicados ni borra su relación;
+  la visibilidad pública sigue dependiendo de status=PUBLISHED y visibility=PUBLIC.
+- PATCH de un evento histórico omitiendo category_id conserva su categoría, aunque esté
+  inactiva; enviarla expresamente exige que esté activa.
+- No existe CRUD administrativo de categorías en el contrato vigente.
