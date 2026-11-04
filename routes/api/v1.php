@@ -92,6 +92,7 @@ Route::prefix('admin/portal')->name('portal.admin.')
 
 Route::prefix('admin')->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])
     ->group(function () {
+        Route::get('/incidents/exams', [\App\Http\Controllers\Api\V1\Incidents\ExamIncidentReportController::class, 'exams']);
         Route::get('/users/history', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'history']);
         Route::get('/profiles/{profileType}/{profileId}/records', [\App\Http\Controllers\Api\V1\Admin\AdminProfileRecordsController::class, 'index'])
             ->where('profileType', 'students|teachers')->whereNumber('profileId');
@@ -284,6 +285,86 @@ Route::middleware(['auth:sanctum', 'session.current', 'password.changed'])->grou
     Route::get('/users', [ExamCollaboratorController::class, 'users'])->middleware('teacher.role');
 });
 
+Route::prefix('exams/{exam_id}/attendance')
+    ->where(['exam_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureAttendanceExamOwner::class])
+    ->group(function () {
+        $controller = \App\Http\Controllers\Api\V1\Attendance\AttendanceController::class;
+        Route::get('/summary', [$controller, 'summary']);
+        Route::get('/students', [$controller, 'students']);
+        Route::get('/collaborators', [$controller, 'collaborators']);
+    });
+
+Route::get('/exam-reports/catalog', [\App\Http\Controllers\Api\V1\Reports\ExamReportController::class, 'catalog'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])->name('exam-reports.catalog');
+
+Route::prefix('exams/{exam_id}/reports')->where(['exam_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
+    ->group(function () {
+        $controller = \App\Http\Controllers\Api\V1\Reports\ExamReportController::class;
+        Route::get('/{type}/export', [$controller, 'export'])->name('exam-reports.export');
+        Route::get('/{type}', [$controller, 'show'])->name('exam-reports.show');
+    });
+
+Route::prefix('exams/{exam_id}/expulsions')
+    ->where(['exam_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureExpulsionExamOwner::class])
+    ->group(function () {
+        Route::post('/', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'store']);
+        Route::get('/', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'index']);
+        Route::get('/students', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'students']);
+        Route::get('/eligible-infractions', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'eligibleInfractions']);
+        Route::get('/students/{student_id}/history', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'studentHistory'])
+            ->where('student_id', '[1-9][0-9]*');
+        Route::get('/{expulsion_id}', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'show'])
+            ->where('expulsion_id', '[1-9][0-9]*');
+    });
+
+Route::prefix('exams/{exam_id}/infractions')
+    ->where(['exam_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureInfractionExamOwner::class])
+    ->group(function () {
+        $controller = \App\Http\Controllers\Api\V1\Infractions\InfractionController::class;
+        Route::get('/options', [$controller, 'options']);
+        Route::get('/students', [$controller, 'students']);
+        Route::get('/students/{student_id}/history', [$controller, 'studentHistory'])->where('student_id', '[1-9][0-9]*');
+        Route::get('/', [$controller, 'index']);
+        Route::post('/', [$controller, 'store']);
+        Route::get('/{infraction_id}', [$controller, 'show'])->where('infraction_id', '[1-9][0-9]*');
+        Route::get('/{infraction_id}/history', [$controller, 'history'])->where('infraction_id', '[1-9][0-9]*');
+        Route::patch('/{infraction_id}', [$controller, 'update'])->where('infraction_id', '[1-9][0-9]*');
+        Route::patch('/{infraction_id}/status', [$controller, 'status'])->where('infraction_id', '[1-9][0-9]*')->name('infractions.status');
+    });
+
+Route::get('exams/{exam_id}/students/{student_id}/expulsions', [\App\Http\Controllers\Api\V1\Expulsions\ExpulsionController::class, 'contractStudentHistory'])
+    ->where(['exam_id' => '[1-9][0-9]*', 'student_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureExpulsionExamOwner::class]);
+
+Route::get('exams/{exam_id}/students/{student_id}/infractions', [\App\Http\Controllers\Api\V1\Infractions\InfractionController::class, 'contractStudentHistory'])
+    ->where(['exam_id' => '[1-9][0-9]*', 'student_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\EnsureInfractionExamOwner::class]);
+
+Route::prefix('incident-reports')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
+    ->group(function () {
+        $controller = \App\Http\Controllers\Api\V1\Incidents\IncidentReportController::class;
+        Route::get('/', [$controller, 'index']);
+        Route::get('/summary', [$controller, 'summary']);
+        Route::get('/export', [$controller, 'export']);
+        Route::get('/{incident_id}', [$controller, 'show'])->where('incident_id', '(?:qr-)?[1-9][0-9]*');
+    });
+
+Route::prefix('exams/{exam_id}/incidents')
+    ->where(['exam_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
+    ->group(function () {
+        Route::post('/', [\App\Http\Controllers\Api\V1\Incidents\IncidentController::class, 'store']);
+        Route::get('/', [\App\Http\Controllers\Api\V1\Incidents\IncidentController::class, 'index']);
+        Route::get('/export', [\App\Http\Controllers\Api\V1\Incidents\ExamIncidentReportController::class, 'export']);
+        Route::get('/{incident_id}', [\App\Http\Controllers\Api\V1\Incidents\IncidentController::class, 'show'])
+            ->where('incident_id', '(?:qr-)?[1-9][0-9]*');
+    });
+
 Route::prefix('exams/{exam_id}/entry-control')
     ->whereNumber('exam_id')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'verify.exam.access'])
@@ -293,6 +374,10 @@ Route::prefix('exams/{exam_id}/entry-control')
         Route::post('/students/{student_id}/entries', [QrEntryController::class, 'storeManual'])
             ->whereNumber('student_id');
         Route::get('/entries', [QrEntryController::class, 'index']);
+        Route::post('/entries/{entry_id}/annulment', [\App\Http\Controllers\Api\V1\Entries\EntryAnnulmentController::class, 'store'])
+            ->where('entry_id', '[1-9][0-9]*')->name('entries.annulment');
+        Route::post('/entries/{entry_id}/annul', [\App\Http\Controllers\Api\V1\Entries\EntryAnnulmentController::class, 'store'])
+            ->where('entry_id', '[1-9][0-9]*');
         Route::get('/students/{student_id}', [EntryControlController::class, 'show'])
             ->whereNumber('student_id');
     });

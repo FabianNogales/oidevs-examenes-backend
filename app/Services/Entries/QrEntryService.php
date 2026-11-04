@@ -9,6 +9,7 @@ use App\Models\Student;
 use App\Models\StudentQrToken;
 use App\Models\User;
 use App\Services\Collaborators\ExamCollaboratorService;
+use App\Services\Incidents\IncidentIdentity;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -28,7 +29,12 @@ class QrEntryService
 
         // Persist only after the scan transaction has completed and released its locks.
         if ($wrongExam !== null) {
-            $this->wrongExamAudit->record(...$wrongExam);
+            $eventId = $this->wrongExamAudit->record(...$wrongExam);
+            if ($eventId !== null) {
+                $body = $response->getData(true);
+                $body['incident'] = ['id' => IncidentIdentity::automatic($eventId), 'exam_id' => $examId];
+                $response->setData($body);
+            }
         }
 
         return $response;
@@ -152,8 +158,9 @@ class QrEntryService
             'verified_by_name' => $verifier?->display_name, 'status' => $entry->status];
     }
 
-    public function history(Exam $exam, array $parameters): array
+    public function history(Exam $exam, array $parameters, ?User $actor = null): array
     {
+        $canAnnul = app(EntryAnnulmentAccess::class)->allows($exam, $actor);
         $query = DB::table('exam_entries as e')->join('students as s', 's.id', '=', 'e.student_id')
             ->leftJoin('users as u', 'u.id', '=', 's.user_id')->where('e.exam_id', $exam->id);
         $search = trim((string) preg_replace('/\s+/u', ' ', $parameters['search'] ?? ''));
@@ -176,16 +183,9 @@ class QrEntryService
         $page = $query->select('e.*', 's.first_names', 's.last_names', 's.sis_code', 's.identity_number', 'u.profile_photo')
             ->orderByDesc('e.entered_at')->orderByDesc('e.id')
             ->paginate((int) ($parameters['per_page'] ?? 10), ['*'], 'page', (int) ($parameters['page'] ?? 1));
-        $verifiers = User::with(['teacher', 'student'])->whereIn('id', $page->getCollection()->pluck('verified_by')->unique())->get()->keyBy('id');
 
-        return ['data' => $page->getCollection()->map(function ($row) use ($verifiers) {
-            $photo = $row->profile_photo;
-
-            return ['student' => ['student_id' => (int) $row->student_id, 'first_names' => $row->first_names,
-                'last_names' => $row->last_names, 'sis_code' => $row->sis_code, 'identity_number' => $row->identity_number,
-                'profile_photo_url' => $photo ? (preg_match('#^https?://#', $photo) ? $photo : asset('storage/'.$photo)) : null],
-                'entry' => $this->entryData($row, $verifiers->get($row->verified_by))];
-        })->values(), 'meta' => ['current_page' => $page->currentPage(), 'per_page' => $page->perPage(),
-            'total' => $page->total(), 'last_page' => $page->lastPage()]];
+        return ['data' => app(EntryHistoryPresenter::class)->present($page->getCollection(), $canAnnul),
+            'meta' => ['current_page' => $page->currentPage(), 'per_page' => $page->perPage(),
+                'total' => $page->total(), 'last_page' => $page->lastPage()]];
     }
 }
