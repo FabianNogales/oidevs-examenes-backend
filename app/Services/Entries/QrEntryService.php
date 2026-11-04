@@ -138,7 +138,7 @@ class QrEntryService
     private function scanData(array $data, ?object $entry): array
     {
         return [
-            'student' => array_intersect_key($data, array_flip(['student_id', 'first_names', 'last_names', 'sis_code', 'identity_number', 'profile_photo_url'])),
+            'student' => array_intersect_key($data, array_flip(['student_id', 'first_names', 'last_names', 'sis_code', 'identity_number', 'profile_photo_url', 'historical_photo_url'])),
             'student_status' => $data['student_status'], 'enrollment_status' => $data['enrollment_status'],
             'eligibility_status' => $data['eligibility_status'], 'room_status' => $data['room_status'],
             'reason_code' => $data['reason_code'], 'reason' => $data['reason'], 'observations' => $data['observations'],
@@ -180,7 +180,7 @@ class QrEntryService
                 });
             });
         }
-        $page = $query->select('e.*', 's.first_names', 's.last_names', 's.sis_code', 's.identity_number', 'u.profile_photo')
+        $page = $query->select('e.*', 's.first_names', 's.last_names', 's.sis_code', 's.identity_number', 'u.profile_photo', 's.historical_photo')
             ->orderByDesc('e.entered_at')->orderByDesc('e.id')
             ->paginate((int) ($parameters['per_page'] ?? 10), ['*'], 'page', (int) ($parameters['page'] ?? 1));
 

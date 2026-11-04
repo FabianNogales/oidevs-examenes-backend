@@ -17,9 +17,14 @@ class PortalCalendarService
     {
         $query = PortalEvent::with('category');
         if ($public) {
-            $query->where('status', 'PUBLISHED');
-        } elseif (isset($filters['status'])) {
-            $query->where('status', $filters['status']);
+            $query->where('status', 'PUBLISHED')->where('visibility', 'PUBLIC');
+        } else {
+            if (isset($filters['status'])) {
+                $query->where('status', $filters['status']);
+            }
+            if (isset($filters['visibility'])) {
+                $query->where('visibility', $filters['visibility']);
+            }
         }
         if (isset($filters['category_id'])) {
             $query->where('category_id', $filters['category_id']);
@@ -47,7 +52,7 @@ class PortalCalendarService
 
     public function find(int $id, bool $public = false): PortalEvent
     {
-        return PortalEvent::with('category')->when($public, fn ($query) => $query->where('status', 'PUBLISHED'))->findOrFail($id);
+        return PortalEvent::with('category')->when($public, fn ($query) => $query->where('status', 'PUBLISHED')->where('visibility', 'PUBLIC'))->findOrFail($id);
     }
 
     public function save(array $data, Request $request, ?int $id = null): PortalEvent

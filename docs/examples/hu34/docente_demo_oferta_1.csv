@@ -1,0 +1,6 @@
+sis,assessment_key,was_taken,score,attended_classes,total_classes
+202600001,FIRST_PARTIAL,true,60,19,20
+202600001,SECOND_PARTIAL,true,70,,
+202600002,FIRST_PARTIAL,true,20,15,20
+202600002,SECOND_PARTIAL,true,25,,
+202600006,FIRST_PARTIAL,true,,,

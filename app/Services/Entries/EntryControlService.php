@@ -41,7 +41,7 @@ class EntryControlService
     {
         return [
             's.id as student_id', 's.first_names', 's.last_names', 's.sis_code', 's.identity_number',
-            's.status as student_status', 'u.profile_photo',
+            's.status as student_status', 'u.profile_photo', 's.historical_photo',
             'en.status as enrollment_status', 'el.status as eligibility_status',
             'el.reason_code', 'el.reason', 'el.observations', 'ent.id as entry_id',
             'ent.entered_at', 'ent.verification_method', 'ent.verified_by',
@@ -83,6 +83,20 @@ class EntryControlService
         $total = (int) $counts->total;
         $registered = (int) $counts->registered;
         $pending = (int) $counts->pending;
+        if (($parameters['entry_status'] ?? null) === 'REGISTERED') {
+            $base->whereNotNull('ent.id');
+        } elseif (($parameters['entry_status'] ?? null) === 'PENDING') {
+            $base->whereNull('ent.id');
+        }
+        if (array_key_exists('has_incident', $parameters)) {
+            if ((bool) $parameters['has_incident']) {
+                $base->where(function ($conditions) {
+                    $conditions->where('s.status', '<>', 'ACTIVE')->orWhereNull('el.status')->orWhere('el.status', '<>', 'ELIGIBLE');
+                });
+            } else {
+                $base->where('s.status', 'ACTIVE')->where('el.status', 'ELIGIBLE');
+            }
+        }
         $search = trim((string) preg_replace('/\s+/u', ' ', $parameters['search'] ?? ''));
         if ($search !== '') {
             $words = explode(' ', mb_strtolower($search));
@@ -177,6 +191,7 @@ class EntryControlService
             'student_id' => (int) $record->student_id,
             'first_names' => $record->first_names, 'last_names' => $record->last_names,
             'sis_code' => $record->sis_code, 'identity_number' => $record->identity_number,
+            'historical_photo_url' => $record->historical_photo ? route('entry-control.historical-photo', ['exam_id' => $exam->id, 'student_id' => $record->student_id]) : null,
             'profile_photo_url' => $photo
                 ? ((str_starts_with($photo, 'http://') || str_starts_with($photo, 'https://')) ? $photo : asset('storage/'.$photo))
                 : null,

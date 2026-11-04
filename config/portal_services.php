@@ -2,10 +2,9 @@
 
 return [
     // Semantic keys only: frontend renders its own icons, never supplied HTML/SVG.
-    'icon_keys' => ['calendar', 'book', 'info', 'link', 'users'],
+    'icon_keys' => ['academic', 'calendar', 'book', 'info', 'link', 'users'],
 
-    // Populate only after agreeing the actual routes with Dev_Erick. Each entry:
-    // ['path' => '/confirmed-route', 'label' => 'Approved label', 'requires_auth' => true].
-    // An empty list deliberately prevents inventing internal destinations.
-    'internal_destinations' => [],
+    // Exact domain or dot-delimited subdomain; never a substring match.
+    'allowed_domains' => array_values(array_filter(array_map('trim', explode(',', env('EIDA_SERVICE_ALLOWED_DOMAINS', 'umss.edu.bo'))))),
+    'allow_subdomains' => env('EIDA_SERVICE_ALLOW_SUBDOMAINS', true),
 ];

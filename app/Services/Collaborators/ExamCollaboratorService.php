@@ -51,7 +51,7 @@ class ExamCollaboratorService
 
     public function assignableUsers(Exam $exam, User $actor): Builder
     {
-        return app(CollaboratorRoleHierarchy::class)->constrainCandidates($this->candidateUsers($exam), $actor);
+        return app(CollaboratorRoleHierarchy::class)->constrainCandidates($this->candidateUsers($exam), $actor)->with('activeRoles');
     }
 
     public function assignCollaborator(int $examId, int $userId, Request $request): ExamCollaborator

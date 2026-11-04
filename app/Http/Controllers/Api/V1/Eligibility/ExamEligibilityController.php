@@ -7,8 +7,8 @@ use App\Http\Requests\Eligibility\UpdateEligibilityRequest;
 use App\Models\ExamEligibility;
 use App\Services\Eligibility\ExamEligibilityService;
 use App\Support\Eligibility\EligibilityRules;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -65,7 +65,8 @@ class ExamEligibilityController extends Controller
             ];
         });
 
-        return response()->json(['data' => $data]);
+        return response()->json(['exam' => ['id' => $examId, 'manual_review_conditions' => DB::table('exam_eligibility_configurations')
+            ->where('exam_id', $examId)->value('manual_review_conditions')], 'data' => $data]);
     }
 
     public function update(UpdateEligibilityRequest $request, int $examId, int $studentId): JsonResponse

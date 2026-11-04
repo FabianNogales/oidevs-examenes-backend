@@ -34,10 +34,20 @@ use App\Http\Middleware\EnsureActiveSubjectAdministrator;
 use App\Http\Middleware\EnsureCourseOfferingAccess;
 use Illuminate\Support\Facades\Route;
 
+require __DIR__.'/eligibility-automation.php';
+
+Route::prefix('admin/students/{student}')->whereNumber('student')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])
+    ->group(function () {
+        $photo = \App\Http\Controllers\Api\V1\Students\HistoricalPhotoController::class;
+        Route::get('/historical-photo', [$photo, 'show'])->name('students.historical-photo.show');
+        Route::post('/historical-photo', [$photo, 'store'])->name('students.historical-photo.store');
+        Route::post('/historical-photo/corrections', [$photo, 'store'])->name('students.historical-photo.correct');
+    });
+
 // HU38/HU39: independent public calendar; never derives events from private exams.
 Route::prefix('portal')->name('portal.public.')->group(function () {
     $services = \App\Http\Controllers\Api\V1\Portal\PortalServiceController::class;
-    Route::get('/service-categories', [$services, 'categories'])->name('service-categories');
     Route::get('/services', [$services, 'index'])->name('services.index');
     Route::get('/services/{service}', [$services, 'show'])->whereNumber('service')->name('services.show');
     Route::get('/information', [\App\Http\Controllers\Api\V1\Portal\PortalInformationController::class, 'publicContent'])->name('information');
@@ -55,11 +65,10 @@ Route::prefix('admin/portal')->name('portal.admin.')
     ->group(function () {
         $controller = \App\Http\Controllers\Api\V1\Portal\PortalCalendarController::class;
         $services = \App\Http\Controllers\Api\V1\Portal\PortalServiceController::class;
-        Route::get('/service-categories', [$services, 'categories'])->name('service-categories');
-        Route::get('/service-options', [$services, 'options'])->name('service-options');
         Route::get('/services', [$services, 'index'])->name('services.index');
         Route::post('/services', [$services, 'store'])->name('services.store');
         Route::get('/services/{service}', [$services, 'show'])->whereNumber('service')->name('services.show');
+        Route::get('/services/{service}/history', [\App\Http\Controllers\Api\V1\Portal\PortalHistoryController::class, 'services'])->whereNumber('service')->name('services.history')->middleware(\App\Http\Middleware\HandlePortalServiceErrors::class);
         Route::patch('/services/{service}', [$services, 'update'])->whereNumber('service')->name('services.update');
         Route::patch('/services/{service}/status', [$services, 'status'])->whereNumber('service')->name('services.status');
         Route::prefix('information')->name('information.')->group(function () {
@@ -67,6 +76,7 @@ Route::prefix('admin/portal')->name('portal.admin.')
             foreach (['sections', 'faqs'] as $type) {
                 Route::get('/'.$type, [$information, 'index'])->name($type.'.index');
                 Route::get('/'.$type.'/{content}', [$information, 'show'])->whereNumber('content')->name($type.'.show');
+                Route::get('/'.$type.'/{content}/history', [\App\Http\Controllers\Api\V1\Portal\PortalHistoryController::class, 'information'])->whereNumber('content')->name($type.'.history');
                 Route::patch('/'.$type.'/{content}', [$information, 'update'])->whereNumber('content')->name($type.'.update');
                 Route::post('/'.$type.'/{content}/publish', [$information, 'publish'])->whereNumber('content')->name($type.'.publish');
                 Route::post('/'.$type.'/{content}/unpublish', [$information, 'unpublish'])->whereNumber('content')->name($type.'.unpublish');
@@ -77,6 +87,7 @@ Route::prefix('admin/portal')->name('portal.admin.')
         Route::get('/news', [$news, 'index'])->name('news.index');
         Route::post('/news', [$news, 'store'])->name('news.store');
         Route::get('/news/{news}', [$news, 'show'])->whereNumber('news')->name('news.show');
+        Route::get('/news/{news}/history', [\App\Http\Controllers\Api\V1\Portal\PortalHistoryController::class, 'news'])->whereNumber('news')->name('news.history');
         Route::patch('/news/{news}', [$news, 'update'])->whereNumber('news')->name('news.update');
         Route::patch('/news/{news}/status', [$news, 'status'])->whereNumber('news')->name('news.status');
         Route::get('/news/{news}/image', [$news, 'image'])->whereNumber('news')->name('news.image');
@@ -86,6 +97,7 @@ Route::prefix('admin/portal')->name('portal.admin.')
         Route::get('/events', [$controller, 'index'])->name('events.index');
         Route::post('/events', [$controller, 'store'])->name('events.store');
         Route::get('/events/{event}', [$controller, 'show'])->whereNumber('event')->name('events.show');
+        Route::get('/events/{event}/history', [\App\Http\Controllers\Api\V1\Portal\PortalHistoryController::class, 'events'])->whereNumber('event')->name('events.history');
         Route::patch('/events/{event}', [$controller, 'update'])->whereNumber('event')->name('events.update');
         Route::patch('/events/{event}/status', [$controller, 'status'])->whereNumber('event')->name('events.status');
     });
@@ -370,6 +382,8 @@ Route::prefix('exams/{exam_id}/entry-control')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'verify.exam.access'])
     ->group(function () {
         Route::get('/students', [EntryControlController::class, 'index']);
+        Route::get('/students/{student_id}/historical-photo', [\App\Http\Controllers\Api\V1\Students\HistoricalPhotoController::class, 'entry'])
+            ->whereNumber('student_id')->name('entry-control.historical-photo');
         Route::post('/qr', [QrEntryController::class, 'store']);
         Route::post('/students/{student_id}/entries', [QrEntryController::class, 'storeManual'])
             ->whereNumber('student_id');

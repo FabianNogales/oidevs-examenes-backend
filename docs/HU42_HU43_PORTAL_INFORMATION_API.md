@@ -1,5 +1,8 @@
 # HU42 / HU43 — Información institucional y FAQ
 
+Actualización V.2: historial administrativo `GET /admin/portal/information/sections/{id}/history`
+y `GET /admin/portal/information/faqs/{id}/history`. Contrato en `SPRINT3_BACKLOG_V2_ALIGNMENT.md`.
+
 Tercera épica del portal del Sprint 3. Base `/api/v1`. Los visitantes consultan
 exclusivamente la última versión publicada; las modificaciones administrativas
 se guardan primero como borrador. No se incorpora un editor visual ni HTML.

@@ -15,7 +15,7 @@ class EntryHistoryPresenter
         $row = DB::table('exam_entries as e')->join('students as s', 's.id', '=', 'e.student_id')
             ->leftJoin('users as u', 'u.id', '=', 's.user_id')
             ->where('e.exam_id', $examId)->where('e.id', $entryId)
-            ->select('e.*', 's.first_names', 's.last_names', 's.sis_code', 's.identity_number', 'u.profile_photo')->first();
+            ->select('e.*', 's.first_names', 's.last_names', 's.sis_code', 's.identity_number', 'u.profile_photo', 's.historical_photo')->first();
         abort_if($row === null, 404, 'Registro de ingreso no encontrado.');
 
         return $this->present(collect([$row]), false)->first();
@@ -47,7 +47,7 @@ class EntryHistoryPresenter
                 'student' => ['student_id' => (int) $row->student_id, 'first_names' => $row->first_names,
                     'last_names' => $row->last_names, 'sis_code' => (string) $row->sis_code,
                     'identity_number' => $row->identity_number === null ? null : (string) $row->identity_number,
-                    'historical_photo_url' => null,
+                    'historical_photo_url' => $row->historical_photo ? route('entry-control.historical-photo', ['exam_id' => $row->exam_id, 'student_id' => $row->student_id]) : null,
                     'profile_photo_url' => $photo ? (preg_match('#^https?://#', $photo) ? $photo : asset('storage/'.$photo)) : null],
                 'permissions' => ['can_annul' => $canAnnulEntry],
                 'entry' => ['id' => (int) $row->id, 'exam_id' => (int) $row->exam_id,
