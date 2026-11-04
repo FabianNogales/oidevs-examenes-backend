@@ -47,6 +47,7 @@ class EligibilityPolicyController extends Controller
                 'version' => $base ? EligibilityPolicy::where('family', $base->family)->max('version') + 1 : 1,
                 'name' => $input['name'], 'status' => 'DRAFT', 'definition' => $definition,
                 'created_by' => $request->user()->id]);
+            $new->refresh();
             $this->support->audit($request, 'ELIGIBILITY_POLICY_CREATED', 'EligibilityPolicy', $new->id, null, $new->toArray());
 
             return $new;

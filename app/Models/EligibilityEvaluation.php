@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class EligibilityEvaluation extends Model
 {
+    protected $dateFormat = 'Y-m-d H:i:sP';
+
     protected $guarded = [];
 
     protected function casts(): array

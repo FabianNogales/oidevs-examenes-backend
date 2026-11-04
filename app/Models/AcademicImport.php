@@ -7,6 +7,9 @@ use Illuminate\Database\Eloquent\Model;
 
 class AcademicImport extends Model
 {
+    // Preserve the application's offset before Eloquent passes automatic timestamps to the cast.
+    protected $dateFormat = 'Y-m-d H:i:sP';
+
     public $incrementing = false;
 
     protected $keyType = 'string';

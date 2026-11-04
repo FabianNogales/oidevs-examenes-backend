@@ -13,6 +13,7 @@ use App\Services\Audit\AuditLogService;
 use App\Services\Eligibility\Automation\CriteriaCatalog;
 use App\Services\Eligibility\Automation\CriteriaEvaluator;
 use App\Services\Eligibility\ExamEligibilityInitializer;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -107,7 +108,7 @@ class EligibilityAutomationTest extends TestCase
         $initial = EligibilityPolicy::first();
         $this->configure()->assertOk();
         $created = $this->postJson('/api/v1/admin/eligibility-policies/'.$initial->id.'/versions', ['name' => 'Versión revisada'])
-            ->assertCreated()->assertJsonPath('data.version', 2)->json('data.id');
+            ->assertCreated()->assertJsonPath('data.version', 2)->assertJsonPath('data.revision', 1)->assertJsonPath('data.activated_at', null)->json('data.id');
         $definition = app(CriteriaCatalog::class)->definition();
         $definition['second_instance']['threshold'] = 30;
         $this->patchJson('/api/v1/admin/eligibility-policies/'.$created, ['revision' => 1, 'definition' => $definition])->assertOk();
@@ -329,6 +330,31 @@ class EligibilityAutomationTest extends TestCase
             $this->assertEqualsWithDelta(1800, now()->diffInSeconds($stored->expires_at, false), 3);
             $this->postJson($this->academic.'/imports/'.$preview.'/confirm')->assertOk();
         } finally {
+            config(['app.timezone' => $previous]);
+            date_default_timezone_set($previous);
+        }
+    }
+
+    public function test_creation_timestamps_preserve_the_instant_for_policy_import_records_and_evaluation(): void
+    {
+        $previous = config('app.timezone');
+        config(['app.timezone' => 'America/La_Paz']);
+        date_default_timezone_set('America/La_Paz');
+        $this->travelTo(CarbonImmutable::parse('2026-11-04T10:00:00-04:00'));
+        try {
+            $policy = $this->postJson('/api/v1/admin/eligibility-policies', ['name' => 'Zona horaria de prueba'])->assertCreated()->assertJsonPath('data.revision', 1)->json('data.id');
+            $this->assertTrue(EligibilityPolicy::find($policy)->created_at->equalTo(now()));
+            $preview = $this->csv("202600001,FIRST_PARTIAL,true,50,18,20\n")->assertOk()->json('data.preview_id');
+            $this->assertTrue(AcademicImport::find($preview)->created_at->equalTo(now()));
+            $record = $this->postJson($this->academic.'/imports/'.$preview.'/confirm')->assertOk()->json('data.record_ids.0');
+            $this->assertTrue(AcademicRecord::find($record)->created_at->equalTo(now()));
+            $this->configure([$this->criterion()])->assertOk();
+            $evaluation = $this->postJson($this->base.'/evaluations/preview', ['configuration_revision' => 1])->assertOk()->json('data.id');
+            $row = EligibilityEvaluation::find($evaluation);
+            $this->assertTrue($row->created_at->equalTo(now()));
+            $this->assertSame(1800, (int) now()->diffInSeconds($row->expires_at, false));
+        } finally {
+            $this->travelBack();
             config(['app.timezone' => $previous]);
             date_default_timezone_set($previous);
         }
