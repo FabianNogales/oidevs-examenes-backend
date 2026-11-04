@@ -1,0 +1,12 @@
+<?php
+
+namespace App\Enums;
+
+enum IncidentType: string
+{
+    case IDENTIFICATION = 'IDENTIFICATION';
+    case SUSPECTED_IMPERSONATION = 'SUSPECTED_IMPERSONATION';
+    case INELIGIBILITY = 'INELIGIBILITY';
+    case WRONG_EXAM_QR = 'WRONG_EXAM_QR';
+    case ENVIRONMENT = 'ENVIRONMENT';
+}

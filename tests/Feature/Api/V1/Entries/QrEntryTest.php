@@ -336,7 +336,7 @@ class QrEntryTest extends TestCase
         foreach ([1, 2] as $expectedCount) {
             $this->postJson($endpoint.'/qr', ['qr_token' => $token, 'room_id' => $other->room_id,
                 'student_id' => 99999, 'qr_exam_id' => 99999, 'verified_by' => 99999])
-                ->assertUnprocessable()->assertExactJson([
+                ->assertUnprocessable()->assertJsonStructure(['incident' => ['id', 'exam_id']])->assertJson([
                     'result' => 'WRONG_EXAM', 'message' => 'QR de otro examen.',
                     'processed_at' => now()->toISOString(), 'data' => null,
                 ]);
@@ -348,8 +348,13 @@ class QrEntryTest extends TestCase
             $this->assertSame('Exam', $event->entity_type);
             $this->assertSame($other->id, $event->entity_id);
             $this->assertNull($event->old_values);
-            $this->assertSame(['qr_exam_id' => $record->exam_id, 'student_id' => $record->student_id,
-                'reason' => 'WRONG_EXAM', 'method' => 'QR'], $event->new_values);
+            // PostgreSQL jsonb does not preserve object key order.
+            $expectedValues = ['qr_exam_id' => $record->exam_id, 'student_id' => $record->student_id,
+                'reason' => 'WRONG_EXAM', 'method' => 'QR'];
+            $actualValues = $event->new_values;
+            ksort($expectedValues);
+            ksort($actualValues);
+            $this->assertSame($expectedValues, $actualValues);
             $this->assertTrue($event->created_at->equalTo(now()));
             $this->assertSame('127.0.0.1', $event->ip_address);
             foreach ([$token, $record->token, $this->student->sis_code, $this->student->identity_number,

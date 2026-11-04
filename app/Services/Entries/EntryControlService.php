@@ -24,6 +24,9 @@ class EntryControlService
             })
             ->leftJoin('exam_entries as ent', function ($join) use ($exam) {
                 $join->on('ent.student_id', '=', 's.id')->where('ent.exam_id', $exam->id)->where('ent.status', 'VALID');
+            })
+            ->leftJoin('expulsions as exp', function ($join) use ($exam) {
+                $join->on('exp.student_id', '=', 's.id')->where('exp.exam_id', $exam->id);
             });
     }
 
@@ -42,6 +45,7 @@ class EntryControlService
             'en.status as enrollment_status', 'el.status as eligibility_status',
             'el.reason_code', 'el.reason', 'el.observations', 'ent.id as entry_id',
             'ent.entered_at', 'ent.verification_method', 'ent.verified_by',
+            'exp.id as expulsion_id', 'exp.expelled_at',
         ];
     }
 
@@ -192,6 +196,12 @@ class EntryControlService
                 ? ((str_starts_with($photo, 'http://') || str_starts_with($photo, 'https://')) ? $photo : asset('storage/'.$photo))
                 : null,
             'student_status' => $record->student_status, 'enrollment_status' => $enrollment,
+            // Informational only: institutional consequences are not defined by HU31.
+            'is_expelled' => $record->expulsion_id !== null,
+            'expulsion' => $record->expulsion_id === null ? null : [
+                'id' => (int) $record->expulsion_id,
+                'expelled_at' => Carbon::parse($record->expelled_at, config('app.timezone'))->toISOString(),
+            ],
             'eligibility_status' => $eligibility, 'reason_code' => $record->reason_code,
             'reason' => $record->reason, 'observations' => $record->observations,
             'assigned_room_id' => $associated ? (int) $exam->room_id : null,
