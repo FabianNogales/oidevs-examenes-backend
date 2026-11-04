@@ -48,7 +48,6 @@ Route::prefix('admin/students/{student}')->whereNumber('student')
 // HU38/HU39: independent public calendar; never derives events from private exams.
 Route::prefix('portal')->name('portal.public.')->group(function () {
     $services = \App\Http\Controllers\Api\V1\Portal\PortalServiceController::class;
-    Route::get('/service-categories', [$services, 'categories'])->name('service-categories');
     Route::get('/services', [$services, 'index'])->name('services.index');
     Route::get('/services/{service}', [$services, 'show'])->whereNumber('service')->name('services.show');
     Route::get('/information', [\App\Http\Controllers\Api\V1\Portal\PortalInformationController::class, 'publicContent'])->name('information');
@@ -66,12 +65,10 @@ Route::prefix('admin/portal')->name('portal.admin.')
     ->group(function () {
         $controller = \App\Http\Controllers\Api\V1\Portal\PortalCalendarController::class;
         $services = \App\Http\Controllers\Api\V1\Portal\PortalServiceController::class;
-        Route::get('/service-categories', [$services, 'categories'])->name('service-categories');
-        Route::get('/service-options', [$services, 'options'])->name('service-options');
         Route::get('/services', [$services, 'index'])->name('services.index');
         Route::post('/services', [$services, 'store'])->name('services.store');
         Route::get('/services/{service}', [$services, 'show'])->whereNumber('service')->name('services.show');
-        Route::get('/services/{service}/history', [\App\Http\Controllers\Api\V1\Portal\PortalHistoryController::class, 'services'])->whereNumber('service')->name('services.history');
+        Route::get('/services/{service}/history', [\App\Http\Controllers\Api\V1\Portal\PortalHistoryController::class, 'services'])->whereNumber('service')->name('services.history')->middleware(\App\Http\Middleware\HandlePortalServiceErrors::class);
         Route::patch('/services/{service}', [$services, 'update'])->whereNumber('service')->name('services.update');
         Route::patch('/services/{service}/status', [$services, 'status'])->whereNumber('service')->name('services.status');
         Route::prefix('information')->name('information.')->group(function () {

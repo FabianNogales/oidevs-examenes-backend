@@ -3,26 +3,29 @@
 namespace App\Services\Portal;
 
 use App\Models\PortalService;
+use App\Rules\InstitutionalServiceUrl;
+use App\Rules\PortalServicePlainText;
 use App\Services\Audit\AuditLogService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class PortalServiceCatalog
 {
     private function query(bool $public): Builder
     {
-        $query = PortalService::with('category');
+        $query = PortalService::query();
         if ($public) {
-            $paths = array_column(app(PortalServiceOptions::class)->options()['internal_destinations'], 'path');
-            $query->where('status', 'ACTIVE')->whereHas('category', fn ($category) => $category->where('is_active', true))
-                ->where(function ($query) use ($paths) {
-                    $query->where('destination_type', 'EXTERNAL')->orWhere(function ($query) use ($paths) {
-                        $query->where('destination_type', 'INTERNAL')->whereIn('destination', $paths);
-                    });
-                });
+            // Apply the same current allowlist to old rows and new rows, before pagination.
+            // No remote HTTP/DNS requests: EIDA only supplies validated links.
+            $ids = PortalService::where('status', 'ACTIVE')->where('destination_type', 'EXTERNAL')
+                ->get(['id', 'name', 'description', 'icon_key', 'destination_type', 'destination'])
+                ->filter(fn ($item) => $this->issues($item) === [])->modelKeys();
+            $query->where('status', 'ACTIVE')->where('destination_type', 'EXTERNAL')->whereIn('id', $ids);
         }
 
         return $query;
@@ -34,16 +37,9 @@ class PortalServiceCatalog
         if (! $public && isset($filters['status'])) {
             $query->where('status', $filters['status']);
         }
-        if (isset($filters['category_id'])) {
-            $query->where('category_id', $filters['category_id']);
-        }
         if (($filters['search'] ?? '') !== '') {
-            $query->where(function ($query) use ($filters) {
-                $expression = DB::connection()->getDriverName() === 'pgsql' ? 'strpos(LOWER(%s), ?) > 0' : 'instr(LOWER(%s), ?) > 0';
-                foreach (['name', 'description'] as $column) {
-                    $query->orWhereRaw(sprintf($expression, $column), [mb_strtolower($filters['search'])]);
-                }
-            });
+            $expression = DB::connection()->getDriverName() === 'pgsql' ? 'strpos(LOWER(name), ?) > 0' : 'instr(LOWER(name), ?) > 0';
+            $query->whereRaw($expression, [mb_strtolower($filters['search'])]);
         }
 
         return $query->orderBy('sort_order')->orderBy('id')->paginate($filters['per_page'] ?? 15)->withQueryString();
@@ -63,14 +59,16 @@ class PortalServiceCatalog
             }
             $before = $item->exists ? $item->getAttributes() : null;
             unset($data['revision']);
-            if ($id === null) {
-                $data += ['sort_order' => 0];
-                if (! array_key_exists('requires_auth', $data)) {
-                    $option = collect(app(PortalServiceOptions::class)->options()['internal_destinations'])->firstWhere('path', $data['destination']);
-                    $data['requires_auth'] = $data['destination_type'] === 'INTERNAL' ? ($option['requires_auth'] ?? false) : false;
+            $mapped = [];
+            foreach (['name' => 'name', 'description' => 'description', 'icon' => 'icon_key', 'url' => 'destination', 'display_order' => 'sort_order'] as $api => $column) {
+                if (array_key_exists($api, $data)) {
+                    $mapped[$column] = $data[$api];
                 }
             }
-            $item->fill($data);
+            if ($id === null) {
+                $mapped += ['sort_order' => 0, 'category_id' => null];
+            }
+            $item->fill($mapped + ['destination_type' => 'EXTERNAL', 'requires_auth' => false]);
             $this->validate($item);
             if ($id === null) {
                 $item->status = 'INACTIVE';
@@ -83,7 +81,7 @@ class PortalServiceCatalog
             $item->save();
             $this->audit($item, $request, $id === null ? 'PORTAL_SERVICE_CREATED' : 'PORTAL_SERVICE_UPDATED', $before);
 
-            return $item->refresh()->load('category');
+            return $item->refresh();
         });
     }
 
@@ -102,13 +100,32 @@ class PortalServiceCatalog
             $item->save();
             $this->audit($item, $request, 'PORTAL_SERVICE_STATUS_CHANGED', $before);
 
-            return $item->refresh()->load('category');
+            return $item->refresh();
         });
     }
 
     private function validate(PortalService $item): void
     {
-        app(PortalServiceOptions::class)->validate($item->only(['icon_key', 'category_id', 'destination_type', 'destination', 'requires_auth']));
+        Validator::make($this->validationValues($item), $this->validationRules())->validate();
+    }
+
+    public function issues(PortalService $item): array
+    {
+        return array_keys(Validator::make($this->validationValues($item), $this->validationRules())->errors()->toArray());
+    }
+
+    private function validationValues(PortalService $item): array
+    {
+        return ['name' => $item->name, 'description' => $item->description, 'icon' => $item->icon_key,
+            'url' => $item->destination_type === 'EXTERNAL' ? $item->destination : null];
+    }
+
+    private function validationRules(): array
+    {
+        return ['name' => ['required', 'string', 'max:200', new PortalServicePlainText],
+            'description' => ['required', 'string', 'max:2000', new PortalServicePlainText],
+            'icon' => ['required', Rule::in(config('portal_services.icon_keys', []))],
+            'url' => ['required', new InstitutionalServiceUrl]];
     }
 
     private function checkRevision(PortalService $item, int $revision): void

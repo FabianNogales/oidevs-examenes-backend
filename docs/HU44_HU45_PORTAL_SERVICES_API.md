@@ -1,222 +1,181 @@
-# HU44 / HU45 — Catálogo de servicios institucionales
+# HU44/HU45 — Catálogo de enlaces externos oficiales UMSS
 
-Actualización V.2: historial administrativo `GET /admin/portal/services/{id}/history`.
-Ver `SPRINT3_BACKLOG_V2_ALIGNMENT.md` para contrato y verificación de HU45 CA19.
+Este contrato reemplaza el enfoque anterior de accesos internos. Base `/api/v1`.
+Servicios solo administra enlaces externos; no integra plataformas ni transfiere sesiones EIDA.
 
-Cuarta épica del portal del Sprint 3. Base `/api/v1`. Organiza enlaces a recursos
-existentes; no implementa nuevos servicios académicos ni otorga permisos de módulo.
-
-## Endpoints
+## Endpoints finales
 
 | Método | Ruta | Acceso |
 | --- | --- | --- |
-| GET | `/portal/service-categories` | Público |
-| GET | `/portal/services` | Público; servicios activos y visibles |
-| GET | `/portal/services/{id}` | Público; servicio activo y visible |
-| GET | `/admin/portal/service-categories` | Administrador activo |
-| GET | `/admin/portal/service-options` | Administrador activo |
-| GET | `/admin/portal/services` | Administrador activo |
-| GET | `/admin/portal/services/{id}` | Administrador activo |
-| POST | `/admin/portal/services` | Administrador activo |
-| PATCH | `/admin/portal/services/{id}` | Administrador activo |
-| PATCH | `/admin/portal/services/{id}/status` | Administrador activo |
+| GET | `/portal/services` | Público, sin login |
+| GET | `/portal/services/{id}` | Público, solo enlace activo y autorizado |
+| GET | `/admin/portal/services` | ADMINISTRADOR activo |
+| POST | `/admin/portal/services` | ADMINISTRADOR activo |
+| GET | `/admin/portal/services/{id}` | ADMINISTRADOR activo |
+| PATCH | `/admin/portal/services/{id}` | ADMINISTRADOR activo |
+| PATCH | `/admin/portal/services/{id}/status` | ADMINISTRADOR activo |
+| GET | `/admin/portal/services/{id}/history` | ADMINISTRADOR activo |
 
-Administración reutiliza Sanctum, sesión vigente, cambio de contraseña de primer
-acceso y ADMINISTRADOR activo (cuenta, catálogo de rol y asignación). La autorización
-temporal de colaborador no concede privilegios para gestionar el catálogo.
+Se mantiene PATCH de estado como equivalente a activate/deactivate. No se agregan otros endpoints de estado. Autenticación Sanctum, sesión vigente y cambio inicial de contraseña en administración.
 
-## Categorías y opciones
+Se retiran `/admin/portal/service-options`, `/admin/portal/service-categories` y `/portal/service-categories`: devuelven 404. No solicitar esas rutas desde frontend. Las categorías ya no forman parte del formulario ni del contrato.
 
-Ambos endpoints de categorías devuelven categorías activas, ordenadas por nombre
-e ID: `{ "data": [{ "id": 1, "name": "Categoría aprobada" }] }`. Los IDs no son fijos.
+## Crear
 
-GET `/admin/portal/service-options`:
+POST `/admin/portal/services`
 
 ```json
 {
-  "data": {
-    "icon_keys": ["calendar", "book", "info", "link", "users"],
-    "destination_types": ["INTERNAL", "EXTERNAL"],
-    "internal_destinations": [
-      {"path": "/teacher/exams", "label": "Mis exámenes (docente)", "requires_auth": true}
-    ]
-  }
+  "name": "WebSISS",
+  "description": "Acceso al sistema de información estudiantil de la UMSS.",
+  "icon": "academic",
+  "url": "https://websiss.umss.edu.bo/",
+  "display_order": 1
 }
 ```
 
-Estas opciones se centralizan en config/portal_services.php. Frontend obtiene las
-claves permitidas desde backend y renderiza los iconos correspondientes; no envía
-HTML/SVG ni mantiene otra lista de destinos válidos.
+Responde 201 y crea INACTIVE, revision=1. No publica automáticamente.
 
-**Integración local:** se verificó `/teacher/exams` en el router de Dev_Erick y se
-habilitó como destino inicial. Requiere autenticación y rol docente en frontend;
-la tarjeta no concede permisos. Para probar que abre, usar Docente Principal Demo.
-Backend sigue rechazando rutas no registradas, incluido `/estudiante/examenes`.
+- name obligatorio: 1–200 caracteres.
+- description obligatoria: 1–2000 caracteres, texto plano.
+- icon obligatorio: academic, calendar, book, info, link o users. Claves semánticas; frontend las asocia a sus componentes. Sin HTML/SVG arbitrario.
+- url obligatoria: máximo 2048 caracteres y validación institucional.
+- display_order opcional: entero 0–100000, por defecto 0.
+- No enviar revision ni status en creación.
+- category_id, icon_key, destination_type, destination, requires_auth y sort_order quedan fuera del contrato y se rechazan si se envían con contenido.
 
-Ejecutar `php artisan db:seed --class=PortalServiceDemoCategorySeeder` para agregar
-la categoría activa `Servicios académicos` si no existe. Es explícito y repetible;
-no crea servicios ni publica contenido. El destino está en configuración, no en BD:
-se incorpora con el código y requiere `php artisan config:clear` si había caché.
-No se necesitan migraciones nuevas.
+No se exige autenticación EIDA para abrir el enlace externo. La plataforma destino administra su propio login.
 
-Para futuras rutas acordadas, cada opción interna mantiene este formato:
+## Modificar
+
+PATCH `/admin/portal/services/{id}`
 
 ```json
 {
-  "path": "/ruta-confirmada",
-  "label": "Nombre aprobado",
-  "requires_auth": true
+  "revision": 1,
+  "name": "Información estudiantil",
+  "description": "Consulta de información académica.",
+  "icon": "academic",
+  "url": "https://websiss.umss.edu.bo/",
+  "display_order": 2
 }
 ```
 
-Las rutas internas de catálogo son rutas concretas sin parámetros, query ni fragmento.
-Se aceptan solamente coincidencias exactas con esas opciones. Las entradas de
-configuración con destinos inseguros no se ofrecen como opciones válidas.
+Los campos editables son parciales; revision es obligatoria. Se revalida el registro completo antes de guardar. Incrementa revision. Editar un enlace que sigue ACTIVE actualiza inmediatamente su tarjeta pública.
 
-Las categorías iniciales y los servicios institucionales también deben acordarse
-antes de cargarlos. Esta migración no inventa categorías, URLs ni servicios.
-No se incorpora CRUD de categorías, que no estaba en el contrato aprobado.
+## Activar/desactivar
 
-## Crear y editar
+PATCH `/admin/portal/services/{id}/status`
 
-POST `/admin/portal/services`:
+```json
+{"status":"ACTIVE","revision":2}
+```
+
+Desactivar con status=INACTIVE y revisión actual. No se elimina el registro. Activar revalida URL y contenido; desactivar permite retirar incluso un registro legado inválido. ACTIVE/INACTIVE son los únicos estados, sin publicación adicional.
+
+## Respuesta pública
 
 ```json
 {
-  "name": "Sitio institucional",
-  "description": "Descripción aprobada del recurso.",
-  "icon_key": "link",
-  "category_id": 1,
-  "destination_type": "EXTERNAL",
-  "destination": "https://www.umss.edu.bo/",
-  "requires_auth": false,
-  "sort_order": 1
+  "data": [
+    {
+      "id": 12,
+      "name": "WebSISS",
+      "description": "Acceso al sistema de información estudiantil de la UMSS.",
+      "icon": "academic",
+      "url": "https://websiss.umss.edu.bo/",
+      "display_order": 1
+    }
+  ],
+  "links": {},
+  "meta": {"current_page":1,"per_page":15,"total":1,"last_page":1}
 }
 ```
 
-201 con el recurso administrativo, status INACTIVE y revision 1. Crear no publica
-automáticamente. La activación se realiza con el endpoint de estado.
+links/meta contienen la paginación Laravel habitual; se muestran abreviados en el ejemplo. Público no devuelve status, revision, responsables, categorías ni requires_auth. Solo ACTIVE con destino externo y validación vigente. Orden display_order ascendente, luego id ascendente. Sin resultados: data=[] y meta.total=0.
 
-name: obligatorio, máximo 200; description: obligatoria, máximo 2000; category_id:
-categoría activa existente; icon_key: clave de service-options; destination_type:
-INTERNAL o EXTERNAL; destination: máximo 2048. sort_order es entero entre 0 y 100000,
-opcional con valor inicial 0. requires_auth es booleano opcional: por defecto false
-para externos y el requisito de la opción elegida para internos.
+EIDA entrega la URL registrada sin agregar JWT, cookies, tokens ni parámetros de sesión. Frontend abrirá mediante enlace externo, preferentemente target="_blank" y rel="noopener noreferrer", sin anexar credenciales. Accesibilidad, mensajes vacíos/error y responsive corresponden a frontend. No usar innerHTML para los textos.
 
-PATCH admite cambios parciales y exige revision:
+## Respuesta administrativa
 
-```json
-{ "name": "Nombre corregido", "sort_order": 2, "revision": 1 }
-```
-
-Se valida el recurso completo después de combinar los campos guardados con los
-nuevos; cambiar solo destination_type no permite eludir la validación de la URL.
-status, created_by y updated_by no se pueden imponer mediante creación/edición.
-Los textos son planos y frontend debe renderizarlos escapados.
-
-## Destinos y autorización
-
-EXTERNAL exige HTTPS válido, sin credenciales incrustadas. Se rechazan HTTP,
-javascript, data, mailto, URLs relativas al protocolo, barras invertidas y caracteres
-de control, incluidas representaciones codificadas. Backend valida la URL pero
-no la descarga ni actúa como proxy; frontend abre el destino según su interfaz.
-
-INTERNAL exige una opción backend exacta. No acepta rutas inventadas, destinos
-externos ni variaciones mediante query/fragmento. Si la opción exige login, no se
-permite guardar requires_auth=false. Se puede exigir login adicional para una ruta
-pública. El campo orienta a frontend para llevar al login cuando corresponda.
-
-**requires_auth no es una autorización.** Los roles y permisos siguen comprobándose
-en cada módulo. Consultar la tarjeta de un servicio no cambia el rol ni concede
-acceso a funciones protegidas. Frontend conserva las protecciones de sus rutas.
-
-Si una opción interna pasa posteriormente a exigir login, la respuesta pública
-refleja ese requisito aunque el registro anterior todavía tuviera false. El panel
-administrativo conserva el valor guardado para que pueda corregirse expresamente.
-
-## Consulta pública y recurso
+Creación, detalle y edición devuelven `data` con:
 
 ```json
 {
-  "data": {
-    "id": 1,
-    "name": "Sitio institucional",
-    "description": "Descripción aprobada del recurso.",
-    "icon_key": "link",
-    "category": { "id": 1, "name": "Categoría aprobada" },
-    "destination_type": "EXTERNAL",
-    "destination": "https://www.umss.edu.bo/",
-    "requires_auth": false,
-    "sort_order": 1
-  }
+  "id":12,
+  "name":"WebSISS",
+  "description":"Acceso al sistema de información estudiantil de la UMSS.",
+  "icon":"academic",
+  "url":"https://websiss.umss.edu.bo/",
+  "display_order":1,
+  "status":"INACTIVE",
+  "revision":1,
+  "created_by":1,
+  "updated_by":1,
+  "created_at":"2026-11-03T20:00:00.000000Z",
+  "updated_at":"2026-11-03T20:00:00.000000Z",
+  "needs_review":false,
+  "validation_issues":[]
 }
 ```
 
-Administración agrega status, revision, created_by y updated_by. El público solo
-ve servicios ACTIVE con categoría activa; para internos, la ruta debe seguir en
-las opciones permitidas. Un destino retirado de la configuración deja de aparecer
-en listado y detalle públicos, pero se conserva en administración para corregirlo
-o desactivarlo. Los totales de paginación reflejan únicamente el conjunto visible.
+Administración lista ACTIVE e INACTIVE y conserva visibles los registros anteriores que requieran corrección. needs_review=true y validation_issues identifica campos inválidos, por ejemplo ["url"]. Un antiguo destino interno puede aparecer como url relativa solo en administración para permitir sustituirlo por una URL institucional; nunca se sirve públicamente.
 
-Listados: search (máximo 200; nombre/descripción como texto literal), category_id,
-page y per_page. Administración agrega status=ACTIVE/INACTIVE. En público enviar
-status no revela servicios inactivos. Orden numérico por sort_order y luego ID.
-Paginación Laravel data/links/meta con current_page, last_page, per_page y total;
-15 por defecto, máximo 100. Vacío: 200 con data [].
+## Búsqueda y paginación
 
-## Activar y desactivar
+GET administrativo: `?search=&status=&page=1&per_page=15`.
 
-PATCH `/admin/portal/services/{id}/status`:
+- search: búsqueda literal por nombre, sin distinguir mayúsculas. Vacío/omitido = sin filtro.
+- status: ACTIVE o INACTIVE. Vacío/omitido = ambos en administración.
+- page >=1; per_page 1–100, por defecto 15.
+- Público admite búsqueda/paginación, pero no permite solicitar inactivos mediante status.
+- Filtrado y validación se aplican antes de paginar: meta.total es el total filtrado.
+- category_id ya no es un filtro válido.
 
-```json
-{ "status": "ACTIVE", "revision": 2 }
+## Dominios autorizados y seguridad
+
+Configuración central `config/portal_services.php`:
+
+```dotenv
+EIDA_SERVICE_ALLOWED_DOMAINS=umss.edu.bo
+EIDA_SERVICE_ALLOW_SUBDOMAINS=true
 ```
 
-Estados: ACTIVE e INACTIVE. Activar revalida categoría, icono, destino y requisito
-de login. Desactivar sigue permitido aunque el destino haya sido retirado de
-las opciones, para no impedir que el administrador oculte un registro anterior.
-No hay eliminación física. Editar un servicio que continúa ACTIVE modifica la
-tarjeta pública al guardar; desactivarlo primero si se quiere prepararlo fuera
-del portal. No existe el versionado draft/published de HU42/HU43 en esta épica.
+Por defecto permite el dominio exacto umss.edu.bo y subdominios con separación por punto, por ejemplo websiss.umss.edu.bo. Comparación sin distinguir mayúsculas. `umss.edu.bo.evil.com` y `notumss.edu.bo` se rechazan. Pueden configurarse varios dominios separados por comas; no utilizar comodines. allow_subdomains=false limita a coincidencia exacta.
 
-Cada modificación incrementa revision y registra una auditoría en la misma
-transacción. Se bloquea la fila y se vuelve a comprobar la revisión antes de guardar.
-Si falla la auditoría, se revierte la operación.
+Solo HTTPS, puerto omitido o 443, sin usuario/contraseña embebidos. Se rechazan rutas internas, javascript:, data:, URLs relativas, controles, barras inversas, etiquetas y parámetros de autenticación como token, access_token, jwt, password, session_id, authorization, api_key y code, también codificados y en fragmentos. No se contacta el sitio externo ni se integran sus bases de datos.
 
-409 sin sobrescritura:
+Nombre/descripción son texto plano y se rechazan etiquetas HTML y controles ejecutables. Backend no interpreta contenido; frontend debe renderizarlo como texto.
 
-```json
-{
-  "code": "REVISION_CONFLICT",
-  "message": "El servicio fue modificado. Recarga su información antes de continuar.",
-  "current_revision": 3
-}
+Cambiar la lista autorizada afecta también a registros anteriores: los que dejen de cumplir se ocultan inmediatamente del público y quedan administrables con needs_review. No se borran ni se altera el historial.
+
+## Auditoría y errores
+
+Se mantienen PORTAL_SERVICE_CREATED, PORTAL_SERVICE_UPDATED y PORTAL_SERVICE_STATUS_CHANGED con responsable, fecha y valores previos/nuevos. Historial paginado por fecha/id descendentes. Sus valores usan icon/url/display_order, traduciendo los nombres históricos de almacenamiento sin reescribir auditorías anteriores.
+
+- 401: falta de sesión.
+- 403: sin permisos administrativos o requisito de contraseña pendiente.
+- 404: recurso inexistente, enlace no disponible públicamente o endpoint retirado.
+- 422: campos obligatorios, icono, URL/dominio, contenido, estado o parámetros inválidos; errors identifica el campo.
+- 409: REVISION_CONFLICT, con current_revision. Actualizar datos antes de reintentar.
+- 500: INTERNAL_ERROR con mensaje controlado; no expone trazas ni detalles internos, incluso si falla la auditoría. La transacción revierte cambios parciales.
+
+## Migración y transición
+
+Actualizar Dev_Hector y ejecutar:
+
+```bash
+php artisan migrate
+php artisan config:clear
 ```
 
-Frontend debe recargar y presentar los cambios antes de volver a guardar.
-401/403 mantienen el contrato existente de autenticación, cuenta y permisos.
-404 para servicio inexistente o no visible públicamente. 422 con message/errors
-por campos inválidos, opción no admitida, categoría inactiva o revisión ausente.
+Migración `2026_11_03_000001_adapt_portal_services_to_external_links`:
 
-## Persistencia y despliegue
+- category_id pasa a nullable; no se exige al crear.
+- Los antiguos INTERNAL activos pasan a INACTIVE, incrementan revision y generan auditoría de sistema PORTAL_SERVICE_INTERNAL_RETIRED, con actor null.
+- Se conservan servicios, categorías anteriores y auditorías. Los antiguos externos inválidos quedan fuera del público y disponibles para corrección.
+- No se eliminan columnas históricas: icon/url/display_order se mapean a icon_key/destination/sort_order internamente. Nuevos registros siempre EXTERNAL y requires_auth=false. Esos campos internos no se aceptan ni exponen en el contrato.
+- Se retiran el seeder de categorías de Servicios y la configuración /teacher/exams; ya no deben ejecutarse ni consumirse para HU44/HU45.
+- El rollback no reactiva enlaces internos ni elimina registros sin categoría; revertir el enfoque requiere una decisión explícita sobre los datos.
 
-Migración: `2026_10_31_000004_create_portal_service_tables`. Aplicar `php artisan migrate`
-en el backend antes de integrar. Crea dos tablas:
-
-- portal_service_categories: id, name, is_active y timestamps.
-- portal_services: id, category_id, name, description, icon_key, destination_type,
-  destination, requires_auth, sort_order, status, revision, created_by, updated_by
-  y timestamps.
-
-No cambia tablas previas ni añade roles o privilegios. Reutiliza audit_logs.
-Cuando se coordinen rutas, actualizar la configuración backend y regenerar su
-caché si el despliegue utiliza config:cache. Frontend seguirá consumiendo options.
-
-Pruebas: `php vendor/phpunit/phpunit/phpunit tests/Feature/Portal/PortalServiceTest.php`.
-Cubren permisos, activación, opciones, URLs, iconos, categorías, revisión, orden,
-paginación, retiro de rutas y ausencia de concesión de privilegios.
-
-La integración puede crear, activar, editar y desactivar un servicio dirigido a
-`/teacher/exams`, comprobando su presencia pública e historial. Las categorías y
-servicios adicionales se incorporarán según coordinación del equipo. HU34 tiene
-su propio contrato en `HU34_ELIGIBILITY_AUTOMATION_API.md`.
+No se cargan ni publican automáticamente enlaces de ejemplo. Los administradores registran los enlaces elegidos para la demostración. No cambia HU34, calendario, noticias, información institucional ni los permisos de los módulos internos de EIDA.

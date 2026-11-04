@@ -5,7 +5,6 @@ namespace Tests\Feature\Portal;
 use App\Models\AuditLog;
 use App\Models\PortalEventCategory;
 use App\Models\PortalInformationContent;
-use App\Models\PortalServiceCategory;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -100,8 +99,7 @@ class PortalHistoryTest extends TestCase
     public function test_service_history_shows_changes_and_never_includes_other_entity_types(): void
     {
         $this->actingAs($this->actor());
-        $category = PortalServiceCategory::create(['name' => 'Categoría de prueba']);
-        $id = $this->postJson(self::BASE.'/services', ['name' => 'Servicio inicial', 'description' => 'Descripción', 'icon_key' => 'link', 'category_id' => $category->id, 'destination_type' => 'EXTERNAL', 'destination' => 'https://www.umss.edu.bo/'])->assertCreated()->json('data.id');
+        $id = $this->postJson(self::BASE.'/services', ['name' => 'Servicio inicial', 'description' => 'Descripción', 'icon' => 'link', 'url' => 'https://www.umss.edu.bo/'])->assertCreated()->json('data.id');
         $this->patchJson(self::BASE."/services/{$id}", ['name' => 'Servicio corregido', 'revision' => 1])->assertOk();
         $this->patchJson(self::BASE."/services/{$id}/status", ['status' => 'ACTIVE', 'revision' => 2])->assertOk();
         $this->faq();

@@ -39,6 +39,15 @@ class PortalHistoryResource extends JsonResource
             default => [],
         };
         $result = Arr::only($values, $fields);
+        if ($this->entity_type === 'PortalService') {
+            // Translate both historical storage names and current API names without altering audit rows.
+            foreach (['icon_key' => 'icon', 'destination' => 'url', 'sort_order' => 'display_order'] as $old => $current) {
+                if (array_key_exists($old, $result)) {
+                    $result[$current] = $result[$old];
+                }
+            }
+            unset($result['category_id'], $result['icon_key'], $result['destination'], $result['sort_order'], $result['destination_type'], $result['requires_auth']);
+        }
         if ($this->entity_type === 'PortalNews') {
             // History describes attachment changes without exposing private paths
             // or promising access to files removed by the agreed replacement flow.

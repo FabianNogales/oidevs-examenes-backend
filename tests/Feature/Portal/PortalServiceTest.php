@@ -2,14 +2,15 @@
 
 namespace Tests\Feature\Portal;
 
+use App\Models\AuditLog;
 use App\Models\PortalService;
 use App\Models\PortalServiceCategory;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Audit\AuditLogService;
-use Database\Seeders\PortalServiceDemoCategorySeeder;
+use App\Services\Portal\PortalServiceCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -32,57 +33,33 @@ class PortalServiceTest extends TestCase
 
     private function payload(array $changes = []): array
     {
-        $category = PortalServiceCategory::firstOrCreate(['name' => 'Categoría de prueba']);
-
-        return array_replace([
-            'name' => 'Servicio de prueba',
-            'description' => 'Descripción del acceso institucional.',
-            'icon_key' => 'link',
-            'category_id' => $category->id,
-            'destination_type' => 'EXTERNAL',
-            'destination' => 'https://www.umss.edu.bo/',
-            'requires_auth' => false,
-            'sort_order' => 1,
-        ], $changes);
+        return array_replace(['name' => 'WebSISS', 'description' => 'Información estudiantil UMSS.',
+            'icon' => 'academic', 'url' => 'https://websiss.umss.edu.bo/', 'display_order' => 1], $changes);
     }
 
     private function service(bool $active = false, array $changes = []): PortalService
     {
         $this->actingAs($this->actor());
-        $response = $this->postJson(self::ADMIN, $this->payload($changes))->assertCreated();
-        $service = PortalService::findOrFail($response->json('data.id'));
+        $id = $this->postJson(self::ADMIN, $this->payload($changes))->assertCreated()->json('data.id');
         if ($active) {
-            $this->patchJson(self::ADMIN."/{$service->id}/status", ['status' => 'ACTIVE', 'revision' => 1])->assertOk();
+            $this->patchJson(self::ADMIN.'/'.$id.'/status', ['status' => 'ACTIVE', 'revision' => 1])->assertOk();
         }
 
-        return $service->refresh();
+        return PortalService::findOrFail($id);
     }
 
-    private function routes(): void
+    public function test_public_empty_catalog_is_anonymous_paginated_and_read_only(): void
     {
-        config(['portal_services.internal_destinations' => [
-            ['path' => '/qa-public-service', 'label' => 'Ruta de prueba pública', 'requires_auth' => false],
-            ['path' => '/qa-private-service', 'label' => 'Ruta de prueba protegida', 'requires_auth' => true],
-        ]]);
-    }
-
-    public function test_public_empty_catalog_and_categories_do_not_require_login_or_create_data(): void
-    {
-        $this->getJson(self::PUBLIC)->assertOk()->assertJsonCount(0, 'data')->assertJsonPath('meta.total', 0);
-        $this->getJson('/api/v1/portal/service-categories')->assertOk()->assertExactJson(['data' => []]);
+        $this->getJson(self::PUBLIC.'?search=&status=')->assertOk()->assertJsonPath('data', [])->assertJsonPath('meta.total', 0);
         $this->getJson(self::PUBLIC.'/999')->assertNotFound();
         $this->assertDatabaseCount('portal_services', 0);
-        $this->assertDatabaseCount('portal_service_categories', 0);
         $this->assertDatabaseCount('audit_logs', 0);
     }
 
-    public function test_every_administrative_route_requires_authentication_and_active_admin_role(): void
+    public function test_every_admin_operation_requires_authentication_and_active_administrator(): void
     {
-        $routes = [
-            ['GET', self::ADMIN], ['GET', self::ADMIN.'/999'], ['POST', self::ADMIN],
-            ['PATCH', self::ADMIN.'/999'], ['PATCH', self::ADMIN.'/999/status'],
-            ['GET', '/api/v1/admin/portal/service-categories'], ['GET', '/api/v1/admin/portal/service-options'],
-        ];
+        $routes = [['GET', self::ADMIN], ['POST', self::ADMIN], ['GET', self::ADMIN.'/999'],
+            ['PATCH', self::ADMIN.'/999'], ['PATCH', self::ADMIN.'/999/status'], ['GET', self::ADMIN.'/999/history']];
         foreach ($routes as [$method, $path]) {
             $this->json($method, $path)->assertUnauthorized();
         }
@@ -92,263 +69,171 @@ class PortalServiceTest extends TestCase
                 $this->json($method, $path)->assertForbidden();
             }
         }
-    }
-
-    public function test_inactive_account_role_assignment_and_first_access_are_blocked(): void
-    {
         $admin = $this->actor();
         $admin->update(['status' => 'INACTIVE']);
         $this->actingAs($admin)->getJson(self::ADMIN)->assertUnauthorized();
         $admin = $this->actor();
-        $role = $admin->roles()->first();
-        $role->update(['status' => 'INACTIVE']);
+        $admin->roles()->updateExistingPivot($admin->roles()->first()->id, ['status' => 'INACTIVE']);
         $this->actingAs($admin)->getJson(self::ADMIN)->assertForbidden();
-        $role->update(['status' => 'ACTIVE']);
-        $admin->roles()->updateExistingPivot($role->id, ['status' => 'INACTIVE']);
-        $this->getJson(self::ADMIN)->assertForbidden();
-        $admin->roles()->updateExistingPivot($role->id, ['status' => 'ACTIVE']);
+        $admin = $this->actor();
         $admin->forceFill(['must_change_password' => true])->save();
         $this->actingAs($admin)->getJson(self::ADMIN)->assertForbidden()->assertJsonPath('code', 'PASSWORD_CHANGE_REQUIRED');
     }
 
-    public function test_options_include_verified_teacher_route_and_reject_unapproved_destinations(): void
-    {
-        $this->actingAs($this->actor());
-        $this->getJson('/api/v1/admin/portal/service-options')->assertOk()
-            ->assertJsonPath('data.internal_destinations', [
-                ['path' => '/teacher/exams', 'label' => 'Mis exámenes (docente)', 'requires_auth' => true],
-            ])
-            ->assertJsonPath('data.destination_types', ['INTERNAL', 'EXTERNAL'])
-            ->assertJsonPath('data.icon_keys', ['calendar', 'book', 'info', 'link', 'users']);
-        $this->postJson(self::ADMIN, $this->payload(['destination_type' => 'INTERNAL', 'destination' => '/estudiante/examenes']))
-            ->assertUnprocessable()->assertJsonValidationErrors('destination');
-        $this->assertDatabaseCount('portal_services', 0);
-    }
-
-    public function test_seeded_category_and_real_internal_route_support_the_complete_service_lifecycle(): void
-    {
-        $this->seed(PortalServiceDemoCategorySeeder::class);
-        $this->seed(PortalServiceDemoCategorySeeder::class);
-        $category = PortalServiceCategory::where('name', 'Servicios académicos')->sole();
-        $this->assertTrue($category->is_active);
-        $this->actingAs($this->actor());
-        $this->getJson('/api/v1/admin/portal/service-categories')->assertOk()->assertJsonPath('data.0.id', $category->id);
-        $response = $this->postJson(self::ADMIN, $this->payload([
-            'name' => 'Mis exámenes', 'category_id' => $category->id,
-            'destination_type' => 'INTERNAL', 'destination' => '/teacher/exams', 'requires_auth' => true,
-        ]))->assertCreated()->assertJsonPath('data.status', 'INACTIVE');
-        $id = $response->json('data.id');
-        $this->getJson(self::PUBLIC)->assertJsonPath('meta.total', 0);
-        $this->patchJson(self::ADMIN.'/'.$id.'/status', ['revision' => 1, 'status' => 'ACTIVE'])->assertOk();
-        $this->getJson(self::PUBLIC)->assertOk()->assertJsonPath('data.0.destination', '/teacher/exams')->assertJsonPath('data.0.requires_auth', true);
-        $this->patchJson(self::ADMIN.'/'.$id, ['revision' => 2, 'name' => 'Consultar mis exámenes'])->assertOk();
-        $this->getJson(self::PUBLIC.'/'.$id)->assertOk()->assertJsonPath('data.name', 'Consultar mis exámenes');
-        $this->patchJson(self::ADMIN.'/'.$id.'/status', ['revision' => 3, 'status' => 'INACTIVE'])->assertOk();
-        $this->getJson(self::PUBLIC)->assertJsonPath('meta.total', 0);
-        $this->getJson(self::PUBLIC.'/'.$id)->assertNotFound();
-        $this->getJson(self::ADMIN.'/'.$id.'/history')->assertOk()->assertJsonPath('meta.total', 4);
-    }
-
-    public function test_creation_is_inactive_and_activation_exposes_only_public_fields(): void
+    public function test_creation_and_full_lifecycle_use_external_contract_without_categories_or_login_hints(): void
     {
         $service = $this->service();
-        $this->assertSame('INACTIVE', $service->status);
-        $this->getJson(self::PUBLIC."/{$service->id}")->assertNotFound();
-        $this->getJson(self::PUBLIC)->assertJsonCount(0, 'data');
-        $this->patchJson(self::ADMIN."/{$service->id}/status", ['status' => 'ACTIVE', 'revision' => 1])
-            ->assertOk()->assertJsonPath('data.revision', 2);
-        $this->app['auth']->forgetGuards();
-        $this->getJson(self::PUBLIC."/{$service->id}")->assertOk()
-            ->assertJsonPath('data.destination', 'https://www.umss.edu.bo/')->assertJsonPath('data.requires_auth', false)
-            ->assertJsonMissingPath('data.revision')->assertJsonMissingPath('data.created_by')->assertJsonMissingPath('data.updated_by');
-        $this->getJson(self::PUBLIC)->assertJsonCount(1, 'data');
+        $this->getJson(self::ADMIN.'/'.$service->id)->assertOk()->assertJsonPath('data.status', 'INACTIVE')->assertJsonPath('data.revision', 1)
+            ->assertJsonPath('data.icon', 'academic')->assertJsonPath('data.url', 'https://websiss.umss.edu.bo/')->assertJsonPath('data.display_order', 1)
+            ->assertJsonPath('data.needs_review', false)->assertJsonMissingPath('data.destination')->assertJsonMissingPath('data.requires_auth');
+        $this->assertNull($service->category_id);
+        $this->getJson(self::PUBLIC)->assertJsonPath('meta.total', 0);
+        $this->patchJson(self::ADMIN.'/'.$service->id.'/status', ['status' => 'ACTIVE', 'revision' => 1])->assertOk();
+        auth()->forgetGuards();
+        $this->getJson(self::PUBLIC.'/'.$service->id)->assertOk()->assertExactJson(['data' => [
+            'id' => $service->id, 'name' => 'WebSISS', 'description' => 'Información estudiantil UMSS.',
+            'icon' => 'academic', 'url' => 'https://websiss.umss.edu.bo/', 'display_order' => 1]]);
+        $this->actingAs(User::find($service->created_by));
+        $this->patchJson(self::ADMIN.'/'.$service->id, ['name' => 'Recursos universitarios', 'description' => 'Nueva descripción',
+            'icon' => 'book', 'url' => 'https://www.umss.edu.bo/', 'display_order' => 3, 'revision' => 2])->assertOk()->assertJsonPath('data.revision', 3);
+        $this->getJson(self::PUBLIC.'/'.$service->id)->assertJsonPath('data.name', 'Recursos universitarios')->assertJsonPath('data.url', 'https://www.umss.edu.bo/');
+        $this->patchJson(self::ADMIN.'/'.$service->id.'/status', ['status' => 'INACTIVE', 'revision' => 3])->assertOk();
+        $this->getJson(self::PUBLIC)->assertJsonPath('meta.total', 0);
+        $this->getJson(self::PUBLIC.'/'.$service->id)->assertNotFound();
+        $this->getJson(self::ADMIN.'/'.$service->id)->assertOk()->assertJsonPath('data.status', 'INACTIVE');
+        $this->getJson(self::ADMIN.'/'.$service->id.'/history')->assertOk()->assertJsonPath('meta.total', 4)
+            ->assertJsonPath('data.0.new_values.status', 'INACTIVE')->assertJsonPath('data.1.new_values.url', 'https://www.umss.edu.bo/')
+            ->assertJsonMissingPath('data.1.new_values.destination_type');
     }
 
-    public function test_deactivation_preserves_record_and_audit(): void
+    #[DataProvider('invalidUrls')]
+    public function test_unapproved_or_unsafe_urls_are_rejected_on_create_and_edit(string $url): void
     {
-        $service = $this->service(true);
-        $this->patchJson(self::ADMIN."/{$service->id}/status", ['status' => 'INACTIVE', 'revision' => $service->revision])->assertOk();
-        $this->getJson(self::PUBLIC."/{$service->id}")->assertNotFound();
-        $this->getJson(self::ADMIN."/{$service->id}")->assertOk()->assertJsonPath('data.status', 'INACTIVE');
+        $service = $this->service();
+        $this->postJson(self::ADMIN, $this->payload(['url' => $url]))->assertUnprocessable()->assertJsonValidationErrors('url');
+        $this->patchJson(self::ADMIN.'/'.$service->id, ['url' => $url, 'revision' => 1])->assertUnprocessable()->assertJsonValidationErrors('url');
+        $this->assertSame('https://websiss.umss.edu.bo/', $service->fresh()->destination);
         $this->assertDatabaseCount('portal_services', 1);
-        $this->assertDatabaseCount('audit_logs', 3);
-        $this->deleteJson(self::ADMIN."/{$service->id}")->assertStatus(405);
     }
 
-    public function test_internal_destination_must_match_options_and_keep_required_login(): void
+    public static function invalidUrls(): array
     {
-        $this->routes();
-        $this->actingAs($this->actor());
-        $this->getJson('/api/v1/admin/portal/service-options')->assertJsonPath('data.internal_destinations.1.path', '/qa-private-service');
-        $data = $this->payload(['destination_type' => 'INTERNAL', 'destination' => '/qa-private-service']);
-        $this->postJson(self::ADMIN, $data)->assertUnprocessable()->assertJsonValidationErrors('requires_auth');
-        unset($data['requires_auth']);
-        $this->postJson(self::ADMIN, $data)->assertCreated()->assertJsonPath('data.requires_auth', true);
-        $this->postJson(self::ADMIN, $this->payload(['destination_type' => 'INTERNAL', 'destination' => '/qa-public-service']))->assertCreated();
-        foreach (['/qa-private-service?next=evil', '/qa-private-service#x', '//evil.example', '/%2fevil.example', '/qa-unknown'] as $path) {
-            $this->postJson(self::ADMIN, $this->payload(['destination_type' => 'INTERNAL', 'destination' => $path, 'requires_auth' => true]))
-                ->assertUnprocessable()->assertJsonValidationErrors('destination');
-        }
+        return array_map(fn ($url) => [$url], [
+            '', 'invalid', 'http://umss.edu.bo/', 'https://example.com/', 'https://umss.edu.bo.evil.com/', 'https://notumss.edu.bo/',
+            '/teacher/exams', '//umss.edu.bo/', 'javascript:alert(1)', 'data:text/html,test',
+            'https://user:password@umss.edu.bo/', 'https://umss.edu.bo@evil.com/', 'https://umss.edu.bo:8080/',
+            'https://umss.edu.bo/%0d%0aLocation:evil', 'https://umss.edu.bo/%255c%255cevil',
+            'https://umss.edu.bo/?access_token=secret', 'https://umss.edu.bo/#jwt=secret', 'https://umss.edu.bo/?%74oken=secret',
+            'https://umss.edu.bo/?next%5Bsession_id%5D=secret', 'https://127.0.0.1/',
+        ]);
     }
 
-    public function test_external_destinations_reject_insecure_schemes_credentials_and_obfuscated_urls(): void
+    public function test_allowed_hosts_are_case_insensitive_dot_delimited_and_configurable(): void
     {
         $this->actingAs($this->actor());
-        foreach (['javascript:alert(1)', 'data:text/html,x', 'http://example.com', '//evil.example', '/local', 'mailto:person@example.com', 'https://user:pass@example.com', 'https://example.com/%0A', 'https://example.com/%5C', 'https:/missing-host'] as $url) {
-            $this->postJson(self::ADMIN, $this->payload(['destination' => $url]))
-                ->assertUnprocessable()->assertJsonValidationErrors('destination');
+        foreach (['https://umss.edu.bo/', 'https://WEBsiss.UMSS.edu.bo/', 'https://www.umss.edu.bo:443/path?lang=es'] as $url) {
+            $this->postJson(self::ADMIN, $this->payload(['url' => $url]))->assertCreated();
         }
-        $this->assertDatabaseCount('portal_services', 0);
-        $this->assertDatabaseCount('audit_logs', 0);
+        config(['portal_services.allow_subdomains' => false]);
+        $this->postJson(self::ADMIN, $this->payload())->assertUnprocessable();
+        $this->postJson(self::ADMIN, $this->payload(['url' => 'https://umss.edu.bo/']))->assertCreated();
+        config(['portal_services.allowed_domains' => []]);
+        $this->postJson(self::ADMIN, $this->payload(['url' => 'https://umss.edu.bo/']))->assertUnprocessable();
     }
 
-    public function test_icon_keys_are_validated_and_raw_html_is_not_accepted(): void
+    public function test_legacy_internal_and_unapproved_external_rows_remain_admin_only_and_can_be_corrected(): void
+    {
+        $service = $this->service(true);
+        $service->forceFill(['destination_type' => 'INTERNAL', 'destination' => '/teacher/exams'])->save();
+        $this->getJson(self::PUBLIC)->assertJsonPath('meta.total', 0);
+        $this->getJson(self::PUBLIC.'/'.$service->id)->assertNotFound();
+        $this->getJson(self::ADMIN.'/'.$service->id)->assertJsonPath('data.needs_review', true)->assertJsonPath('data.validation_issues.0', 'url');
+        $this->patchJson(self::ADMIN.'/'.$service->id.'/status', ['status' => 'ACTIVE', 'revision' => 2])->assertUnprocessable();
+        $this->patchJson(self::ADMIN.'/'.$service->id, ['url' => 'https://umss.edu.bo/', 'revision' => 2])->assertOk()->assertJsonPath('data.needs_review', false);
+        $this->getJson(self::PUBLIC)->assertJsonPath('meta.total', 1);
+        $service->refresh()->forceFill(['destination' => 'https://unrelated.example/'])->save();
+        $this->getJson(self::PUBLIC)->assertJsonPath('meta.total', 0);
+        $this->patchJson(self::ADMIN.'/'.$service->id.'/status', ['status' => 'INACTIVE', 'revision' => 3])->assertOk();
+    }
+
+    public function test_allowlist_changes_hide_existing_links_immediately_without_deleting_or_losing_history(): void
+    {
+        $service = $this->service(true);
+        config(['portal_services.allowed_domains' => ['another.example']]);
+        $this->getJson(self::PUBLIC)->assertJsonPath('meta.total', 0);
+        $this->getJson(self::PUBLIC.'/'.$service->id)->assertNotFound();
+        $this->getJson(self::ADMIN.'/'.$service->id)->assertOk()->assertJsonPath('data.needs_review', true);
+        $this->patchJson(self::ADMIN.'/'.$service->id.'/status', ['status' => 'ACTIVE', 'revision' => 2])->assertUnprocessable();
+        $this->getJson(self::ADMIN.'/'.$service->id.'/history')->assertJsonPath('meta.total', 2);
+    }
+
+    public function test_name_search_status_order_and_filtered_pagination_are_applied_on_server(): void
+    {
+        $this->service(true, ['name' => 'Servicio Z', 'description' => 'Nombre buscable no debe coincidir', 'display_order' => 3]);
+        $b = $this->service(true, ['name' => 'Servicio B', 'display_order' => 1]);
+        $this->service(false, ['name' => 'Oculto', 'display_order' => 0]);
+        $this->getJson(self::PUBLIC.'?per_page=1')->assertJsonPath('meta.total', 2)->assertJsonPath('data.0.id', $b->id);
+        $this->getJson(self::PUBLIC.'?search=Servicio%20Z')->assertJsonPath('meta.total', 1);
+        $this->getJson(self::PUBLIC.'?search=buscable')->assertJsonPath('meta.total', 0);
+        $this->getJson(self::PUBLIC.'?status=INACTIVE')->assertJsonPath('meta.total', 2);
+        $this->getJson(self::ADMIN.'?status=INACTIVE')->assertJsonPath('meta.total', 1);
+        $this->getJson(self::ADMIN.'?search=&status=')->assertOk()->assertJsonPath('meta.total', 3);
+    }
+
+    public function test_missing_fields_plain_text_icon_and_old_contract_are_validated(): void
     {
         $this->actingAs($this->actor());
-        foreach (['unknown-icon', '<svg onload="bad()">', 'javascript:bad'] as $icon) {
-            $this->postJson(self::ADMIN, $this->payload(['icon_key' => $icon]))->assertUnprocessable()->assertJsonValidationErrors('icon_key');
+        foreach (['name', 'description', 'icon', 'url'] as $field) {
+            $data = $this->payload();
+            unset($data[$field]);
+            $this->postJson(self::ADMIN, $data)->assertUnprocessable()->assertJsonValidationErrors($field);
         }
+        foreach (['name' => '<script>alert(1)</script>', 'description' => '<img src=x onerror=alert(1)>', 'icon' => '<svg onload=alert(1)>', 'display_order' => -1] as $field => $value) {
+            $this->postJson(self::ADMIN, $this->payload([$field => $value]))->assertUnprocessable()->assertJsonValidationErrors($field);
+        }
+        $this->postJson(self::ADMIN, $this->payload(['category_id' => 1, 'destination_type' => 'INTERNAL', 'destination' => '/teacher/exams', 'requires_auth' => true]))
+            ->assertUnprocessable()->assertJsonValidationErrors(['category_id', 'destination_type', 'destination', 'requires_auth']);
+        $this->getJson('/api/v1/admin/portal/service-options')->assertNotFound();
+        $this->getJson('/api/v1/admin/portal/service-categories')->assertNotFound();
+        $this->getJson('/api/v1/portal/service-categories')->assertNotFound();
     }
 
-    public function test_partial_edits_revalidate_complete_destination_and_require_revision(): void
+    public function test_revision_conflicts_missing_revision_and_audit_failure_preserve_previous_service(): void
     {
-        $service = $this->service();
-        $path = self::ADMIN."/{$service->id}";
-        $this->patchJson($path, ['name' => 'Nuevo nombre'])->assertUnprocessable()->assertJsonValidationErrors('revision');
-        $this->patchJson($path, ['destination_type' => 'INTERNAL', 'revision' => 1])->assertUnprocessable()->assertJsonValidationErrors('destination');
-        $this->patchJson($path, ['name' => 'Nuevo nombre', 'revision' => 1])->assertOk()->assertJsonPath('data.revision', 2);
-        $this->assertSame('https://www.umss.edu.bo/', $service->refresh()->destination);
-    }
-
-    public function test_stale_edit_and_status_changes_do_not_overwrite_or_add_audits(): void
-    {
-        $service = $this->service();
-        $path = self::ADMIN."/{$service->id}";
-        $this->patchJson($path, ['name' => 'Actualizado', 'revision' => 1])->assertOk();
-        $this->patchJson($path, ['name' => 'Obsoleto', 'revision' => 1])->assertConflict()->assertJsonPath('code', 'REVISION_CONFLICT')->assertJsonPath('current_revision', 2);
-        $this->patchJson($path.'/status', ['status' => 'ACTIVE', 'revision' => 1])->assertConflict();
-        $this->assertSame('Actualizado', $service->refresh()->name);
-        $this->assertSame('INACTIVE', $service->status);
+        $service = $this->service(true);
+        $this->patchJson(self::ADMIN.'/'.$service->id, ['name' => 'Stale', 'revision' => 1])->assertConflict()->assertJsonPath('code', 'REVISION_CONFLICT');
+        $this->patchJson(self::ADMIN.'/'.$service->id.'/status', ['status' => 'INACTIVE', 'revision' => 1])->assertConflict();
+        $this->patchJson(self::ADMIN.'/'.$service->id, ['name' => 'Missing revision'])->assertUnprocessable();
+        $this->mock(AuditLogService::class)->shouldReceive('log')->once()->andThrow(new RuntimeException('Audit unavailable'));
+        $this->patchJson(self::ADMIN.'/'.$service->id, ['name' => 'Rollback', 'revision' => 2])->assertStatus(500);
+        $this->assertSame('WebSISS', $service->fresh()->name);
+        $this->assertSame(2, $service->fresh()->revision);
         $this->assertDatabaseCount('audit_logs', 2);
     }
 
-    public function test_categories_are_active_only_and_inactive_categories_block_activation(): void
+    public function test_public_server_errors_are_controlled_without_exposing_exception_details(): void
     {
-        $service = $this->service();
-        $service->category->update(['is_active' => false]);
-        $this->getJson('/api/v1/portal/service-categories')->assertExactJson(['data' => []]);
-        $this->getJson('/api/v1/admin/portal/service-categories')->assertExactJson(['data' => []]);
-        $this->patchJson(self::ADMIN."/{$service->id}/status", ['status' => 'ACTIVE', 'revision' => 1])
-            ->assertUnprocessable()->assertJsonValidationErrors('category_id');
-        $this->postJson(self::ADMIN, $this->payload())->assertUnprocessable()->assertJsonValidationErrors('category_id');
+        $this->mock(PortalServiceCatalog::class)->shouldReceive('paginate')->andThrow(new RuntimeException('Private database details'));
+        $this->getJson(self::PUBLIC)->assertStatus(500)->assertExactJson([
+            'code' => 'INTERNAL_ERROR', 'message' => 'No se pudo completar la operación de servicios. Intenta nuevamente.',
+        ]);
     }
 
-    public function test_removing_an_internal_route_hides_it_and_prevents_reactivation_but_allows_deactivation(): void
-    {
-        $this->routes();
-        $service = $this->service(true, ['destination_type' => 'INTERNAL', 'destination' => '/qa-private-service', 'requires_auth' => true]);
-        $this->getJson(self::PUBLIC."/{$service->id}")->assertOk();
-        config(['portal_services.internal_destinations' => []]);
-        $this->getJson(self::PUBLIC)->assertJsonCount(0, 'data')->assertJsonPath('meta.total', 0);
-        $this->getJson(self::PUBLIC."/{$service->id}")->assertNotFound();
-        $this->getJson(self::ADMIN."/{$service->id}")->assertOk();
-        $this->patchJson(self::ADMIN."/{$service->id}/status", ['status' => 'ACTIVE', 'revision' => $service->revision])->assertUnprocessable();
-        $this->patchJson(self::ADMIN."/{$service->id}/status", ['status' => 'INACTIVE', 'revision' => $service->revision])->assertOk();
-    }
-
-    public function test_search_filters_numeric_order_and_pagination_do_not_expose_inactive_services(): void
-    {
-        $later = $this->service(true, ['name' => 'Servicio 100%', 'sort_order' => 10]);
-        $earlier = $this->service(true, ['sort_order' => 2]);
-        $sameOrder = $this->service(true, ['sort_order' => 2]);
-        $inactive = $this->service();
-        $this->getJson(self::PUBLIC.'?per_page=1')->assertJsonPath('data.0.id', $earlier->id)->assertJsonPath('meta.total', 3);
-        $this->getJson(self::PUBLIC.'?per_page=1&page=2')->assertJsonPath('data.0.id', $sameOrder->id);
-        $this->getJson(self::PUBLIC.'?search=100%25')->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $later->id);
-        $this->getJson(self::PUBLIC.'?search=SERVICIO&status=INACTIVE')->assertJsonCount(3, 'data');
-        $this->getJson(self::PUBLIC.'?category_id=999')->assertJsonCount(0, 'data');
-        $this->getJson(self::ADMIN.'?status=INACTIVE')->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $inactive->id);
-        $this->getJson(self::PUBLIC.'?page=0')->assertUnprocessable();
-        $this->getJson(self::PUBLIC.'?per_page=101')->assertUnprocessable();
-    }
-
-    public function test_lengths_invalid_categories_and_managed_fields_are_rejected(): void
-    {
-        $this->actingAs($this->actor());
-        foreach ([['name' => ''], ['name' => str_repeat('x', 201)], ['description' => str_repeat('x', 2001)], ['destination' => str_repeat('x', 2049)], ['category_id' => 999], ['sort_order' => -1], ['status' => 'ACTIVE'], ['created_by' => 999], ['destination_type' => 'SCRIPT']] as $changes) {
-            $this->postJson(self::ADMIN, $this->payload($changes))->assertUnprocessable();
-        }
-        $this->assertDatabaseCount('portal_services', 0);
-        $this->assertDatabaseCount('audit_logs', 0);
-    }
-
-    public function test_service_links_never_change_role_or_grant_access_to_protected_endpoints(): void
-    {
-        $this->routes();
-        $service = $this->service(true, ['destination_type' => 'INTERNAL', 'destination' => '/qa-private-service', 'requires_auth' => true]);
-        $student = $this->actor('ESTUDIANTE');
-        $before = $student->activeRoles()->pluck('roles.name')->all();
-        $this->actingAs($student)->getJson(self::PUBLIC."/{$service->id}")->assertOk()->assertJsonPath('data.requires_auth', true);
-        $this->getJson('/api/v1/admin/users')->assertForbidden();
-        $this->getJson('/api/v1/admin/portal/service-options')->assertForbidden();
-        $this->assertSame($before, $student->activeRoles()->pluck('roles.name')->all());
-    }
-
-    public function test_public_reads_leave_existing_modules_and_audit_unchanged(): void
+    public function test_migration_retires_internal_links_preserving_records_and_audit_and_allows_categoryless_creation(): void
     {
         $service = $this->service(true);
-        $tables = ['portal_services', 'portal_events', 'portal_news', 'portal_information_contents', 'audit_logs', 'exams', 'exam_eligibilities', 'exam_entries'];
-        $before = [];
-        foreach ($tables as $table) {
-            $before[$table] = DB::table($table)->get()->toJson();
-        }
-        $this->app['auth']->forgetGuards();
-        $this->getJson(self::PUBLIC)->assertOk();
-        $this->getJson(self::PUBLIC."/{$service->id}")->assertOk();
-        foreach ($tables as $table) {
-            $this->assertSame($before[$table], DB::table($table)->get()->toJson());
-        }
-    }
-
-    public function test_audit_failure_rolls_back_creation(): void
-    {
-        $this->actingAs($this->actor());
-        $this->mock(AuditLogService::class)->shouldReceive('log')->once()->andThrow(new RuntimeException('Audit unavailable'));
-        $this->postJson(self::ADMIN, $this->payload())->assertStatus(500);
-        $this->assertDatabaseCount('portal_services', 0);
-    }
-
-    public function test_missing_resources_and_invalid_status_are_rejected(): void
-    {
-        $service = $this->service();
-        $this->getJson(self::ADMIN.'/999')->assertNotFound();
-        $this->patchJson(self::ADMIN.'/999', ['name' => 'Nuevo', 'revision' => 1])->assertNotFound();
-        $this->patchJson(self::ADMIN."/{$service->id}/status", ['status' => 'PUBLISHED', 'revision' => 1])->assertUnprocessable();
-        $this->patchJson(self::ADMIN."/{$service->id}/status", ['status' => 'ACTIVE'])->assertUnprocessable()->assertJsonValidationErrors('revision');
-    }
-
-    public function test_public_login_hint_respects_current_backend_destination_requirements(): void
-    {
-        $this->routes();
-        $service = $this->service(true, ['destination_type' => 'INTERNAL', 'destination' => '/qa-public-service', 'requires_auth' => false]);
-        $this->getJson(self::PUBLIC."/{$service->id}")->assertJsonPath('data.requires_auth', false);
-        config(['portal_services.internal_destinations' => [
-            ['path' => '/qa-public-service', 'label' => 'Ruta de prueba ahora protegida', 'requires_auth' => true],
-        ]]);
-        $this->getJson(self::PUBLIC."/{$service->id}")->assertJsonPath('data.requires_auth', true);
-        $this->getJson(self::ADMIN."/{$service->id}")->assertJsonPath('data.requires_auth', false);
-        $this->patchJson(self::ADMIN."/{$service->id}", ['requires_auth' => false, 'revision' => $service->revision])
-            ->assertUnprocessable()->assertJsonValidationErrors('requires_auth');
-    }
-
-    public function test_failed_modification_preserves_previous_service_and_public_card(): void
-    {
-        $service = $this->service(true);
-        $revision = $service->revision;
-        $this->mock(AuditLogService::class)->shouldReceive('log')->once()->andThrow(new RuntimeException('Audit unavailable'));
-        $this->patchJson(self::ADMIN."/{$service->id}", ['name' => 'Cambio que debe revertirse', 'revision' => $revision])->assertStatus(500);
-        $this->assertSame($revision, $service->refresh()->revision);
-        $this->getJson(self::PUBLIC."/{$service->id}")->assertOk()->assertJsonPath('data.name', 'Servicio de prueba');
-        $this->assertDatabaseCount('audit_logs', 2);
+        $category = PortalServiceCategory::create(['name' => 'Categoría anterior']);
+        $service->forceFill(['category_id' => $category->id, 'destination_type' => 'INTERNAL', 'destination' => '/teacher/exams'])->save();
+        $migration = require database_path('migrations/2026_11_03_000001_adapt_portal_services_to_external_links.php');
+        $migration->up();
+        $this->assertSame('INACTIVE', $service->fresh()->status);
+        $this->assertSame(3, $service->fresh()->revision);
+        $this->assertSame($category->id, $service->fresh()->category_id);
+        $this->assertDatabaseHas('audit_logs', ['entity_id' => $service->id, 'action' => 'PORTAL_SERVICE_INTERNAL_RETIRED', 'user_id' => null]);
+        $this->assertDatabaseCount('portal_services', 1);
+        $migration->up();
+        $this->assertSame(1, AuditLog::where('action', 'PORTAL_SERVICE_INTERNAL_RETIRED')->count());
+        $this->postJson(self::ADMIN, $this->payload())->assertCreated();
+        $this->assertDatabaseHas('portal_services', ['category_id' => null, 'destination_type' => 'EXTERNAL', 'requires_auth' => false]);
     }
 }
