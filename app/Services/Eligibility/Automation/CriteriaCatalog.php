@@ -106,15 +106,15 @@ class CriteriaCatalog
             if ($code === 'MIN_ACCUMULATED_SCORE' && $validated['minimum_total'] > count($validated['assessment_keys']) * 100) {
                 throw ValidationException::withMessages([$field => 'El puntaje supera el máximo posible.']);
             }
-            if ($type === 'makeup' && $code === 'MIN_ASSESSMENT_AVERAGE' && count($validated['assessment_keys']) === 2) {
+            if ($type === 'makeup' && in_array(self::SECOND, $definition['allowed_criteria'], true) && $code === 'MIN_ASSESSMENT_AVERAGE' && count($validated['assessment_keys']) === 2) {
                 $message = 'El promedio de ambos parciales ya está definido por el criterio obligatorio de segunda instancia.';
                 throw new HttpResponseException(response()->json(['code' => 'CRITERIA_CONFLICT', 'message' => $message, 'errors' => [$field => [$message]]], 422));
             }
             $criterion = ['code' => $code, 'parameters' => $validated, 'required' => false, 'locked' => false];
         }
         unset($criterion);
-        if ($type === 'makeup') {
-            $criteria[] = ['code' => self::SECOND, 'parameters' => [], 'required' => true, 'locked' => true];
+        if ($type === 'makeup' && in_array(self::SECOND, $definition['allowed_criteria'], true)) {
+            $criteria[] = ['code' => self::SECOND, 'parameters' => ['assessment_keys' => self::ASSESSMENTS, 'operator' => 'GT', 'threshold' => 25], 'required' => true, 'locked' => true];
         }
 
         return $criteria;

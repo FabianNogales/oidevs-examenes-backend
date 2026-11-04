@@ -1,77 +1,98 @@
-# HU34 — Habilitación académica automática
+# HU34 — Catálogo global y habilitación académica automática
 
-Base `/api/v1`. Propuesta funcional del equipo para revisión de la ingeniera. No existe circuito de aprobación externa ni referencia institucional obligatoria. La migración instala una política inicial ACTIVE; no requiere cargar datos de demostración ni ejecutar un seeder.
+Base `/api/v1`. Contrato definitivo acordado con frontend: ADMIN controla seis criterios globales; DOCENTE configura parámetros por examen. Propuesta funcional del equipo para revisión de la ingeniera, sin aprobaciones externas.
+
+Respuestas HTTP reales de integración local: [catálogo ADMIN, options y configuration para final y segunda instancia](examples/hu34/global_catalog_responses.json). Son ejemplos de datos locales; consumir siempre los IDs/revisiones actuales de la API.
 
 ## Permisos y compatibilidad
 
-- Administración de políticas: ADMINISTRADOR activo.
-- Configuración, datos académicos, previews, confirmaciones e historial: DOCENTE responsable de la oferta/examen, activo. Un colaborador temporal no adquiere estos permisos.
-- Sanctum, sesión vigente y cambio inicial de contraseña siguen siendo obligatorios.
-- HU12 conserva sus respuestas, estados ELIGIBLE/INELIGIBLE, reason, revision y 409. No se añade PENDING persistente.
-- Las nuevas decisiones de HU12, individuales o CSV, se marcan MANUAL. Las inicializaciones futuras se marcan INITIALIZED. Los registros existentes se conservan como LEGACY, sin adivinar su origen desde auditoría. MANUAL y LEGACY se preservan en evaluaciones automáticas.
-- La automatización no registra ingresos ni reemplaza las validaciones de HU13/MANUAL/QR.
-- `makeup` es segunda instancia, según el enum existente. No inferirlo del nombre del examen.
-- No se agrega un cierre nuevo de configuración al inicio del examen: no fue acordado. La disponibilidad de ingreso sigue siendo independiente.
+- ADMINISTRADOR activo: catálogo global, nombres/descripciones y ACTIVE/INACTIVE. No crea tipos de cálculo ni elimina criterios.
+- DOCENTE activo responsable: configuración, datos académicos, evaluación e historial. Un colaborador temporal no adquiere estos permisos.
+- Sanctum, sesión vigente y cambio inicial de contraseña siguen vigentes.
+- HU12 conserva data como array, estados ELIGIBLE/INELIGIBLE, reason, revision y conflictos. Se agrega `exam: {id, manual_review_conditions}` junto a data.
+- MANUAL/LEGACY tienen prioridad. AUTOMATIC/INITIALIZED permiten actualización automática. PENDING nunca se persiste en HU12 ni autoriza ingreso.
+- No registra ingresos ni cambia las validaciones de HU13/MANUAL/QR.
+- `makeup` identifica segunda instancia, nunca inferir del título.
+- Las tablas de políticas y snapshots históricos se conservan. Los endpoints `/admin/eligibility-policies` se retiran (404); sus definiciones no gobiernan nuevos cálculos. Los IDs internos se conservan como referencias históricas/FK, no requieren interacción administrativa.
 
-## Catálogo y configuración
+## Catálogo ADMIN
 
-GET `/exams/{exam_id}/eligibility-automation/options`
+- GET `/admin/eligibility-criteria`: search (vacío sin filtro), status, page/per_page; data + meta y catalog_revision.
+- GET `/admin/eligibility-criteria/{code}`.
+- PATCH `/admin/eligibility-criteria/{code}`: `{revision, name?, description?}`. Nombre obligatorio si se envía, máximo 200; descripción nullable máximo 1000. Texto plano.
+- PATCH `/admin/eligibility-criteria/{code}/status`: `{revision, status: ACTIVE|INACTIVE}`.
+- GET `/admin/eligibility-criteria/{code}/history`: data + meta, auditoría con responsable/fecha/antes/después.
+- No POST/DELETE. Rechaza campos adicionales y cambios de code/fórmula/umbrales globales.
+- Un cambio real incrementa revision y catalog_revision; repetir el valor vigente no genera una revisión ficticia.
 
-GET `/exams/{exam_id}/eligibility-automation/configuration`
-
-PUT `/exams/{exam_id}/eligibility-automation/configuration`
-
-Respuesta de configuración bajo `data`:
+Un elemento de data:
 
 ```json
 {
-  "exam_id": 26,
-  "evaluation_type": "makeup",
+  "code": "MIN_ATTENDANCE_PERCENTAGE",
+  "name": "Porcentaje mínimo de asistencia",
+  "description": null,
+  "status": "ACTIVE",
   "revision": 1,
-  "combination": "ALL",
-  "policy": {"id": 1, "version": 1, "origin": "TEAM_PROPOSAL"},
-  "selected_criteria": [],
-  "mandatory_criteria": [
-    {"code": "SECOND_INSTANCE_PARTIAL_AVERAGE", "parameters": {}, "required": true, "locked": true}
-  ],
-  "criteria": [
-    {"code": "SECOND_INSTANCE_PARTIAL_AVERAGE", "parameters": {}, "required": true, "locked": true}
-  ]
+  "parameters": [{"key":"minimum_percentage","required":true,"type":"number","minimum_exclusive":0,"maximum":100}],
+  "mandatory_for_exam_types": [],
+  "fixed_parameters": null
 }
 ```
 
-En options, `criteria` describe el catálogo disponible con `label`, `required`, `locked` y esquemas `parameters`; incluye además `assessments` con FIRST_PARTIAL/Primer parcial y SECOND_PARTIAL/Segundo parcial. El criterio de segunda instancia incluye `operator: GT` y `threshold: 25` en la política inicial. Frontend consume estos datos, no replica fórmulas.
+Seis códigos fijos:
 
-| code | Parámetros |
+| code | Parámetros por examen |
 | --- | --- |
-| PREVIOUS_ASSESSMENTS_TAKEN | assessment_keys: lista no vacía de evaluaciones |
-| MIN_ATTENDANCE_PERCENTAGE | minimum_percentage: > 0 y <= 100 |
+| PREVIOUS_ASSESSMENTS_TAKEN | assessment_keys: lista no vacía de FIRST_PARTIAL/SECOND_PARTIAL |
+| MIN_ATTENDANCE_PERCENTAGE | minimum_percentage: >0 y <=100 |
 | MIN_ASSESSMENT_SCORE | assessment_key, minimum_score: 0–100 |
-| MIN_ACCUMULATED_SCORE | assessment_keys, minimum_total: 0–100 × cantidad de evaluaciones |
+| MIN_ACCUMULATED_SCORE | assessment_keys, minimum_total: 0–100 × cantidad |
 | MIN_ASSESSMENT_AVERAGE | assessment_keys, minimum_average: 0–100 |
-| SECOND_INSTANCE_PARTIAL_AVERAGE | sin parámetros editables por docente; solo makeup |
+| SECOND_INSTANCE_PARTIAL_AVERAGE | Fijos: assessment_keys [FIRST_PARTIAL, SECOND_PARTIAL], operator GT, threshold 25 |
 
-La primera versión admite dos claves académicas lógicas: FIRST_PARTIAL y SECOND_PARTIAL. No son IDs de exámenes ni lecturas automáticas de asistencia a exámenes. Las notas y asistencia a clases se importan explícitamente para la oferta. No hay fórmulas libres ni ponderaciones arbitrarias.
+Hasta dos decimales; sin fórmulas libres. Evaluaciones académicas y asistencia a clases se importan explícitamente por oferta, no se deducen de ingresos a exámenes.
 
-PUT ejemplo:
+## Configuración DOCENTE
+
+- GET `/exams/{exam_id}/eligibility-automation/options`.
+- GET `/exams/{exam_id}/eligibility-automation/configuration`.
+- PUT `/exams/{exam_id}/eligibility-automation/configuration`.
+
+Options entrega configuration_revision como `revision`, catalog_revision, assessments y criteria activos aplicables. Cada opción incluye los campos del catálogo ADMIN más label/required/locked. `parameters` es una lista de esquemas (key/type/required/minimum/maximum/minimum_exclusive/options/min_items). `fixed_parameters` es null o los parámetros de segunda instancia. Frontend usa code, nunca name/label, como identidad.
+
+Configuration bajo data:
 
 ```json
 {
-  "revision": 0,
-  "criteria": [
-    {"code": "MIN_ATTENDANCE_PERCENTAGE", "parameters": {"minimum_percentage": 90}},
-    {"code": "PREVIOUS_ASSESSMENTS_TAKEN", "parameters": {"assessment_keys": ["FIRST_PARTIAL", "SECOND_PARTIAL"]}}
-  ]
+  "exam_id":26,
+  "evaluation_type":"final",
+  "configured_evaluation_type":"final",
+  "revision":1,
+  "catalog_revision":"<identificador opaco de 64 caracteres>",
+  "combination":"ALL",
+  "selected_criteria":[{"code":"MIN_ATTENDANCE_PERCENTAGE","name":"Asistencia mínima","description":null,"status":"ACTIVE","criterion_revision":1,"parameters":{"minimum_percentage":90},"required":false,"locked":false}],
+  "mandatory_criteria":[],
+  "inactive_criteria":[],
+  "criteria":[{"code":"MIN_ATTENDANCE_PERCENTAGE","name":"Asistencia mínima","description":null,"status":"ACTIVE","criterion_revision":1,"parameters":{"minimum_percentage":90},"required":false,"locked":false}],
+  "manual_review_conditions":"Verificar entrega del proyecto."
 }
 ```
 
-`revision: 0` representa configuración todavía no guardada. `criteria: []` es válido. No enviar el criterio obligatorio: backend lo incorpora siempre para makeup. `policy_id` es opcional: permite seleccionar explícitamente otra versión ACTIVE; una configuración guardada queda vinculada a esa versión aunque se active otra posteriormente.
+PUT:
 
-Todos los criterios se combinan con AND. Los mínimos opcionales usan >=; segunda instancia usa promedio simple > 25, sin redondear antes de comparar. Valores numéricos: hasta dos decimales. La suma acumulada no tiene ponderaciones.
+```json
+{"revision":1,"catalog_revision":"<valor recibido>","criteria":[{"code":"MIN_ATTENDANCE_PERCENTAGE","parameters":{"minimum_percentage":80}}],"manual_review_conditions":"Verificar entrega del proyecto."}
+```
 
-Códigos duplicados, parámetros extra, rangos imposibles o criterios obligatorios enviados como opcionales: 422. Promedio opcional sobre los dos parciales en makeup: 422 `CRITERIA_CONFLICT`, pues ya lo define el obligatorio. Asistencia, nota individual y otros requisitos adicionales sí pueden coexistir. No se considera contradictorio que un criterio adicional sea más exigente.
-
-Guardar incrementa revision y audita; no cambia habilitaciones. La respuesta incluye configured_evaluation_type. Si el examen cambia de tipo posteriormente, todavía puede consultarse/corregirse la configuración; preview vuelve a validar su compatibilidad y exige volver a guardarla (409 si el tipo configurado difiere del vigente).
+- revision=0 antes del primer guardado. criteria es la selección opcional completa; [] es válido. No enviar policy_id.
+- Backend añade obligatorios. Rechaza códigos desconocidos/duplicados/inactivos, parámetros extra o fuera de rango.
+- Configuración y umbrales independientes por examen. Guardar no modifica habilitaciones.
+- makeup + SECOND activo: obligatorio bloqueado, promedio estricto >25, parámetros fijos de solo lectura. ADMIN sí puede desactivarlo.
+- Criterio opcional desactivado: conserva selección en inactive_criteria, queda fuera de criteria efectivos. Reactivarlo recupera la selección si todavía estaba guardada; guardar una selección nueva sin él lo retira de la configuración.
+- Segunda instancia desactivada permite un promedio opcional de ambos parciales. Activa + promedio opcional de ambos: 422 CRITERIA_CONFLICT hasta corregir configuración.
+- manual_review_conditions: opcional nullable, texto plano máximo 500. Omitido conserva, null/vacío limpia. Misma revision del examen. Visible en HU12, snapshots y auditoría; no interviene en cálculo ni condiciones de ingreso.
+- Ayuda: «Estas condiciones son recordatorios. EIDA no las evalúa automáticamente. El docente debe verificarlas y gestionar la habilitación manualmente.»
 
 ## CSV — preview y confirmación
 
@@ -149,10 +170,10 @@ GET `/academic-offerings/{offering_id}/academic-records/history` conserva import
 POST `/exams/{exam_id}/eligibility-automation/evaluations/preview`
 
 ```json
-{"configuration_revision":1}
+{"configuration_revision":1,"catalog_revision":"<valor opaco de options/configuration>"}
 ```
 
-Requiere configuración guardada. Evalúa estudiantes con inscripción ACTIVE. Guarda un snapshot histórico y devuelve `data` con id, preview_id, expires_at, created_by, created_at, configuration, policy_definition, results, meta y summary. `results` se pagina con page/per_page (también en este POST por query string); summary es global al preview.
+Requiere configuración guardada. Evalúa estudiantes con inscripción ACTIVE. Guarda un snapshot histórico y devuelve `data` con id, preview_id, expires_at, created_by, created_at, configuration, catalog, results y summary. `results` contiene `data` y `meta` (current_page/per_page/total/last_page); se pagina con page/per_page (también en este POST por query string); summary es global al preview.
 
 Ejemplo de una fila:
 
@@ -167,7 +188,6 @@ Ejemplo de una fila:
   "reason":"Porcentaje mínimo de asistencia: no cumple.",
   "missing_fields":[],
   "eligibility_revision":3,
-  "policy":{"id":1,"version":1},
   "criteria_results":[{"code":"MIN_ATTENDANCE_PERCENTAGE","status":"FAILED","actual_value":80,"required_value":90,"operator":"GTE","reason":"Porcentaje mínimo de asistencia: no cumple.","missing_fields":[]}]
 }
 ```
@@ -182,7 +202,7 @@ Ejemplo de una fila:
 
 POST `/exams/{exam_id}/eligibility-automation/evaluations/{preview_id}/confirm`
 
-Sin payload. Solo el creador y responsable actual. Vigencia 30 minutos. Revalida snapshot completo bajo bloqueos, incluyendo examen, política/configuración, inscripciones, registros académicos y revisiones de habilitación. Si algo cambió: 409, generar otro preview.
+Sin payload. Solo el creador y responsable actual. Vigencia 30 minutos. Revalida snapshot completo bajo bloqueos, incluyendo examen, catálogo global/configuración, inscripciones, registros académicos y revisiones de habilitación. Si algo cambió: 409, generar otro preview.
 
 ```json
 {"data":{"evaluation_id":15,"updated":18,"unchanged":4,"manual_preserved":2,"pending":1}}
@@ -194,37 +214,20 @@ GET `/exams/{exam_id}/eligibility-automation/evaluations`
 
 GET `/exams/{exam_id}/eligibility-automation/evaluations/{evaluation_id}?page=1&per_page=10`
 
-Listado paginado de previews/confirmaciones y detalle del snapshot original. Conserva resultados aunque cambien notas/políticas posteriormente. El detalle utiliza el mismo formato de results/meta/summary que preview.
+Listado paginado de previews/confirmaciones y detalle del snapshot original. Conserva resultados aunque cambien notas/criterios posteriormente. El detalle utiliza el mismo formato de results/meta/summary que preview.
 
-## Políticas versionadas
+## Revisiones, errores y despliegue
 
-- GET/POST `/admin/eligibility-policies`
-- GET/PATCH `/admin/eligibility-policies/{policy_id}`
-- POST `/admin/eligibility-policies/{policy_id}/versions`
-- POST `/admin/eligibility-policies/{policy_id}/activate`
-
-Crear/clonar: `name` obligatorio, definition opcional (omitida utiliza catálogo inicial). PATCH de borrador exige revision y permite name/definition. Activar exige revision. DRAFT es editable; ACTIVE es inmutable. Cambiar una versión activa requiere crear otra. No hay aprobación externa.
-
-Definición configurable acotada, sin fórmulas ejecutables:
-
-```json
-{
-  "origin":"TEAM_PROPOSAL",
-  "combination":"ALL",
-  "allowed_criteria":["PREVIOUS_ASSESSMENTS_TAKEN","MIN_ATTENDANCE_PERCENTAGE","MIN_ASSESSMENT_SCORE","MIN_ACCUMULATED_SCORE","MIN_ASSESSMENT_AVERAGE","SECOND_INSTANCE_PARTIAL_AVERAGE"],
-  "second_instance":{"evaluation_type":"makeup","operator":"GT","threshold":25}
-}
-```
-
-El administrador puede versionar el umbral de segunda instancia y las opciones admitidas para incorporar correcciones de la ingeniera. El docente no puede cambiar el umbral obligatorio. La política siempre debe admitir el criterio obligatorio.
-
-## Errores, fechas y despliegue
-
-- 401 sin sesión; 403 sin permisos; 404 recurso inexistente o preview ajeno.
-- 422 validación; CRITERIA_CONFLICT para combinación de promedios incompatible.
-- 409 AUTOMATION_CONFLICT para revision desactualizada, preview vencido o datos cambiados. No confirmar localmente tras 409.
-- Fechas ISO 8601 como instantes; presentar en America/La_Paz. Los vencimientos no dependen del timezone de PostgreSQL.
-- Listados: data + meta.current_page/per_page/total/last_page. Default 10, máximo 100.
-- Ejecutar `php artisan migrate` antes de integrar. Dos migraciones nuevas aditivas; no migrate:fresh.
-- Nuevas tablas: eligibility_policies, exam_eligibility_configurations, academic_records, academic_imports, eligibility_evaluations. Se reutilizan eligibility_criteria, exam_eligibility_criteria y student_criterion_results. Auditoría reutiliza audit_logs.
-- students, usuarios, inscripciones, entradas y tablas del portal no se reescriben.
+- `revision` del criterio protege edición ADMIN; `revision` de configuración protege el examen.
+- `catalog_revision` es opaco, no se calcula en frontend. Se exige al guardar configuración y generar preview.
+- Todo cambio global de nombre, descripción o estado invalida previews pendientes, incluso de criterios no seleccionados. Se comprueba de nuevo dentro de la transacción de confirmación.
+- Bloqueos en orden catálogo → examen → oferta → habilitaciones. ADMIN y evaluación comparten el bloqueo de catálogo para serializar cambios concurrentes.
+- Evaluaciones confirmadas son históricas: repetir confirmación devuelve su resultado original aun si el catálogo cambió después.
+- Previews anteriores al cambio de modelo siguen consultables pero deben regenerarse para confirmar (409).
+- 401 sin sesión; 403 sin permisos; 404 recurso inexistente/preview ajeno.
+- 409 `AUTOMATION_CONFLICT`: revisión/catálogo/datos cambiados o preview vencido. Recargar y regenerar, nunca confirmar localmente.
+- 422 `CRITERIA_CONFLICT`: combinación incompatible. Otras validaciones 422 conservan el formato Laravel message + errors cuando corresponde; no inventar un código adicional obligatorio.
+- Resultados: results.data + results.meta; summary global. Listados: data + meta. Default 10, máximo 100.
+- Fechas ISO 8601; presentación America/La_Paz. Vencimiento 30 minutos.
+- Ejecutar `php artisan migrate` antes de integrar, sin migrate:fresh. Nueva migración 2026_11_04_000001 añade revision al catálogo y manual_review_conditions a configuración; created_by nullable para los criterios de sistema. Inicializa los seis códigos faltantes sin reemplazar filas existentes.
+- No elimina políticas/evaluaciones, no copia decisiones ni reescribe usuarios, inscripciones, entradas o tablas del portal.

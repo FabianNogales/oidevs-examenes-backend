@@ -13,7 +13,7 @@ use Illuminate\Support\Str;
 class EvaluationService
 {
     public function __construct(private AutomationSupport $support, private ConfigurationService $configuration,
-        private AcademicDataService $academic, private CriteriaEvaluator $evaluator) {}
+        private AcademicDataService $academic, private CriteriaEvaluator $evaluator, private GlobalCriteriaCatalog $global) {}
 
     private function snapshot(Exam $exam): array
     {
@@ -33,16 +33,18 @@ class EvaluationService
     public function preview(Request $request, int $examId): EligibilityEvaluation
     {
         $input = $request->validate(['configuration_revision' => ['required', 'integer', 'min:1'],
+            'catalog_revision' => ['required', 'string', 'size:64'],
             'page' => ['sometimes', 'integer', 'min:1'], 'per_page' => ['sometimes', 'integer', 'min:1', 'max:100']]);
 
         return DB::transaction(function () use ($request, $examId, $input) {
+            $this->global->rows(true);
             $exam = $this->support->exam($request, $examId, true);
             $configuration = $this->configuration->data($exam);
-            if ($configuration['revision'] !== (int) $input['configuration_revision']) {
+            if ($configuration['revision'] !== (int) $input['configuration_revision'] || $configuration['catalog_revision'] !== $input['catalog_revision']) {
                 $this->support->conflict('Guarda o actualiza la configuración antes de evaluar.');
             }
             app(CriteriaCatalog::class)->selection(array_map(fn ($c) => array_intersect_key($c, ['code' => true, 'parameters' => true]), $configuration['selected_criteria']),
-                (string) $exam->evaluation_type, $this->configuration->policy($exam)->definition);
+                (string) $exam->evaluation_type, $this->global->definition());
             if ($configuration['configured_evaluation_type'] !== $exam->evaluation_type) {
                 $this->support->conflict('Cambió el tipo del examen. Revisa y guarda la configuración antes de evaluar.');
             }
@@ -50,12 +52,22 @@ class EvaluationService
             ExamEligibility::where('exam_id', $examId)->orderBy('student_id')->lockForUpdate()->get();
             $snapshot = $this->snapshot($exam);
             $policy = $this->configuration->policy($exam);
+            $definition = $this->global->definition();
             $records = AcademicRecord::where('course_offering_id', $exam->course_offering_id)->get()->keyBy('student_id');
             $eligibilities = ExamEligibility::where('exam_id', $examId)->get()->keyBy('student_id');
             $results = [];
             foreach ($snapshot['students'] as $student) {
                 $current = $eligibilities->get($student->id);
-                $criteria = array_map(fn ($criterion) => $this->evaluator->evaluate($criterion, $records->get($student->id), $policy->definition), $configuration['criteria']);
+                $criteria = array_map(function ($criterion) use ($records, $student, $definition) {
+                    $result = $this->evaluator->evaluate($criterion, $records->get($student->id), $definition);
+                    $result['name'] = $criterion['name'];
+                    $result['criterion_revision'] = $criterion['criterion_revision'];
+                    $result['reason'] = $criterion['name'].': '.match ($result['status']) {
+                        'PASSED' => 'cumple.', 'FAILED' => 'no cumple.', default => 'faltan datos académicos.',
+                    };
+
+                    return $result;
+                }, $configuration['criteria']);
                 $statuses = array_column($criteria, 'status');
                 $computed = in_array('FAILED', $statuses, true) ? 'INELIGIBLE'
                     : ((! $criteria || in_array('PENDING', $statuses, true)) ? 'PENDING' : 'ELIGIBLE');
@@ -67,15 +79,17 @@ class EvaluationService
                 if ($reason === '') {
                     $reason = 'Cumple todos los criterios seleccionados.';
                 }
-                $results[] = ['student' => ['id' => (int) $student->id, 'display_name' => trim($student->first_names.' '.$student->last_names), 'sis' => $student->sis_code],
+                $results[] = ['student_id' => (int) $student->id,
+                    'student' => ['id' => (int) $student->id, 'display_name' => trim($student->first_names.' '.$student->last_names), 'sis' => $student->sis_code],
                     'computed_status' => $computed, 'current_status' => $currentStatus, 'effective_status' => $canApply ? $computed : $currentStatus,
                     'manual_override_preserved' => $preserve, 'will_update' => $canApply,
                     'reason' => $reason, 'missing_fields' => array_values(array_unique(array_merge(...array_column($criteria, 'missing_fields')))),
-                    'eligibility_revision' => $current?->revision, 'policy' => ['id' => $policy->id, 'version' => $policy->version], 'criteria_results' => $criteria];
+                    'eligibility_revision' => $current?->revision, 'criteria_results' => $criteria];
             }
             $evaluation = EligibilityEvaluation::create(['preview_id' => (string) Str::uuid(), 'exam_id' => $examId,
                 'eligibility_policy_id' => $policy->id, 'created_by' => $request->user()->id,
-                'snapshot' => ['fingerprint' => $this->fingerprint($snapshot), 'configuration' => $configuration, 'policy_definition' => $policy->definition],
+                'snapshot' => ['fingerprint' => $this->fingerprint($snapshot), 'configuration' => $configuration,
+                    'catalog' => $this->global->rows()->map(fn ($row) => $this->global->data($row))->all()],
                 'results' => $results, 'expires_at' => now()->addMinutes(30)]);
             $this->support->audit($request, 'ELIGIBILITY_EVALUATION_PREVIEWED', 'Exam', $examId, null, ['evaluation_id' => $evaluation->id, 'preview_id' => $evaluation->preview_id]);
 
@@ -86,6 +100,7 @@ class EvaluationService
     public function confirm(Request $request, int $examId, string $preview): array
     {
         return DB::transaction(function () use ($request, $examId, $preview) {
+            $this->global->rows(true);
             $exam = $this->support->exam($request, $examId, true);
             $evaluation = EligibilityEvaluation::where('preview_id', $preview)->where('exam_id', $examId)->where('created_by', $request->user()->id)->lockForUpdate()->firstOrFail();
             if ($evaluation->confirmed_at) {
@@ -142,9 +157,13 @@ class EvaluationService
         return ['id' => $evaluation->id, 'preview_id' => $evaluation->preview_id, 'exam_id' => $evaluation->exam_id,
             'expires_at' => $evaluation->expires_at->toIso8601String(), 'confirmed_at' => $evaluation->confirmed_at?->toIso8601String(),
             'created_by' => $evaluation->created_by, 'created_at' => $evaluation->created_at->toIso8601String(),
-            'configuration' => $evaluation->snapshot['configuration'], 'policy_definition' => $evaluation->snapshot['policy_definition'],
-            'confirmation' => $evaluation->confirmation, 'results' => array_slice($results, ($page - 1) * $size, $size),
-            'meta' => ['current_page' => $page, 'per_page' => $size, 'total' => count($results), 'last_page' => max(1, (int) ceil(count($results) / $size))],
+            'configuration' => $evaluation->snapshot['configuration'],
+            'catalog' => $evaluation->snapshot['catalog'] ?? null,
+            // Retain the original definition for historical evaluations created before the catalog.
+            'policy_definition' => $evaluation->snapshot['policy_definition'] ?? null,
+            'confirmation' => $evaluation->confirmation,
+            'results' => ['data' => array_slice($results, ($page - 1) * $size, $size),
+                'meta' => ['current_page' => $page, 'per_page' => $size, 'total' => count($results), 'last_page' => max(1, (int) ceil(count($results) / $size))]],
             'summary' => ['total' => count($results), 'eligible' => count(array_filter($results, fn ($r) => $r['computed_status'] === 'ELIGIBLE')),
                 'ineligible' => count(array_filter($results, fn ($r) => $r['computed_status'] === 'INELIGIBLE')), 'pending' => count(array_filter($results, fn ($r) => $r['computed_status'] === 'PENDING'))]];
     }

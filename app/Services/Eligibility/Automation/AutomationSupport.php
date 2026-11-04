@@ -19,7 +19,9 @@ class AutomationSupport
                 return $value;
             }
             foreach ($value as $key => $item) {
-                $value[$key] = $key === 'parameters' && $item === [] ? (object) [] : $normalize($item);
+                // Catalog parameters are a list of field schemas; historical selections use an object.
+                $value[$key] = $key === 'parameters' && $item === [] && ! array_key_exists('mandatory_for_exam_types', $value)
+                    ? (object) [] : $normalize($item);
             }
 
             return $value;

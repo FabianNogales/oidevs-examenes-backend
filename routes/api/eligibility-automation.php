@@ -2,18 +2,17 @@
 
 use App\Http\Controllers\Api\V1\Eligibility\AcademicRecordController;
 use App\Http\Controllers\Api\V1\Eligibility\EligibilityAutomationController;
+use App\Http\Controllers\Api\V1\Eligibility\EligibilityCriterionController;
 use App\Http\Controllers\Api\V1\Eligibility\EligibilityEvaluationController;
-use App\Http\Controllers\Api\V1\Eligibility\EligibilityPolicyController;
 use App\Http\Middleware\EnsureActiveAdministrator;
 use Illuminate\Support\Facades\Route;
 
-Route::prefix('admin/eligibility-policies')->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])->group(function () {
-    Route::get('/', [EligibilityPolicyController::class, 'index']);
-    Route::post('/', [EligibilityPolicyController::class, 'store']);
-    Route::get('/{policy}', [EligibilityPolicyController::class, 'show'])->whereNumber('policy');
-    Route::patch('/{policy}', [EligibilityPolicyController::class, 'update'])->whereNumber('policy');
-    Route::post('/{policy}/activate', [EligibilityPolicyController::class, 'activate'])->whereNumber('policy');
-    Route::post('/{policy}/versions', [EligibilityPolicyController::class, 'store'])->whereNumber('policy');
+Route::prefix('admin/eligibility-criteria')->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])->group(function () {
+    Route::get('/', [EligibilityCriterionController::class, 'index']);
+    Route::get('/{code}', [EligibilityCriterionController::class, 'show']);
+    Route::patch('/{code}', [EligibilityCriterionController::class, 'update']);
+    Route::patch('/{code}/status', [EligibilityCriterionController::class, 'status']);
+    Route::get('/{code}/history', [EligibilityCriterionController::class, 'history']);
 });
 
 Route::middleware(['auth:sanctum', 'session.current', 'password.changed', 'teacher.role'])->group(function () {
