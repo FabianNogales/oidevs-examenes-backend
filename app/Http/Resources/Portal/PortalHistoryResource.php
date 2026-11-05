@@ -51,7 +51,7 @@ class PortalHistoryResource extends JsonResource
         if ($this->entity_type === 'PortalNews') {
             // History describes attachment changes without exposing private paths
             // or promising access to files removed by the agreed replacement flow.
-            $result['has_image'] = ! empty($values['image_path']);
+            $result['has_image'] = (! empty($values['image_id']) || ! empty($values['image_path']));
         }
         if ($this->entity_type === 'PortalInformationContent') {
             foreach (['draft', 'published'] as $field) {

@@ -8,9 +8,9 @@ use App\Http\Resources\Students\StudentDetailResource;
 use App\Models\Exam;
 use App\Models\Student;
 use App\Services\Entries\EntryControlService;
+use App\Services\Images\DatabaseImageService;
 use App\Services\Students\HistoricalPhotoService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class HistoricalPhotoController extends Controller
@@ -25,10 +25,7 @@ class HistoricalPhotoController extends Controller
 
     public function show(Student $student): StreamedResponse
     {
-        abort_unless($student->historical_photo && Storage::disk('local')->exists($student->historical_photo), 404);
-
-        return Storage::disk('local')->response($student->historical_photo, null,
-            ['Cache-Control' => 'private, no-store', 'X-Content-Type-Options' => 'nosniff'], 'inline');
+        return app(DatabaseImageService::class)->response($student->historical_image_id, 'historical', $student->id, $student->historical_photo);
     }
 
     public function entry(int $examId, int $studentId, EntryControlService $entry): StreamedResponse

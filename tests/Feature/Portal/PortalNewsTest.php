@@ -12,6 +12,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
+use Tests\Support\RasterImageFixture;
 use Tests\TestCase;
 
 class PortalNewsTest extends TestCase
@@ -62,7 +63,7 @@ class PortalNewsTest extends TestCase
     {
         $this->postJson(self::ADMIN."/{$news->id}/image", [
             'revision' => $revision ?? $news->revision,
-            'image' => UploadedFile::fake()->image('news.png'),
+            'image' => RasterImageFixture::image('news.png'),
         ])->assertOk();
         $news->refresh();
     }
@@ -149,7 +150,7 @@ class PortalNewsTest extends TestCase
         $this->patchJson(self::ADMIN."/{$news->id}", ['title' => 'Nuevo título', 'revision' => 1])->assertOk()->assertJsonPath('data.revision', 2);
         $this->patchJson(self::ADMIN."/{$news->id}", ['title' => 'Viejo', 'revision' => 1])->assertConflict()->assertJsonPath('code', 'REVISION_CONFLICT');
         $this->patchJson(self::ADMIN."/{$news->id}/status", ['status' => 'PUBLISHED', 'revision' => 1])->assertConflict();
-        $this->postJson(self::ADMIN."/{$news->id}/image", ['revision' => 1, 'image' => UploadedFile::fake()->image('photo.jpg')])
+        $this->postJson(self::ADMIN."/{$news->id}/image", ['revision' => 1, 'image' => RasterImageFixture::image('photo.jpg')])
             ->assertConflict()->assertJsonPath('current_revision', 2);
         $this->deleteJson(self::ADMIN."/{$news->id}/image", ['revision' => 1])->assertConflict();
         $this->assertSame('Nuevo título', $news->refresh()->title);
@@ -178,7 +179,7 @@ class PortalNewsTest extends TestCase
         $news = $this->news();
         $this->patchJson(self::ADMIN."/{$news->id}", ['title' => 'Nuevo'])->assertUnprocessable()->assertJsonValidationErrors('revision');
         $this->patchJson(self::ADMIN."/{$news->id}/status", ['status' => 'ACTIVE', 'revision' => 1])->assertUnprocessable();
-        $this->postJson(self::ADMIN."/{$news->id}/image", ['image' => UploadedFile::fake()->image('x.png')])->assertUnprocessable();
+        $this->postJson(self::ADMIN."/{$news->id}/image", ['image' => RasterImageFixture::image('x.png')])->assertUnprocessable();
         $this->deleteJson(self::ADMIN."/{$news->id}/image")->assertUnprocessable();
         $this->assertSame(1, $news->refresh()->revision);
     }
@@ -205,7 +206,7 @@ class PortalNewsTest extends TestCase
     {
         $news = $this->news();
         $this->upload($news);
-        Storage::disk('local')->assertExists($news->image_path);
+        $this->assertDatabaseHas('stored_images', ['id' => $news->image_id, 'news_id' => $news->id]);
         $this->getJson(self::ADMIN."/{$news->id}")->assertJsonPath('data.image_url', url(self::ADMIN."/{$news->id}/image"));
         $this->get(self::ADMIN."/{$news->id}/image")->assertOk()->assertHeader('Content-Type', 'image/png')->assertHeader('X-Content-Type-Options', 'nosniff');
         $this->get(self::PUBLIC."/{$news->id}/image")->assertNotFound();
@@ -215,22 +216,22 @@ class PortalNewsTest extends TestCase
         $news->refresh();
         $this->patchJson(self::ADMIN."/{$news->id}/status", ['status' => 'ARCHIVED', 'revision' => $news->revision])->assertOk();
         $this->get(self::PUBLIC."/{$news->id}/image")->assertNotFound();
-        Storage::disk('local')->assertExists($news->image_path);
+        $this->assertDatabaseHas('stored_images', ['id' => $news->image_id, 'news_id' => $news->id]);
     }
 
     public function test_replacement_removes_old_image_after_commit_and_deletion_returns_null(): void
     {
         $news = $this->news();
         $this->upload($news);
-        $oldPath = $news->image_path;
+        $oldPath = $news->image_id;
         $this->upload($news);
-        $this->assertNotSame($oldPath, $news->image_path);
-        Storage::disk('local')->assertMissing($oldPath);
-        Storage::disk('local')->assertExists($news->image_path);
-        $newPath = $news->image_path;
+        $this->assertNotSame($oldPath, $news->image_id);
+        $this->assertDatabaseMissing('stored_images', ['id' => $oldPath]);
+        $this->assertDatabaseHas('stored_images', ['id' => $news->image_id, 'news_id' => $news->id]);
+        $newPath = $news->image_id;
         $this->deleteJson(self::ADMIN."/{$news->id}/image", ['revision' => $news->revision])
             ->assertOk()->assertJsonPath('data.image_url', null)->assertJsonPath('data.revision', 4);
-        Storage::disk('local')->assertMissing($newPath);
+        $this->assertDatabaseMissing('stored_images', ['id' => $newPath]);
         $this->get(self::ADMIN."/{$news->id}/image")->assertNotFound();
     }
 
@@ -238,8 +239,8 @@ class PortalNewsTest extends TestCase
     {
         $news = $this->news();
         foreach ([
-            UploadedFile::fake()->image('large.jpg')->size(5121),
-            UploadedFile::fake()->image('animation.gif'),
+            RasterImageFixture::image('large.jpg')->size(5121),
+            RasterImageFixture::image('animation.gif'),
             UploadedFile::fake()->createWithContent('vector.svg', '<svg xmlns="http://www.w3.org/2000/svg"></svg>'),
             UploadedFile::fake()->createWithContent('fake.jpg', '<?php echo "bad";'),
         ] as $image) {
@@ -256,10 +257,10 @@ class PortalNewsTest extends TestCase
         foreach (['jpg', 'webp'] as $extension) {
             $this->postJson(self::ADMIN."/{$news->id}/image", [
                 'revision' => $news->revision,
-                'image' => UploadedFile::fake()->image('photo.'.$extension),
+                'image' => RasterImageFixture::image('photo.'.$extension),
             ])->assertOk();
             $news->refresh();
-            Storage::disk('local')->assertExists($news->image_path);
+            $this->assertDatabaseHas('stored_images', ['id' => $news->image_id, 'news_id' => $news->id]);
         }
     }
 
@@ -267,13 +268,14 @@ class PortalNewsTest extends TestCase
     {
         $news = $this->news();
         $this->upload($news);
-        $oldPath = $news->image_path;
+        $oldPath = $news->image_id;
         $revision = $news->revision;
         $this->mock(AuditLogService::class)->shouldReceive('log')->once()->andThrow(new RuntimeException('Audit unavailable'));
-        $this->postJson(self::ADMIN."/{$news->id}/image", ['revision' => $revision, 'image' => UploadedFile::fake()->image('new.png')])->assertStatus(500);
-        $this->assertSame($oldPath, $news->refresh()->image_path);
+        $this->postJson(self::ADMIN."/{$news->id}/image", ['revision' => $revision, 'image' => RasterImageFixture::image('new.png')])->assertStatus(500);
+        $this->assertSame($oldPath, $news->refresh()->image_id);
         $this->assertSame($revision, $news->revision);
-        $this->assertSame([$oldPath], Storage::disk('local')->allFiles('portal-news'));
+        $this->assertDatabaseCount('stored_images', 1);
+        $this->assertDatabaseHas('stored_images', ['id' => $oldPath]);
         $this->assertDatabaseCount('audit_logs', 2);
     }
 
@@ -305,7 +307,7 @@ class PortalNewsTest extends TestCase
         $this->actingAs($this->actor());
         $this->patchJson(self::ADMIN.'/999', ['title' => 'Nuevo', 'revision' => 1])->assertNotFound();
         $this->patchJson(self::ADMIN.'/999/status', ['status' => 'PUBLISHED', 'revision' => 1])->assertNotFound();
-        $this->postJson(self::ADMIN.'/999/image', ['revision' => 1, 'image' => UploadedFile::fake()->image('x.png')])->assertNotFound();
+        $this->postJson(self::ADMIN.'/999/image', ['revision' => 1, 'image' => RasterImageFixture::image('x.png')])->assertNotFound();
         $this->assertSame([], Storage::disk('local')->allFiles('portal-news'));
     }
 }

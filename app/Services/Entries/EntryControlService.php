@@ -41,7 +41,7 @@ class EntryControlService
     {
         return [
             's.id as student_id', 's.first_names', 's.last_names', 's.sis_code', 's.identity_number',
-            's.status as student_status', 'u.profile_photo', 's.historical_photo',
+            's.status as student_status', 'u.profile_photo', 'u.profile_image_id', 's.historical_photo', 's.historical_image_id',
             'en.status as enrollment_status', 'el.status as eligibility_status',
             'el.reason_code', 'el.reason', 'el.observations', 'ent.id as entry_id',
             'ent.entered_at', 'ent.verification_method', 'ent.verified_by',
@@ -185,15 +185,15 @@ class EntryControlService
                 $blockers[] = ['code' => $code, 'message' => $messages[$code]];
             }
         }
-        $photo = $record->profile_photo;
+        $photo = $record->profile_image_id || $record->profile_photo;
 
         return [
             'student_id' => (int) $record->student_id,
             'first_names' => $record->first_names, 'last_names' => $record->last_names,
             'sis_code' => $record->sis_code, 'identity_number' => $record->identity_number,
-            'historical_photo_url' => $record->historical_photo ? route('entry-control.historical-photo', ['exam_id' => $exam->id, 'student_id' => $record->student_id]) : null,
+            'historical_photo_url' => ($record->historical_image_id || $record->historical_photo) ? route('entry-control.historical-photo', ['exam_id' => $exam->id, 'student_id' => $record->student_id, 'v' => $record->historical_image_id ?? 'legacy']) : null,
             'profile_photo_url' => $photo
-                ? ((str_starts_with($photo, 'http://') || str_starts_with($photo, 'https://')) ? $photo : asset('storage/'.$photo))
+                ? route('entry-control.profile-photo', ['exam_id' => $exam->id, 'student_id' => $record->student_id, 'v' => $record->profile_image_id ?? 'legacy'])
                 : null,
             'student_status' => $record->student_status, 'enrollment_status' => $enrollment,
             // Informational only: institutional consequences are not defined by HU31.

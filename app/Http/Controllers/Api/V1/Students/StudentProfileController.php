@@ -6,9 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Students\UpdateProfilePhotoRequest;
 use App\Http\Resources\Students\StudentProfileResource;
 use App\Services\Students\StudentProfileService;
+use Exception;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Exception;
+use Illuminate\Validation\ValidationException;
 
 class StudentProfileController extends Controller
 {
@@ -29,7 +30,7 @@ class StudentProfileController extends Controller
 
             return response()->json([
                 'message' => 'Perfil obtenido exitosamente',
-                'data'    => new StudentProfileResource($student),
+                'data' => new StudentProfileResource($student),
             ], 200);
         } catch (Exception $e) {
             return response()->json(['message' => 'No se encontraron datos de perfil.'], 404);
@@ -54,9 +55,13 @@ class StudentProfileController extends Controller
 
             return response()->json([
                 'message' => 'Foto de perfil actualizada exitosamente',
-                'data'    => new StudentProfileResource($student),
+                'data' => new StudentProfileResource($student),
             ], 200);
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (Exception $e) {
+            report($e);
+
             return response()->json(['message' => 'Error al actualizar la foto de perfil.'], 500);
         }
     }

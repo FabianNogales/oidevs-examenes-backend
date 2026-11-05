@@ -10,6 +10,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Tests\Support\RasterImageFixture;
 use Tests\TestCase;
 
 class StudentProfileTest extends TestCase
@@ -17,6 +18,7 @@ class StudentProfileTest extends TestCase
     use RefreshDatabase;
 
     private User $studentUser;
+
     private Student $student;
 
     protected function setUp(): void
@@ -77,10 +79,10 @@ class StudentProfileTest extends TestCase
                 'message',
             ]);
     }
-    
+
     public function test_student_can_upload_profile_photo(): void
     {
-        $file = UploadedFile::fake()->image('avatar.jpg', 400, 400);
+        $file = RasterImageFixture::image('avatar.jpg', 400, 400);
 
         $response = $this->actingAs($this->studentUser, 'sanctum')
             ->postJson('/api/v1/students/profile/photo', [
@@ -90,8 +92,9 @@ class StudentProfileTest extends TestCase
         $response->assertStatus(200);
 
         $this->studentUser->refresh();
-        $this->assertNotNull($this->studentUser->profile_photo);
-        Storage::disk('public')->assertExists($this->studentUser->profile_photo);
+        $this->assertNotNull($this->studentUser->profile_image_id);
+        $this->assertDatabaseHas('stored_images', ['id' => $this->studentUser->profile_image_id, 'student_id' => $this->student->id, 'purpose' => 'profile']);
+        $this->assertSame([], Storage::disk('public')->allFiles());
 
         $this->assertDatabaseHas('audit_logs', [
             'user_id' => $this->studentUser->id,

@@ -180,7 +180,7 @@ class QrEntryService
                 });
             });
         }
-        $page = $query->select('e.*', 's.first_names', 's.last_names', 's.sis_code', 's.identity_number', 'u.profile_photo', 's.historical_photo')
+        $page = $query->select('e.*', 's.first_names', 's.last_names', 's.sis_code', 's.identity_number', 'u.profile_photo', 'u.profile_image_id', 's.historical_photo', 's.historical_image_id')
             ->orderByDesc('e.entered_at')->orderByDesc('e.id')
             ->paginate((int) ($parameters['per_page'] ?? 10), ['*'], 'page', (int) ($parameters['page'] ?? 1));
 

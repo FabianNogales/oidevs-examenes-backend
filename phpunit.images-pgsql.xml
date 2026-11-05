@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="tests/images-bootstrap.php" colors="true" cacheResult="false">
+    <testsuites>
+        <testsuite name="Database images">
+            <directory>tests/Feature/Images</directory>
+            <file>tests/Feature/Students/StudentProfileTest.php</file>
+            <file>tests/Feature/Portal/PortalNewsTest.php</file>
+            <file>tests/Feature/Api/V1/Entries/EntryControlTest.php</file>
+            <file>tests/Feature/Api/V1/Entries/QrEntryTest.php</file>
+            <file>tests/Feature/Api/V1/Entries/ManualEntryTest.php</file>
+        </testsuite>
+    </testsuites>
+    <php>
+        <env name="APP_ENV" value="testing" force="true"/>
+        <env name="APP_KEY" value="base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" force="true"/>
+        <env name="APP_TIMEZONE" value="UTC" force="true"/>
+        <env name="DB_URL" value="" force="true"/>
+        <env name="DB_CONNECTION" value="pgsql" force="true"/>
+        <env name="DB_DATABASE" value="eida_images_test" force="true"/>
+        <env name="DB_HOST" value="127.0.0.1" force="true"/>
+        <env name="DB_PORT" value="55439" force="true"/>
+        <env name="DB_USERNAME" value="eida_images_test" force="true"/>
+        <env name="DB_PASSWORD" value="" force="true"/>
+        <env name="DB_FOREIGN_KEYS" value="true" force="true"/>
+        <env name="SESSION_DRIVER" value="array" force="true"/>
+        <env name="CACHE_STORE" value="array" force="true"/>
+        <env name="MAIL_MAILER" value="array" force="true"/>
+        <env name="QUEUE_CONNECTION" value="sync" force="true"/>
+        <env name="BCRYPT_ROUNDS" value="4" force="true"/>
+    </php>
+</phpunit>

@@ -8,11 +8,11 @@ use App\Http\Requests\Api\V1\Portal\ListPortalNewsRequest;
 use App\Http\Requests\Api\V1\Portal\PortalNewsImageRequest;
 use App\Http\Requests\Api\V1\Portal\SavePortalNewsRequest;
 use App\Http\Resources\Portal\PortalNewsResource;
+use App\Services\Images\DatabaseImageService;
 use App\Services\Portal\PortalNewsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
-use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PortalNewsController extends Controller
@@ -50,11 +50,7 @@ class PortalNewsController extends Controller
     public function image(Request $request, int $news, PortalNewsService $service): StreamedResponse
     {
         $record = $service->find($news, ! $request->routeIs('portal.admin.*'));
-        abort_unless($record->image_path && Storage::disk('local')->exists($record->image_path), 404);
 
-        return Storage::disk('local')->response($record->image_path, null, [
-            'Cache-Control' => 'private, no-store',
-            'X-Content-Type-Options' => 'nosniff',
-        ], 'inline');
+        return app(DatabaseImageService::class)->response($record->image_id, 'news', $record->id, $record->image_path);
     }
 }

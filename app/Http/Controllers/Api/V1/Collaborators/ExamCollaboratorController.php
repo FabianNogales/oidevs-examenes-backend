@@ -7,8 +7,10 @@ use App\Http\Controllers\Controller;
 use App\Models\ExamCollaborator;
 use App\Models\User;
 use App\Services\Collaborators\ExamCollaboratorService;
+use App\Services\Images\DatabaseImageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ExamCollaboratorController extends Controller
 {
@@ -43,18 +45,29 @@ class ExamCollaboratorController extends Controller
             ? $this->collaboratorService->getExamCollaborators($examId)
             : collect();
 
-        return response()->json(['data' => $collaborators->map(function ($collaborator) {
+        return response()->json(['data' => $collaborators->map(function ($collaborator) use ($examId) {
             $user = $this->userData($collaborator->user);
             unset($user['id']);
 
-            $photo = $collaborator->user->profile_photo;
+            $photo = $collaborator->user->profile_image_id || $collaborator->user->profile_photo;
 
             return $this->assignmentData($collaborator) + $user + [
                 'profile_photo_url' => $photo
-                    ? ((str_starts_with($photo, 'http://') || str_starts_with($photo, 'https://')) ? $photo : asset('storage/'.$photo))
+                    ? route('collaborators.profile-photo', ['exam_id' => $examId, 'user_id' => $collaborator->user_id, 'v' => $collaborator->user->profile_image_id ?? 'legacy'])
                     : null,
             ];
         })->values()]);
+    }
+
+    public function photo(Request $request, int $examId, int $userId): StreamedResponse
+    {
+        $exam = $this->collaboratorService->responsibleExam($examId, $request->user()->id);
+        abort_unless(ExamCollaborator::examIsAvailable($exam), 404);
+        $collaborator = ExamCollaborator::with('user.student')->where('exam_id', $examId)
+            ->where('user_id', $userId)->where('status', 'ACTIVE')->firstOrFail();
+        $user = $collaborator->user;
+
+        return app(DatabaseImageService::class)->response($user->profile_image_id, 'profile', $user->student?->id ?? 0, $user->profile_photo);
     }
 
     public function store(Request $request, int $examId): JsonResponse
