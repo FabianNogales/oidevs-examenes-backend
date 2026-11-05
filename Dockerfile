@@ -14,11 +14,13 @@ ENV APP_ENV=production \
 WORKDIR /var/www/html
 
 # The official image already includes Laravel's core extensions, mbstring,
-# curl, DOM/XML, fileinfo and iconv. Only the PostgreSQL PDO driver is missing.
+# curl, DOM/XML, fileinfo and iconv. Add PostgreSQL and local raster processing.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libpq-dev libpq5 unzip \
-    && docker-php-ext-install pdo_pgsql \
-    && apt-get purge -y --auto-remove libpq-dev \
+        libjpeg62-turbo-dev libjpeg62-turbo libpng-dev libpng16-16 libwebp-dev libwebp7 \
+    && docker-php-ext-configure gd --with-jpeg --with-webp \
+    && docker-php-ext-install pdo_pgsql gd \
+    && apt-get purge -y --auto-remove libpq-dev libjpeg62-turbo-dev libpng-dev libwebp-dev \
     && rm -rf /var/lib/apt/lists/* \
     && cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
     && printf 'upload_max_filesize=5M\npost_max_size=8M\n' > "$PHP_INI_DIR/conf.d/uploads.ini" \

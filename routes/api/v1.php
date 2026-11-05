@@ -1,10 +1,11 @@
 <?php
 
 use App\Enums\RoleName;
+use App\Http\Controllers\Api\V1\Admin\AcademicTermController;
+use App\Http\Controllers\Api\V1\Admin\AdminProfileRecordsController;
+use App\Http\Controllers\Api\V1\Admin\AdminUserController;
 use App\Http\Controllers\Api\V1\Admin\AuditLogController;
 use App\Http\Controllers\Api\V1\Admin\CareerController;
-use App\Http\Middleware\EnsureActiveAdministrator;
-use App\Http\Controllers\Api\V1\Admin\AcademicTermController;
 use App\Http\Controllers\Api\V1\Admin\CourseOfferingController;
 use App\Http\Controllers\Api\V1\Admin\CourseOfferingImportController;
 use App\Http\Controllers\Api\V1\Admin\RoomImportController;
@@ -13,70 +14,103 @@ use App\Http\Controllers\Api\V1\Admin\StudentImportController;
 use App\Http\Controllers\Api\V1\Admin\SubjectController;
 use App\Http\Controllers\Api\V1\Admin\SubjectImportController;
 use App\Http\Controllers\Api\V1\Admin\TeacherController;
+use App\Http\Controllers\Api\V1\Attendance\AttendanceController;
 use App\Http\Controllers\Api\V1\Auth\AuthController;
 use App\Http\Controllers\Api\V1\Auth\CurrentUserController;
 use App\Http\Controllers\Api\V1\Collaborators\ExamCollaboratorController;
 use App\Http\Controllers\Api\V1\Eligibility\ExamEligibilityController;
 use App\Http\Controllers\Api\V1\Enrollments\StudentEnrollmentController;
+use App\Http\Controllers\Api\V1\Entries\EntryAnnulmentController;
 use App\Http\Controllers\Api\V1\Entries\EntryControlController;
+use App\Http\Controllers\Api\V1\Entries\OfflineExamController;
 use App\Http\Controllers\Api\V1\Entries\QrEntryController;
 use App\Http\Controllers\Api\V1\Exams\ExamManagementController;
 use App\Http\Controllers\Api\V1\Exams\ExamSchedulingController;
+use App\Http\Controllers\Api\V1\Expulsions\ExpulsionController;
 use App\Http\Controllers\Api\V1\Health\HealthCheckController;
+use App\Http\Controllers\Api\V1\Incidents\ExamIncidentReportController;
+use App\Http\Controllers\Api\V1\Incidents\IncidentController;
+use App\Http\Controllers\Api\V1\Incidents\IncidentReportController;
+use App\Http\Controllers\Api\V1\Infractions\InfractionController;
+use App\Http\Controllers\Api\V1\Portal\PortalCalendarController;
+use App\Http\Controllers\Api\V1\Portal\PortalHistoryController;
+use App\Http\Controllers\Api\V1\Portal\PortalInformationController;
+use App\Http\Controllers\Api\V1\Portal\PortalNewsController;
+use App\Http\Controllers\Api\V1\Portal\PortalServiceController;
+use App\Http\Controllers\Api\V1\Reports\ExamReportController;
 use App\Http\Controllers\Api\V1\Rooms\RoomController;
+use App\Http\Controllers\Api\V1\Students\HistoricalPhotoController;
+use App\Http\Controllers\Api\V1\Students\ProfilePhotoController;
 use App\Http\Controllers\Api\V1\Students\StudentProfileController;
 use App\Http\Controllers\Api\V1\Students\StudentQrController;
 use App\Http\Controllers\Api\V1\TeacherDashboard\TeacherDashboardController;
 use App\Http\Middleware\EnsureActiveAcademicTermAdministrator;
+use App\Http\Middleware\EnsureActiveAdministrator;
 use App\Http\Middleware\EnsureActiveCourseOfferingAdministrator;
 use App\Http\Middleware\EnsureActiveRoomAdministrator;
 use App\Http\Middleware\EnsureActiveSubjectAdministrator;
+use App\Http\Middleware\EnsureAttendanceExamOwner;
 use App\Http\Middleware\EnsureCourseOfferingAccess;
+use App\Http\Middleware\EnsureExpulsionExamOwner;
+use App\Http\Middleware\EnsureInfractionExamOwner;
+use App\Http\Middleware\HandlePortalServiceErrors;
 use Illuminate\Support\Facades\Route;
+
+require __DIR__.'/eligibility-automation.php';
+
+Route::prefix('admin/students/{student}')->whereNumber('student')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])
+    ->group(function () {
+        $photo = HistoricalPhotoController::class;
+        Route::get('/profile-photo', [ProfilePhotoController::class, 'show'])->name('students.profile-photo.admin');
+        Route::get('/historical-photo', [$photo, 'show'])->name('students.historical-photo.show');
+        Route::post('/historical-photo', [$photo, 'store'])->name('students.historical-photo.store');
+        Route::post('/historical-photo/corrections', [$photo, 'store'])->name('students.historical-photo.correct');
+    });
 
 // HU38/HU39: independent public calendar; never derives events from private exams.
 Route::prefix('portal')->name('portal.public.')->group(function () {
-    $services = \App\Http\Controllers\Api\V1\Portal\PortalServiceController::class;
-    Route::get('/service-categories', [$services, 'categories'])->name('service-categories');
+    $services = PortalServiceController::class;
     Route::get('/services', [$services, 'index'])->name('services.index');
     Route::get('/services/{service}', [$services, 'show'])->whereNumber('service')->name('services.show');
-    Route::get('/information', [\App\Http\Controllers\Api\V1\Portal\PortalInformationController::class, 'publicContent'])->name('information');
-    $news = \App\Http\Controllers\Api\V1\Portal\PortalNewsController::class;
+    Route::get('/information', [PortalInformationController::class, 'publicContent'])->name('information');
+    $news = PortalNewsController::class;
     Route::get('/news', [$news, 'index'])->name('news.index');
     Route::get('/news/{news}', [$news, 'show'])->whereNumber('news')->name('news.show');
     Route::get('/news/{news}/image', [$news, 'image'])->whereNumber('news')->name('news.image');
-    Route::get('/event-categories', [\App\Http\Controllers\Api\V1\Portal\PortalCalendarController::class, 'categories'])->name('event-categories');
-    Route::get('/events', [\App\Http\Controllers\Api\V1\Portal\PortalCalendarController::class, 'index'])->name('events.index');
-    Route::get('/events/{event}', [\App\Http\Controllers\Api\V1\Portal\PortalCalendarController::class, 'show'])->whereNumber('event')->name('events.show');
+    Route::get('/event-categories', [PortalCalendarController::class, 'categories'])->name('event-categories');
+    Route::get('/events', [PortalCalendarController::class, 'index'])->name('events.index');
+    Route::get('/events/{event}', [PortalCalendarController::class, 'show'])->whereNumber('event')->name('events.show');
 });
 
 Route::prefix('admin/portal')->name('portal.admin.')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])
     ->group(function () {
-        $controller = \App\Http\Controllers\Api\V1\Portal\PortalCalendarController::class;
-        $services = \App\Http\Controllers\Api\V1\Portal\PortalServiceController::class;
-        Route::get('/service-categories', [$services, 'categories'])->name('service-categories');
-        Route::get('/service-options', [$services, 'options'])->name('service-options');
+        $controller = PortalCalendarController::class;
+        $services = PortalServiceController::class;
         Route::get('/services', [$services, 'index'])->name('services.index');
         Route::post('/services', [$services, 'store'])->name('services.store');
         Route::get('/services/{service}', [$services, 'show'])->whereNumber('service')->name('services.show');
+        Route::get('/services/{service}/history', [PortalHistoryController::class, 'services'])->whereNumber('service')->name('services.history')->middleware(HandlePortalServiceErrors::class);
         Route::patch('/services/{service}', [$services, 'update'])->whereNumber('service')->name('services.update');
         Route::patch('/services/{service}/status', [$services, 'status'])->whereNumber('service')->name('services.status');
         Route::prefix('information')->name('information.')->group(function () {
-            $information = \App\Http\Controllers\Api\V1\Portal\PortalInformationController::class;
+            $information = PortalInformationController::class;
             foreach (['sections', 'faqs'] as $type) {
                 Route::get('/'.$type, [$information, 'index'])->name($type.'.index');
                 Route::get('/'.$type.'/{content}', [$information, 'show'])->whereNumber('content')->name($type.'.show');
+                Route::get('/'.$type.'/{content}/history', [PortalHistoryController::class, 'information'])->whereNumber('content')->name($type.'.history');
                 Route::patch('/'.$type.'/{content}', [$information, 'update'])->whereNumber('content')->name($type.'.update');
                 Route::post('/'.$type.'/{content}/publish', [$information, 'publish'])->whereNumber('content')->name($type.'.publish');
                 Route::post('/'.$type.'/{content}/unpublish', [$information, 'unpublish'])->whereNumber('content')->name($type.'.unpublish');
             }
             Route::post('/faqs', [$information, 'store'])->name('faqs.store');
         });
-        $news = \App\Http\Controllers\Api\V1\Portal\PortalNewsController::class;
+        $news = PortalNewsController::class;
         Route::get('/news', [$news, 'index'])->name('news.index');
         Route::post('/news', [$news, 'store'])->name('news.store');
         Route::get('/news/{news}', [$news, 'show'])->whereNumber('news')->name('news.show');
+        Route::get('/news/{news}/history', [PortalHistoryController::class, 'news'])->whereNumber('news')->name('news.history');
         Route::patch('/news/{news}', [$news, 'update'])->whereNumber('news')->name('news.update');
         Route::patch('/news/{news}/status', [$news, 'status'])->whereNumber('news')->name('news.status');
         Route::get('/news/{news}/image', [$news, 'image'])->whereNumber('news')->name('news.image');
@@ -86,23 +120,25 @@ Route::prefix('admin/portal')->name('portal.admin.')
         Route::get('/events', [$controller, 'index'])->name('events.index');
         Route::post('/events', [$controller, 'store'])->name('events.store');
         Route::get('/events/{event}', [$controller, 'show'])->whereNumber('event')->name('events.show');
+        Route::get('/events/{event}/history', [PortalHistoryController::class, 'events'])->whereNumber('event')->name('events.history');
         Route::patch('/events/{event}', [$controller, 'update'])->whereNumber('event')->name('events.update');
         Route::patch('/events/{event}/status', [$controller, 'status'])->whereNumber('event')->name('events.status');
     });
 
 Route::prefix('admin')->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])
     ->group(function () {
-        Route::get('/users/history', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'history']);
-        Route::get('/profiles/{profileType}/{profileId}/records', [\App\Http\Controllers\Api\V1\Admin\AdminProfileRecordsController::class, 'index'])
+        Route::get('/incidents/exams', [ExamIncidentReportController::class, 'exams']);
+        Route::get('/users/history', [AdminUserController::class, 'history']);
+        Route::get('/profiles/{profileType}/{profileId}/records', [AdminProfileRecordsController::class, 'index'])
             ->where('profileType', 'students|teachers')->whereNumber('profileId');
-        Route::get('/roles', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'roles']);
-        Route::get('/users', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'index']);
-        Route::get('/users/{user}', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'show'])->whereNumber('user');
-        Route::patch('/users/{user}/status', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'status'])->whereNumber('user');
-        Route::get('/users/{user}/history', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'history'])->whereNumber('user');
-        Route::get('/users/{user}/roles', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'roles'])->whereNumber('user');
-        Route::post('/users/{user}/roles', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'assign'])->whereNumber('user');
-        Route::delete('/users/{user}/roles/{role}', [\App\Http\Controllers\Api\V1\Admin\AdminUserController::class, 'revoke'])->whereNumber('user')->whereNumber('role');
+        Route::get('/roles', [AdminUserController::class, 'roles']);
+        Route::get('/users', [AdminUserController::class, 'index']);
+        Route::get('/users/{user}', [AdminUserController::class, 'show'])->whereNumber('user');
+        Route::patch('/users/{user}/status', [AdminUserController::class, 'status'])->whereNumber('user');
+        Route::get('/users/{user}/history', [AdminUserController::class, 'history'])->whereNumber('user');
+        Route::get('/users/{user}/roles', [AdminUserController::class, 'roles'])->whereNumber('user');
+        Route::post('/users/{user}/roles', [AdminUserController::class, 'assign'])->whereNumber('user');
+        Route::delete('/users/{user}/roles/{role}', [AdminUserController::class, 'revoke'])->whereNumber('user')->whereNumber('role');
         Route::get('/audit-logs', [AuditLogController::class, 'index']);
         Route::get('/audit-logs/{auditLog}', [AuditLogController::class, 'show'])->whereNumber('auditLog');
         Route::get('/careers', [CareerController::class, 'index']);
@@ -114,6 +150,7 @@ Route::prefix('exams/{exam}/eligibilities')
     ->group(function () {
         Route::get('/', [ExamEligibilityController::class, 'index']);
         Route::get('/reasons', [ExamEligibilityController::class, 'reasons']);
+        Route::get('/{student}/profile-photo', [ExamEligibilityController::class, 'photo'])->whereNumber('student')->name('eligibilities.profile-photo');
         Route::post('/bulk', [ExamEligibilityController::class, 'bulk']);
         Route::patch('/{student}', [ExamEligibilityController::class, 'update']);
     });
@@ -170,6 +207,17 @@ Route::middleware(['auth:sanctum', 'session.current'])->group(function () {
     Route::get('/rooms', [RoomController::class, 'index']);
 });
 
+// HU35-HU37: sync checks historical package ownership itself so revocations become recorded conflicts.
+Route::prefix('exams/{exam_id}/offline')->whereNumber('exam_id')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'throttle:60,1'])
+    ->controller(OfflineExamController::class)
+    ->group(function () {
+        Route::post('/prepare', 'prepare');
+        Route::get('/assignments', 'assignments');
+        Route::get('/package', 'package');
+        Route::post('/sync', 'sync');
+    });
+
 // Health Check
 Route::get('health', HealthCheckController::class)->name('health');
 
@@ -192,6 +240,7 @@ Route::middleware([
 ])->group(function () {
     // Rutas de Perfil del Estudiante (HU-10)
     Route::get('/students/profile', [StudentProfileController::class, 'show']);
+    Route::get('/students/profile/photo', [ProfilePhotoController::class, 'own'])->name('students.profile-photo');
     Route::post('/students/profile/photo', [StudentProfileController::class, 'updatePhoto']);
 
     // Rutas de Exámenes y QR del Estudiante (HU-11)
@@ -264,6 +313,7 @@ Route::prefix('exams/{exam_id}/collaborators')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'teacher.role'])
     ->group(function () {
         Route::get('/', [ExamCollaboratorController::class, 'index']);
+        Route::get('/{user_id}/profile-photo', [ExamCollaboratorController::class, 'photo'])->whereNumber('user_id')->name('collaborators.profile-photo');
         Route::post('/', [ExamCollaboratorController::class, 'store']);
         Route::delete('/{user_id}', [ExamCollaboratorController::class, 'destroy']);
     });
@@ -273,15 +323,103 @@ Route::middleware(['auth:sanctum', 'session.current', 'password.changed'])->grou
     Route::get('/users', [ExamCollaboratorController::class, 'users'])->middleware('teacher.role');
 });
 
+Route::prefix('exams/{exam_id}/attendance')
+    ->where(['exam_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureAttendanceExamOwner::class])
+    ->group(function () {
+        $controller = AttendanceController::class;
+        Route::get('/summary', [$controller, 'summary']);
+        Route::get('/students', [$controller, 'students']);
+        Route::get('/collaborators', [$controller, 'collaborators']);
+    });
+
+Route::get('/exam-reports/catalog', [ExamReportController::class, 'catalog'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])->name('exam-reports.catalog');
+
+Route::prefix('exams/{exam_id}/reports')->where(['exam_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
+    ->group(function () {
+        $controller = ExamReportController::class;
+        Route::get('/{type}/export', [$controller, 'export'])->name('exam-reports.export');
+        Route::get('/{type}', [$controller, 'show'])->name('exam-reports.show');
+    });
+
+Route::prefix('exams/{exam_id}/expulsions')
+    ->where(['exam_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureExpulsionExamOwner::class])
+    ->group(function () {
+        Route::post('/', [ExpulsionController::class, 'store']);
+        Route::get('/', [ExpulsionController::class, 'index']);
+        Route::get('/students', [ExpulsionController::class, 'students']);
+        Route::get('/eligible-infractions', [ExpulsionController::class, 'eligibleInfractions']);
+        Route::get('/students/{student_id}/history', [ExpulsionController::class, 'studentHistory'])
+            ->where('student_id', '[1-9][0-9]*');
+        Route::get('/{expulsion_id}', [ExpulsionController::class, 'show'])
+            ->where('expulsion_id', '[1-9][0-9]*');
+    });
+
+Route::prefix('exams/{exam_id}/infractions')
+    ->where(['exam_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureInfractionExamOwner::class])
+    ->group(function () {
+        $controller = InfractionController::class;
+        Route::get('/options', [$controller, 'options']);
+        Route::get('/students', [$controller, 'students']);
+        Route::get('/students/{student_id}/history', [$controller, 'studentHistory'])->where('student_id', '[1-9][0-9]*');
+        Route::get('/', [$controller, 'index']);
+        Route::post('/', [$controller, 'store']);
+        Route::get('/{infraction_id}', [$controller, 'show'])->where('infraction_id', '[1-9][0-9]*');
+        Route::get('/{infraction_id}/history', [$controller, 'history'])->where('infraction_id', '[1-9][0-9]*');
+        Route::patch('/{infraction_id}', [$controller, 'update'])->where('infraction_id', '[1-9][0-9]*');
+        Route::patch('/{infraction_id}/status', [$controller, 'status'])->where('infraction_id', '[1-9][0-9]*')->name('infractions.status');
+    });
+
+Route::get('exams/{exam_id}/students/{student_id}/expulsions', [ExpulsionController::class, 'contractStudentHistory'])
+    ->where(['exam_id' => '[1-9][0-9]*', 'student_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureExpulsionExamOwner::class]);
+
+Route::get('exams/{exam_id}/students/{student_id}/infractions', [InfractionController::class, 'contractStudentHistory'])
+    ->where(['exam_id' => '[1-9][0-9]*', 'student_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureInfractionExamOwner::class]);
+
+Route::prefix('incident-reports')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
+    ->group(function () {
+        $controller = IncidentReportController::class;
+        Route::get('/', [$controller, 'index']);
+        Route::get('/summary', [$controller, 'summary']);
+        Route::get('/export', [$controller, 'export']);
+        Route::get('/{incident_id}', [$controller, 'show'])->where('incident_id', '(?:qr-)?[1-9][0-9]*');
+    });
+
+Route::prefix('exams/{exam_id}/incidents')
+    ->where(['exam_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
+    ->group(function () {
+        Route::post('/', [IncidentController::class, 'store']);
+        Route::get('/', [IncidentController::class, 'index']);
+        Route::get('/export', [ExamIncidentReportController::class, 'export']);
+        Route::get('/{incident_id}', [IncidentController::class, 'show'])
+            ->where('incident_id', '(?:qr-)?[1-9][0-9]*');
+    });
+
 Route::prefix('exams/{exam_id}/entry-control')
     ->whereNumber('exam_id')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', 'verify.exam.access'])
     ->group(function () {
         Route::get('/students', [EntryControlController::class, 'index']);
+        Route::get('/students/{student_id}/historical-photo', [HistoricalPhotoController::class, 'entry'])
+            ->whereNumber('student_id')->name('entry-control.historical-photo');
+        Route::get('/students/{student_id}/profile-photo', [ProfilePhotoController::class, 'entry'])
+            ->whereNumber('student_id')->name('entry-control.profile-photo');
         Route::post('/qr', [QrEntryController::class, 'store']);
         Route::post('/students/{student_id}/entries', [QrEntryController::class, 'storeManual'])
             ->whereNumber('student_id');
         Route::get('/entries', [QrEntryController::class, 'index']);
+        Route::post('/entries/{entry_id}/annulment', [EntryAnnulmentController::class, 'store'])
+            ->where('entry_id', '[1-9][0-9]*')->name('entries.annulment');
+        Route::post('/entries/{entry_id}/annul', [EntryAnnulmentController::class, 'store'])
+            ->where('entry_id', '[1-9][0-9]*');
         Route::get('/students/{student_id}', [EntryControlController::class, 'show'])
             ->whereNumber('student_id');
     });

@@ -22,6 +22,7 @@ class SavePortalNewsRequest extends FormRequest
             'revision' => [$this->isMethod('POST') ? 'prohibited' : 'required', 'integer', 'min:1'],
             'status' => ['prohibited'],
             'image_path' => ['prohibited'],
+            'image_id' => ['prohibited'],
             'image_url' => ['prohibited'],
             'published_at' => ['prohibited'],
             'published_by' => ['prohibited'],

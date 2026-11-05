@@ -2,15 +2,17 @@
 
 namespace App\Http\Controllers\Api\V1\Eligibility;
 
+use App\Http\Controllers\Api\V1\Students\ProfilePhotoController;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Eligibility\UpdateEligibilityRequest;
 use App\Models\ExamEligibility;
 use App\Services\Eligibility\ExamEligibilityService;
 use App\Support\Eligibility\EligibilityRules;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ExamEligibilityController extends Controller
 {
@@ -48,9 +50,9 @@ class ExamEligibilityController extends Controller
             });
         }
 
-        $data = $query->orderBy('id')->get()->map(function ($eligibility) {
+        $data = $query->orderBy('id')->get()->map(function ($eligibility) use ($examId) {
             $student = $eligibility->student;
-            $photo = $student?->user?->profile_photo;
+            $photo = $student?->user?->profile_image_id || $student?->user?->profile_photo;
 
             return $this->data($eligibility) + [
                 'sis_code' => $student?->sis_code,
@@ -59,13 +61,22 @@ class ExamEligibilityController extends Controller
                 'last_names' => $student?->last_names,
                 'email' => $student?->user?->email,
                 'profile_photo_url' => $photo
-                    ? ((str_starts_with($photo, 'http://') || str_starts_with($photo, 'https://')) ? $photo : asset('storage/'.$photo))
+                    ? route('eligibilities.profile-photo', ['exam' => $examId, 'student' => $student->id, 'v' => $student->user?->profile_image_id ?? 'legacy'])
                     : null,
                 'evaluated_by' => $eligibility->evaluator?->email,
             ];
         });
 
-        return response()->json(['data' => $data]);
+        return response()->json(['exam' => ['id' => $examId, 'manual_review_conditions' => DB::table('exam_eligibility_configurations')
+            ->where('exam_id', $examId)->value('manual_review_conditions')], 'data' => $data]);
+    }
+
+    public function photo(Request $request, int $examId, int $studentId): StreamedResponse
+    {
+        $this->service->responsibleExam($request, $examId);
+        $eligibility = ExamEligibility::with('student')->where('exam_id', $examId)->where('student_id', $studentId)->firstOrFail();
+
+        return app(ProfilePhotoController::class)->show($eligibility->student);
     }
 
     public function update(UpdateEligibilityRequest $request, int $examId, int $studentId): JsonResponse

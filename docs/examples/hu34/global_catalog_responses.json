@@ -1,0 +1,673 @@
+{
+  "catalog_admin": {
+    "data": [
+      {
+        "code": "MIN_ACCUMULATED_SCORE",
+        "name": "Puntaje acumulado mínimo",
+        "description": null,
+        "status": "ACTIVE",
+        "revision": 1,
+        "parameters": [
+          {
+            "key": "assessment_keys",
+            "required": true,
+            "type": "array",
+            "options": [
+              "FIRST_PARTIAL",
+              "SECOND_PARTIAL"
+            ],
+            "min_items": 1
+          },
+          {
+            "key": "minimum_total",
+            "required": true,
+            "type": "number",
+            "minimum": 0,
+            "maximum": 200
+          }
+        ],
+        "mandatory_for_exam_types": [],
+        "fixed_parameters": null
+      },
+      {
+        "code": "MIN_ASSESSMENT_AVERAGE",
+        "name": "Promedio simple mínimo",
+        "description": null,
+        "status": "ACTIVE",
+        "revision": 1,
+        "parameters": [
+          {
+            "key": "assessment_keys",
+            "required": true,
+            "type": "array",
+            "options": [
+              "FIRST_PARTIAL",
+              "SECOND_PARTIAL"
+            ],
+            "min_items": 1
+          },
+          {
+            "key": "minimum_average",
+            "required": true,
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          }
+        ],
+        "mandatory_for_exam_types": [],
+        "fixed_parameters": null
+      },
+      {
+        "code": "MIN_ASSESSMENT_SCORE",
+        "name": "Nota mínima en una evaluación previa",
+        "description": null,
+        "status": "ACTIVE",
+        "revision": 1,
+        "parameters": [
+          {
+            "key": "assessment_key",
+            "required": true,
+            "type": "string",
+            "options": [
+              "FIRST_PARTIAL",
+              "SECOND_PARTIAL"
+            ]
+          },
+          {
+            "key": "minimum_score",
+            "required": true,
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          }
+        ],
+        "mandatory_for_exam_types": [],
+        "fixed_parameters": null
+      },
+      {
+        "code": "MIN_ATTENDANCE_PERCENTAGE",
+        "name": "Porcentaje mínimo de asistencia",
+        "description": null,
+        "status": "ACTIVE",
+        "revision": 1,
+        "parameters": [
+          {
+            "key": "minimum_percentage",
+            "required": true,
+            "type": "number",
+            "minimum_exclusive": 0,
+            "maximum": 100
+          }
+        ],
+        "mandatory_for_exam_types": [],
+        "fixed_parameters": null
+      },
+      {
+        "code": "PREVIOUS_ASSESSMENTS_TAKEN",
+        "name": "Haber rendido las evaluaciones previas",
+        "description": null,
+        "status": "ACTIVE",
+        "revision": 1,
+        "parameters": [
+          {
+            "key": "assessment_keys",
+            "required": true,
+            "type": "array",
+            "options": [
+              "FIRST_PARTIAL",
+              "SECOND_PARTIAL"
+            ],
+            "min_items": 1
+          }
+        ],
+        "mandatory_for_exam_types": [],
+        "fixed_parameters": null
+      },
+      {
+        "code": "SECOND_INSTANCE_PARTIAL_AVERAGE",
+        "name": "Promedio de los dos parciales estrictamente mayor al umbral de segunda instancia",
+        "description": null,
+        "status": "ACTIVE",
+        "revision": 1,
+        "parameters": [],
+        "mandatory_for_exam_types": [
+          "makeup"
+        ],
+        "fixed_parameters": {
+          "assessment_keys": [
+            "FIRST_PARTIAL",
+            "SECOND_PARTIAL"
+          ],
+          "operator": "GT",
+          "threshold": 25
+        }
+      }
+    ],
+    "meta": {
+      "current_page": 1,
+      "per_page": 100,
+      "total": 6,
+      "last_page": 1
+    },
+    "catalog_revision": "9fa18d45bc268536072a5ed2ee24c461739bbf4a0b7ef9d3d58da6793f381830"
+  },
+  "options": {
+    "data": {
+      "exam_id": 14,
+      "evaluation_type": "final",
+      "configured_evaluation_type": "final",
+      "revision": 1,
+      "catalog_revision": "9fa18d45bc268536072a5ed2ee24c461739bbf4a0b7ef9d3d58da6793f381830",
+      "combination": "ALL",
+      "selected_criteria": [
+        {
+          "code": "MIN_ASSESSMENT_AVERAGE",
+          "name": "Promedio simple mínimo",
+          "description": null,
+          "status": "ACTIVE",
+          "criterion_revision": 1,
+          "parameters": {
+            "assessment_keys": [
+              "FIRST_PARTIAL",
+              "SECOND_PARTIAL"
+            ],
+            "minimum_average": 50
+          },
+          "required": false,
+          "locked": false
+        },
+        {
+          "code": "MIN_ATTENDANCE_PERCENTAGE",
+          "name": "Porcentaje mínimo de asistencia",
+          "description": null,
+          "status": "ACTIVE",
+          "criterion_revision": 1,
+          "parameters": {
+            "minimum_percentage": 90
+          },
+          "required": false,
+          "locked": false
+        }
+      ],
+      "mandatory_criteria": [],
+      "inactive_criteria": [],
+      "criteria": [
+        {
+          "code": "MIN_ACCUMULATED_SCORE",
+          "name": "Puntaje acumulado mínimo",
+          "description": null,
+          "status": "ACTIVE",
+          "revision": 1,
+          "parameters": [
+            {
+              "key": "assessment_keys",
+              "required": true,
+              "type": "array",
+              "options": [
+                "FIRST_PARTIAL",
+                "SECOND_PARTIAL"
+              ],
+              "min_items": 1
+            },
+            {
+              "key": "minimum_total",
+              "required": true,
+              "type": "number",
+              "minimum": 0,
+              "maximum": 200
+            }
+          ],
+          "mandatory_for_exam_types": [],
+          "fixed_parameters": null,
+          "label": "Puntaje acumulado mínimo",
+          "required": false,
+          "locked": false
+        },
+        {
+          "code": "MIN_ASSESSMENT_AVERAGE",
+          "name": "Promedio simple mínimo",
+          "description": null,
+          "status": "ACTIVE",
+          "revision": 1,
+          "parameters": [
+            {
+              "key": "assessment_keys",
+              "required": true,
+              "type": "array",
+              "options": [
+                "FIRST_PARTIAL",
+                "SECOND_PARTIAL"
+              ],
+              "min_items": 1
+            },
+            {
+              "key": "minimum_average",
+              "required": true,
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          ],
+          "mandatory_for_exam_types": [],
+          "fixed_parameters": null,
+          "label": "Promedio simple mínimo",
+          "required": false,
+          "locked": false
+        },
+        {
+          "code": "MIN_ASSESSMENT_SCORE",
+          "name": "Nota mínima en una evaluación previa",
+          "description": null,
+          "status": "ACTIVE",
+          "revision": 1,
+          "parameters": [
+            {
+              "key": "assessment_key",
+              "required": true,
+              "type": "string",
+              "options": [
+                "FIRST_PARTIAL",
+                "SECOND_PARTIAL"
+              ]
+            },
+            {
+              "key": "minimum_score",
+              "required": true,
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          ],
+          "mandatory_for_exam_types": [],
+          "fixed_parameters": null,
+          "label": "Nota mínima en una evaluación previa",
+          "required": false,
+          "locked": false
+        },
+        {
+          "code": "MIN_ATTENDANCE_PERCENTAGE",
+          "name": "Porcentaje mínimo de asistencia",
+          "description": null,
+          "status": "ACTIVE",
+          "revision": 1,
+          "parameters": [
+            {
+              "key": "minimum_percentage",
+              "required": true,
+              "type": "number",
+              "minimum_exclusive": 0,
+              "maximum": 100
+            }
+          ],
+          "mandatory_for_exam_types": [],
+          "fixed_parameters": null,
+          "label": "Porcentaje mínimo de asistencia",
+          "required": false,
+          "locked": false
+        },
+        {
+          "code": "PREVIOUS_ASSESSMENTS_TAKEN",
+          "name": "Haber rendido las evaluaciones previas",
+          "description": null,
+          "status": "ACTIVE",
+          "revision": 1,
+          "parameters": [
+            {
+              "key": "assessment_keys",
+              "required": true,
+              "type": "array",
+              "options": [
+                "FIRST_PARTIAL",
+                "SECOND_PARTIAL"
+              ],
+              "min_items": 1
+            }
+          ],
+          "mandatory_for_exam_types": [],
+          "fixed_parameters": null,
+          "label": "Haber rendido las evaluaciones previas",
+          "required": false,
+          "locked": false
+        }
+      ],
+      "manual_review_conditions": null,
+      "assessments": [
+        {
+          "key": "FIRST_PARTIAL",
+          "label": "Primer parcial"
+        },
+        {
+          "key": "SECOND_PARTIAL",
+          "label": "Segundo parcial"
+        }
+      ]
+    }
+  },
+  "configuration": {
+    "data": {
+      "exam_id": 14,
+      "evaluation_type": "final",
+      "configured_evaluation_type": "final",
+      "revision": 1,
+      "catalog_revision": "9fa18d45bc268536072a5ed2ee24c461739bbf4a0b7ef9d3d58da6793f381830",
+      "combination": "ALL",
+      "selected_criteria": [
+        {
+          "code": "MIN_ASSESSMENT_AVERAGE",
+          "name": "Promedio simple mínimo",
+          "description": null,
+          "status": "ACTIVE",
+          "criterion_revision": 1,
+          "parameters": {
+            "assessment_keys": [
+              "FIRST_PARTIAL",
+              "SECOND_PARTIAL"
+            ],
+            "minimum_average": 50
+          },
+          "required": false,
+          "locked": false
+        },
+        {
+          "code": "MIN_ATTENDANCE_PERCENTAGE",
+          "name": "Porcentaje mínimo de asistencia",
+          "description": null,
+          "status": "ACTIVE",
+          "criterion_revision": 1,
+          "parameters": {
+            "minimum_percentage": 90
+          },
+          "required": false,
+          "locked": false
+        }
+      ],
+      "mandatory_criteria": [],
+      "inactive_criteria": [],
+      "criteria": [
+        {
+          "code": "MIN_ASSESSMENT_AVERAGE",
+          "name": "Promedio simple mínimo",
+          "description": null,
+          "status": "ACTIVE",
+          "criterion_revision": 1,
+          "parameters": {
+            "assessment_keys": [
+              "FIRST_PARTIAL",
+              "SECOND_PARTIAL"
+            ],
+            "minimum_average": 50
+          },
+          "required": false,
+          "locked": false
+        },
+        {
+          "code": "MIN_ATTENDANCE_PERCENTAGE",
+          "name": "Porcentaje mínimo de asistencia",
+          "description": null,
+          "status": "ACTIVE",
+          "criterion_revision": 1,
+          "parameters": {
+            "minimum_percentage": 90
+          },
+          "required": false,
+          "locked": false
+        }
+      ],
+      "manual_review_conditions": null
+    }
+  },
+  "second_instance_options": {
+    "data": {
+      "exam_id": 15,
+      "evaluation_type": "makeup",
+      "configured_evaluation_type": "makeup",
+      "revision": 1,
+      "catalog_revision": "9fa18d45bc268536072a5ed2ee24c461739bbf4a0b7ef9d3d58da6793f381830",
+      "combination": "ALL",
+      "selected_criteria": [],
+      "mandatory_criteria": [
+        {
+          "code": "SECOND_INSTANCE_PARTIAL_AVERAGE",
+          "name": "Promedio de los dos parciales estrictamente mayor al umbral de segunda instancia",
+          "description": null,
+          "status": "ACTIVE",
+          "criterion_revision": 1,
+          "parameters": {
+            "assessment_keys": [
+              "FIRST_PARTIAL",
+              "SECOND_PARTIAL"
+            ],
+            "operator": "GT",
+            "threshold": 25
+          },
+          "required": true,
+          "locked": true
+        }
+      ],
+      "inactive_criteria": [],
+      "criteria": [
+        {
+          "code": "MIN_ACCUMULATED_SCORE",
+          "name": "Puntaje acumulado mínimo",
+          "description": null,
+          "status": "ACTIVE",
+          "revision": 1,
+          "parameters": [
+            {
+              "key": "assessment_keys",
+              "required": true,
+              "type": "array",
+              "options": [
+                "FIRST_PARTIAL",
+                "SECOND_PARTIAL"
+              ],
+              "min_items": 1
+            },
+            {
+              "key": "minimum_total",
+              "required": true,
+              "type": "number",
+              "minimum": 0,
+              "maximum": 200
+            }
+          ],
+          "mandatory_for_exam_types": [],
+          "fixed_parameters": null,
+          "label": "Puntaje acumulado mínimo",
+          "required": false,
+          "locked": false
+        },
+        {
+          "code": "MIN_ASSESSMENT_AVERAGE",
+          "name": "Promedio simple mínimo",
+          "description": null,
+          "status": "ACTIVE",
+          "revision": 1,
+          "parameters": [
+            {
+              "key": "assessment_keys",
+              "required": true,
+              "type": "array",
+              "options": [
+                "FIRST_PARTIAL",
+                "SECOND_PARTIAL"
+              ],
+              "min_items": 1
+            },
+            {
+              "key": "minimum_average",
+              "required": true,
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          ],
+          "mandatory_for_exam_types": [],
+          "fixed_parameters": null,
+          "label": "Promedio simple mínimo",
+          "required": false,
+          "locked": false
+        },
+        {
+          "code": "MIN_ASSESSMENT_SCORE",
+          "name": "Nota mínima en una evaluación previa",
+          "description": null,
+          "status": "ACTIVE",
+          "revision": 1,
+          "parameters": [
+            {
+              "key": "assessment_key",
+              "required": true,
+              "type": "string",
+              "options": [
+                "FIRST_PARTIAL",
+                "SECOND_PARTIAL"
+              ]
+            },
+            {
+              "key": "minimum_score",
+              "required": true,
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          ],
+          "mandatory_for_exam_types": [],
+          "fixed_parameters": null,
+          "label": "Nota mínima en una evaluación previa",
+          "required": false,
+          "locked": false
+        },
+        {
+          "code": "MIN_ATTENDANCE_PERCENTAGE",
+          "name": "Porcentaje mínimo de asistencia",
+          "description": null,
+          "status": "ACTIVE",
+          "revision": 1,
+          "parameters": [
+            {
+              "key": "minimum_percentage",
+              "required": true,
+              "type": "number",
+              "minimum_exclusive": 0,
+              "maximum": 100
+            }
+          ],
+          "mandatory_for_exam_types": [],
+          "fixed_parameters": null,
+          "label": "Porcentaje mínimo de asistencia",
+          "required": false,
+          "locked": false
+        },
+        {
+          "code": "PREVIOUS_ASSESSMENTS_TAKEN",
+          "name": "Haber rendido las evaluaciones previas",
+          "description": null,
+          "status": "ACTIVE",
+          "revision": 1,
+          "parameters": [
+            {
+              "key": "assessment_keys",
+              "required": true,
+              "type": "array",
+              "options": [
+                "FIRST_PARTIAL",
+                "SECOND_PARTIAL"
+              ],
+              "min_items": 1
+            }
+          ],
+          "mandatory_for_exam_types": [],
+          "fixed_parameters": null,
+          "label": "Haber rendido las evaluaciones previas",
+          "required": false,
+          "locked": false
+        },
+        {
+          "code": "SECOND_INSTANCE_PARTIAL_AVERAGE",
+          "name": "Promedio de los dos parciales estrictamente mayor al umbral de segunda instancia",
+          "description": null,
+          "status": "ACTIVE",
+          "revision": 1,
+          "parameters": [],
+          "mandatory_for_exam_types": [
+            "makeup"
+          ],
+          "fixed_parameters": {
+            "assessment_keys": [
+              "FIRST_PARTIAL",
+              "SECOND_PARTIAL"
+            ],
+            "operator": "GT",
+            "threshold": 25
+          },
+          "label": "Promedio de los dos parciales estrictamente mayor al umbral de segunda instancia",
+          "required": true,
+          "locked": true
+        }
+      ],
+      "manual_review_conditions": null,
+      "assessments": [
+        {
+          "key": "FIRST_PARTIAL",
+          "label": "Primer parcial"
+        },
+        {
+          "key": "SECOND_PARTIAL",
+          "label": "Segundo parcial"
+        }
+      ]
+    }
+  },
+  "second_instance_configuration": {
+    "data": {
+      "exam_id": 15,
+      "evaluation_type": "makeup",
+      "configured_evaluation_type": "makeup",
+      "revision": 1,
+      "catalog_revision": "9fa18d45bc268536072a5ed2ee24c461739bbf4a0b7ef9d3d58da6793f381830",
+      "combination": "ALL",
+      "selected_criteria": [],
+      "mandatory_criteria": [
+        {
+          "code": "SECOND_INSTANCE_PARTIAL_AVERAGE",
+          "name": "Promedio de los dos parciales estrictamente mayor al umbral de segunda instancia",
+          "description": null,
+          "status": "ACTIVE",
+          "criterion_revision": 1,
+          "parameters": {
+            "assessment_keys": [
+              "FIRST_PARTIAL",
+              "SECOND_PARTIAL"
+            ],
+            "operator": "GT",
+            "threshold": 25
+          },
+          "required": true,
+          "locked": true
+        }
+      ],
+      "inactive_criteria": [],
+      "criteria": [
+        {
+          "code": "SECOND_INSTANCE_PARTIAL_AVERAGE",
+          "name": "Promedio de los dos parciales estrictamente mayor al umbral de segunda instancia",
+          "description": null,
+          "status": "ACTIVE",
+          "criterion_revision": 1,
+          "parameters": {
+            "assessment_keys": [
+              "FIRST_PARTIAL",
+              "SECOND_PARTIAL"
+            ],
+            "operator": "GT",
+            "threshold": 25
+          },
+          "required": true,
+          "locked": true
+        }
+      ],
+      "manual_review_conditions": null
+    }
+  }
+}

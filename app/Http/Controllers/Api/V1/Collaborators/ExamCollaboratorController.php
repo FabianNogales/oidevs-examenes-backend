@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers\Api\V1\Collaborators;
 
+use App\Enums\RoleName;
 use App\Http\Controllers\Controller;
 use App\Models\ExamCollaborator;
 use App\Models\User;
 use App\Services\Collaborators\ExamCollaboratorService;
+use App\Services\Images\DatabaseImageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ExamCollaboratorController extends Controller
 {
@@ -42,18 +45,29 @@ class ExamCollaboratorController extends Controller
             ? $this->collaboratorService->getExamCollaborators($examId)
             : collect();
 
-        return response()->json(['data' => $collaborators->map(function ($collaborator) {
+        return response()->json(['data' => $collaborators->map(function ($collaborator) use ($examId) {
             $user = $this->userData($collaborator->user);
             unset($user['id']);
 
-            $photo = $collaborator->user->profile_photo;
+            $photo = $collaborator->user->profile_image_id || $collaborator->user->profile_photo;
 
             return $this->assignmentData($collaborator) + $user + [
                 'profile_photo_url' => $photo
-                    ? ((str_starts_with($photo, 'http://') || str_starts_with($photo, 'https://')) ? $photo : asset('storage/'.$photo))
+                    ? route('collaborators.profile-photo', ['exam_id' => $examId, 'user_id' => $collaborator->user_id, 'v' => $collaborator->user->profile_image_id ?? 'legacy'])
                     : null,
             ];
         })->values()]);
+    }
+
+    public function photo(Request $request, int $examId, int $userId): StreamedResponse
+    {
+        $exam = $this->collaboratorService->responsibleExam($examId, $request->user()->id);
+        abort_unless(ExamCollaborator::examIsAvailable($exam), 404);
+        $collaborator = ExamCollaborator::with('user.student')->where('exam_id', $examId)
+            ->where('user_id', $userId)->where('status', 'ACTIVE')->firstOrFail();
+        $user = $collaborator->user;
+
+        return app(DatabaseImageService::class)->response($user->profile_image_id, 'profile', $user->student?->id ?? 0, $user->profile_photo);
     }
 
     public function store(Request $request, int $examId): JsonResponse
@@ -100,6 +114,8 @@ class ExamCollaboratorController extends Controller
         $validated = $request->validate([
             'search' => 'nullable|string|max:255',
             'exam_id' => 'required|integer|exists:exams,id',
+            'page' => 'sometimes|integer|min:1',
+            'per_page' => 'sometimes|integer|min:1|max:100',
         ]);
         $exam = $this->collaboratorService->responsibleExam($validated['exam_id'], $request->user()->id);
         $search = trim($validated['search'] ?? '');
@@ -119,6 +135,13 @@ class ExamCollaboratorController extends Controller
             });
         }
 
-        return response()->json(['data' => $query->orderBy('id')->get()->map(fn ($user) => $this->userData($user))]);
+        $page = $query->orderBy('id')->paginate((int) ($validated['per_page'] ?? 10), ['*'], 'page', (int) ($validated['page'] ?? 1));
+
+        return response()->json(['data' => $page->getCollection()->map(fn ($user) => $this->userData($user) + [
+            'roles' => $user->activeRoles->pluck('name')
+                ->map(fn (string $name) => RoleName::fromStoredName($name)?->value ?? $name)
+                ->unique()->values()->all(),
+        ]), 'meta' => ['current_page' => $page->currentPage(), 'per_page' => $page->perPage(),
+            'total' => $page->total(), 'last_page' => $page->lastPage()]]);
     }
 }

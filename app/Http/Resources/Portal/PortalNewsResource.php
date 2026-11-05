@@ -16,7 +16,7 @@ class PortalNewsResource extends JsonResource
             'title' => $this->title,
             'summary' => $this->summary,
             'content' => $this->when(! $request->routeIs('*.news.index'), $this->content),
-            'image_url' => $this->image_path ? route($admin ? 'portal.admin.news.image' : 'portal.public.news.image', ['news' => $this->id]) : null,
+            'image_url' => ($this->image_id || $this->image_path) ? route($admin ? 'portal.admin.news.image' : 'portal.public.news.image', ['news' => $this->id]) : null,
             'published_at' => $this->published_at?->setTimezone('America/La_Paz')->format('Y-m-d\TH:i:sP'),
             'status' => $this->when($admin, $this->status),
             'revision' => $this->when($admin, $this->revision),

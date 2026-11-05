@@ -4,15 +4,12 @@ namespace App\Services\Portal;
 
 use App\Models\PortalNews;
 use App\Services\Audit\AuditLogService;
+use App\Services\Images\DatabaseImageService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
-use RuntimeException;
-use Throwable;
 
 class PortalNewsService
 {
@@ -91,54 +88,22 @@ class PortalNewsService
 
     public function changeImage(int $id, int $revision, ?UploadedFile $image, Request $request): PortalNews
     {
-        // Private storage: a known file path must not expose draft or archived images.
-        $path = null;
-        $oldPath = null;
-        try {
-            $news = DB::transaction(function () use ($id, $revision, $image, $request, &$path, &$oldPath) {
-                $news = PortalNews::whereKey($id)->lockForUpdate()->firstOrFail();
-                $this->checkRevision($news, $revision);
-                if ($image !== null) {
-                    $storedPath = $image->store('portal-news', 'local');
-                    if (! $storedPath) {
-                        throw new RuntimeException('No se pudo guardar la imagen de la noticia.');
-                    }
-                    $path = $storedPath;
-                }
-                $before = $news->getAttributes();
-                $oldPath = $news->image_path;
-                $news->image_path = $path;
-                $news->revision++;
-                $news->updated_by = $request->user()->id;
-                $news->save();
-                $this->audit($news, $request, $image === null ? 'PORTAL_NEWS_IMAGE_REMOVED' : 'PORTAL_NEWS_IMAGE_UPDATED', $before);
+        return DB::transaction(function () use ($id, $revision, $image, $request) {
+            $news = PortalNews::whereKey($id)->lockForUpdate()->firstOrFail();
+            $this->checkRevision($news, $revision);
+            $before = $news->getAttributes();
+            $images = app(DatabaseImageService::class);
+            $oldId = $news->image_id;
+            $news->image_id = $image ? $images->store($image, 'news', $news->id, $request->user()->id) : null;
+            $news->image_path = null;
+            $news->revision++;
+            $news->updated_by = $request->user()->id;
+            $news->save();
+            $this->audit($news, $request, $image === null ? 'PORTAL_NEWS_IMAGE_REMOVED' : 'PORTAL_NEWS_IMAGE_UPDATED', $before);
+            $images->discard($oldId, 'news', $news->id);
 
-                return $news->refresh();
-            });
-        } catch (Throwable $error) {
-            $this->discardImage($path);
-            throw $error;
-        }
-
-        // Delete the previous file only after the database commit. Cleanup failures
-        // must never roll back a successful reference or delete the newly saved image.
-        DB::afterCommit(fn () => $this->discardImage($oldPath));
-
-        return $news;
-    }
-
-    private function discardImage(?string $path): void
-    {
-        if ($path === null) {
-            return;
-        }
-        try {
-            if (! Storage::disk('local')->delete($path)) {
-                Log::warning('Portal news image cleanup failed.', ['path' => $path]);
-            }
-        } catch (Throwable $error) {
-            Log::warning('Portal news image cleanup failed.', ['path' => $path, 'error' => $error->getMessage()]);
-        }
+            return $news->refresh();
+        });
     }
 
     private function checkRevision(PortalNews $news, int $revision): void

@@ -13,6 +13,8 @@ class Student extends Model
 {
     use HasFactory;
 
+    protected $casts = ['historical_photo_revision' => 'integer'];
+
     /**
      * The attributes that are mass assignable.
      *

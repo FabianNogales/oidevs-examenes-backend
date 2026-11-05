@@ -8,6 +8,8 @@ use App\Models\PortalEventCategory;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Audit\AuditLogService;
+use Carbon\CarbonImmutable;
+use Database\Seeders\PortalCalendarDemoCategorySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -27,6 +29,39 @@ class PortalCalendarTest extends TestCase
         $user->roles()->attach($record->id, ['status' => 'ACTIVE', 'assigned_at' => now()]);
 
         return $user;
+    }
+
+    public function test_initialization_is_repeatable_and_preserves_existing_category_state(): void
+    {
+        $base = PortalEventCategory::where('name', 'Actividades académicas')->firstOrFail();
+        $this->assertTrue($base->is_active);
+        $migration = require database_path('migrations/2026_11_04_000002_initialize_portal_calendar_category.php');
+        $migration->up();
+        $this->seed(PortalCalendarDemoCategorySeeder::class);
+        $this->seed(PortalCalendarDemoCategorySeeder::class);
+        $this->assertSame(1, PortalEventCategory::where('name', 'Actividades académicas')->count());
+        $this->assertSame($base->id, PortalEventCategory::where('name', 'Actividades académicas')->value('id'));
+        $base->update(['is_active' => false]);
+        $migration->up();
+        $this->seed(PortalCalendarDemoCategorySeeder::class);
+        $migration->down();
+        $this->assertFalse($base->fresh()->is_active);
+        $this->assertDatabaseCount('portal_events', 0);
+    }
+
+    public function test_inactive_category_preserves_published_history_and_category_identity(): void
+    {
+        $category = PortalEventCategory::where('name', 'Actividades académicas')->firstOrFail();
+        $event = $this->event('PUBLISHED', ['category_id' => $category->id]);
+        $this->patchJson(self::ADMIN.'/'.$event->id, ['revision' => 2, 'title' => 'Título actualizado'])->assertOk()
+            ->assertJsonPath('data.category.id', $category->id);
+        $before = $event->fresh()->getAttributes();
+        $category->update(['is_active' => false]);
+        $this->getJson(self::PUBLIC.'/'.$event->id)->assertOk()->assertJsonPath('data.category.id', $category->id);
+        $this->getJson(self::ADMIN.'/'.$event->id)->assertOk()->assertJsonPath('data.category.id', $category->id);
+        $this->getJson(self::PUBLIC)->assertJsonPath('data.0.category.id', $category->id);
+        $this->postJson(self::ADMIN, $this->payload(['category_id' => $category->id]))->assertUnprocessable()->assertJsonValidationErrors('category_id');
+        $this->assertSame($before, $event->fresh()->getAttributes());
     }
 
     private function payload(array $changes = []): array
@@ -59,7 +94,7 @@ class PortalCalendarTest extends TestCase
     public function test_guests_can_consult_empty_calendar_and_categories_without_writing_data(): void
     {
         $this->getJson(self::PUBLIC)->assertOk()->assertJsonCount(0, 'data')->assertJsonPath('meta.total', 0);
-        $this->getJson('/api/v1/portal/event-categories')->assertOk()->assertExactJson(['data' => []]);
+        $this->getJson('/api/v1/portal/event-categories')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.name', 'Actividades académicas');
         $this->assertDatabaseCount('portal_events', 0);
         $this->assertDatabaseCount('audit_logs', 0);
     }
@@ -113,7 +148,7 @@ class PortalCalendarTest extends TestCase
             ->assertJsonPath('data.ends_at', '2026-11-05T11:00:00-04:00')
             ->assertJsonMissingPath('data.created_by')->assertJsonMissingPath('data.updated_by')->assertJsonMissingPath('data.revision');
         $this->getJson(self::PUBLIC)->assertJsonCount(1, 'data');
-        $this->assertDatabaseHas('portal_events', ['id' => $event->id, 'starts_at' => '2026-11-05 13:00:00']);
+        $this->assertTrue($event->fresh()->starts_at->equalTo(CarbonImmutable::parse('2026-11-05T13:00:00+00:00')));
         $this->assertDatabaseHas('audit_logs', ['entity_type' => 'PortalEvent', 'entity_id' => $event->id, 'action' => 'PORTAL_EVENT_CREATED']);
         $this->assertDatabaseHas('audit_logs', ['entity_id' => $event->id, 'action' => 'PORTAL_EVENT_STATUS_CHANGED']);
     }
@@ -223,8 +258,8 @@ class PortalCalendarTest extends TestCase
     {
         $event = $this->event();
         $event->category->update(['is_active' => false]);
-        $this->getJson('/api/v1/portal/event-categories')->assertExactJson(['data' => []]);
-        $this->getJson('/api/v1/admin/portal/event-categories')->assertExactJson(['data' => []]);
+        $this->getJson('/api/v1/portal/event-categories')->assertJsonCount(1, 'data')->assertJsonPath('data.0.name', 'Actividades académicas');
+        $this->getJson('/api/v1/admin/portal/event-categories')->assertJsonCount(1, 'data')->assertJsonPath('data.0.name', 'Actividades académicas');
         $this->patchJson(self::ADMIN."/{$event->id}/status", ['status' => 'PUBLISHED', 'revision' => 1])
             ->assertUnprocessable()->assertJsonValidationErrors('category_id');
     }
@@ -272,5 +307,114 @@ class PortalCalendarTest extends TestCase
         } finally {
             date_default_timezone_set($original);
         }
+    }
+
+    public function test_default_visibility_is_public_and_public_response_contract_is_unchanged(): void
+    {
+        $event = $this->event('PUBLISHED');
+        $this->assertSame('PUBLIC', $event->visibility);
+        $this->getJson(self::ADMIN."/{$event->id}")->assertOk()->assertJsonPath('data.visibility', 'PUBLIC');
+        $this->getJson(self::PUBLIC."/{$event->id}")->assertOk()->assertJsonMissingPath('data.visibility');
+    }
+
+    public function test_private_published_event_is_admin_only_even_when_its_id_or_filters_are_known(): void
+    {
+        $event = $this->event('PUBLISHED', ['visibility' => 'PRIVATE']);
+        $this->getJson(self::ADMIN."/{$event->id}")->assertOk()->assertJsonPath('data.visibility', 'PRIVATE');
+        $this->getJson(self::ADMIN."/{$event->id}/history")->assertOk()->assertJsonPath('data.0.new_values.visibility', 'PRIVATE');
+        foreach (['DOCENTE', 'ESTUDIANTE', 'ADMINISTRADOR'] as $role) {
+            $this->actingAs($this->actor($role));
+            $this->getJson(self::PUBLIC."/{$event->id}")->assertNotFound();
+            $this->getJson(self::PUBLIC.'?visibility=PRIVATE&status=PUBLISHED&search=Jornada')->assertOk()->assertJsonCount(0, 'data')->assertJsonPath('meta.total', 0);
+            if ($role !== 'ADMINISTRADOR') {
+                $this->getJson(self::ADMIN."/{$event->id}")->assertForbidden();
+                $this->getJson(self::ADMIN."/{$event->id}/history")->assertForbidden();
+            }
+        }
+        $this->app['auth']->forgetGuards();
+        $this->getJson(self::PUBLIC."/{$event->id}")->assertNotFound();
+        $this->getJson(self::PUBLIC.'?from=2026-11-05&to=2026-11-05')->assertJsonCount(0, 'data');
+    }
+
+    public function test_administration_can_filter_visibility_without_affecting_public_totals(): void
+    {
+        $public = $this->event('PUBLISHED');
+        $private = $this->event('PUBLISHED', ['visibility' => 'PRIVATE']);
+        $this->event('DRAFT', ['visibility' => 'PRIVATE']);
+        $this->getJson(self::ADMIN.'?visibility=PRIVATE&status=PUBLISHED')->assertOk()->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.id', $private->id);
+        $this->getJson(self::ADMIN.'?visibility=PRIVATE')->assertJsonPath('meta.total', 2);
+        $this->getJson(self::PUBLIC.'?visibility=PRIVATE&per_page=1')->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.id', $public->id);
+    }
+
+    public function test_visibility_changes_are_immediate_revision_controlled_and_audited(): void
+    {
+        $event = $this->event('PUBLISHED');
+        $path = self::ADMIN."/{$event->id}";
+        $this->patchJson($path, ['visibility' => 'PRIVATE', 'revision' => 2])->assertOk()->assertJsonPath('data.revision', 3)->assertJsonPath('data.status', 'PUBLISHED');
+        $this->getJson(self::PUBLIC."/{$event->id}")->assertNotFound();
+        $this->patchJson($path, ['visibility' => 'PUBLIC', 'revision' => 2])->assertConflict();
+        $this->assertSame('PRIVATE', $event->refresh()->visibility);
+        $this->getJson($path.'/history')->assertJsonPath('data.0.old_values.visibility', 'PUBLIC')->assertJsonPath('data.0.new_values.visibility', 'PRIVATE');
+        $this->patchJson($path, ['visibility' => 'PUBLIC', 'revision' => 3])->assertOk();
+        $this->getJson(self::PUBLIC."/{$event->id}")->assertOk();
+        $this->assertDatabaseCount('audit_logs', 4);
+    }
+
+    public function test_privacy_is_independent_of_draft_publication_and_cancellation(): void
+    {
+        $event = $this->event('DRAFT', ['visibility' => 'PRIVATE']);
+        foreach (['PUBLISHED', 'CANCELLED', 'DRAFT'] as $status) {
+            $this->patchJson(self::ADMIN."/{$event->id}/status", ['status' => $status, 'revision' => $event->revision])
+                ->assertOk()->assertJsonPath('data.visibility', 'PRIVATE');
+            $event->refresh();
+            $this->getJson(self::PUBLIC."/{$event->id}")->assertNotFound();
+        }
+        $this->patchJson(self::ADMIN."/{$event->id}", ['visibility' => 'PUBLIC', 'revision' => $event->revision])->assertOk();
+        $this->getJson(self::PUBLIC."/{$event->id}")->assertNotFound();
+    }
+
+    public function test_invalid_visibility_is_rejected_on_create_edit_and_filters(): void
+    {
+        $event = $this->event();
+        foreach (['PERSONAL', 'ADMIN', '', null] as $value) {
+            $this->postJson(self::ADMIN, $this->payload(['visibility' => $value]))->assertUnprocessable()->assertJsonValidationErrors('visibility');
+            $this->patchJson(self::ADMIN."/{$event->id}", ['visibility' => $value, 'revision' => 1])->assertUnprocessable()->assertJsonValidationErrors('visibility');
+        }
+        $this->getJson(self::ADMIN.'?visibility=PERSONAL')->assertUnprocessable();
+        $this->assertSame(1, $event->refresh()->revision);
+    }
+
+    public function test_edit_without_visibility_does_not_make_a_private_event_public(): void
+    {
+        $event = $this->event('PUBLISHED', ['visibility' => 'PRIVATE']);
+        $this->patchJson(self::ADMIN."/{$event->id}", ['title' => 'Título corregido', 'revision' => $event->revision])
+            ->assertOk()->assertJsonPath('data.visibility', 'PRIVATE');
+        $this->getJson(self::PUBLIC."/{$event->id}")->assertNotFound();
+    }
+
+    public function test_visibility_migration_preserves_preexisting_events_as_public(): void
+    {
+        $event = $this->event('PUBLISHED');
+        $migration = require database_path('migrations/2026_11_01_000001_add_visibility_to_portal_events.php');
+        $migration->down();
+        $before = DB::table('portal_events')->where('id', $event->id)->first();
+        $migration->up();
+        $after = DB::table('portal_events')->where('id', $event->id)->first();
+        $this->assertSame('PUBLIC', $after->visibility);
+        unset($after->visibility);
+        $this->assertEquals($before, $after);
+        $this->getJson(self::PUBLIC."/{$event->id}")->assertOk();
+    }
+
+    public function test_failed_visibility_change_preserves_the_previous_public_event(): void
+    {
+        $event = $this->event('PUBLISHED');
+        $revision = $event->revision;
+        $this->mock(AuditLogService::class)->shouldReceive('log')->once()->andThrow(new \RuntimeException('Audit unavailable'));
+        $this->patchJson(self::ADMIN."/{$event->id}", ['visibility' => 'PRIVATE', 'revision' => $revision])->assertStatus(500);
+        $this->assertSame('PUBLIC', $event->refresh()->visibility);
+        $this->assertSame($revision, $event->revision);
+        $this->getJson(self::PUBLIC."/{$event->id}")->assertOk();
+        $this->assertDatabaseCount('audit_logs', 2);
     }
 }

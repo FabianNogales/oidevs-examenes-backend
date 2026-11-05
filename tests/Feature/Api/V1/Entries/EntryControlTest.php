@@ -11,9 +11,15 @@ use App\Models\Role;
 use App\Models\Student;
 use App\Models\Teacher;
 use App\Models\User;
+use App\Services\Audit\AuditLogService;
+use App\Services\Students\StudentProfileService;
+use App\Services\Students\StudentQrService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Tests\Support\RasterImageFixture;
 use Tests\TestCase;
 
 class EntryControlTest extends TestCase
@@ -156,6 +162,47 @@ class EntryControlTest extends TestCase
     private function base(): string
     {
         return "/api/v1/exams/{$this->exam->id}/entry-control/students";
+    }
+
+    public function test_entry_filters_are_applied_before_pagination_and_summary_stays_global(): void
+    {
+        $registered = $this->student();
+        $this->enroll($registered);
+        $this->eligible($registered);
+        $this->entry($registered);
+        $annulled = $this->student();
+        $this->enroll($annulled);
+        $this->eligible($annulled);
+        $this->entry($annulled, 'ANNULLED');
+        $this->actingAs($this->teacherUser)->getJson($this->base().'?entry_status=REGISTERED&per_page=1')
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.student_id', $registered->id)
+            ->assertJsonPath('meta.total', 1)->assertJsonPath('summary.total_students', 3)->assertJsonPath('summary.pending', 2);
+        $this->getJson($this->base().'?entry_status=PENDING&per_page=1&page=2')
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.student_id', $annulled->id)
+            ->assertJsonPath('meta.total', 2)->assertJsonPath('summary.registered', 1);
+        $this->entry($this->student);
+        $this->entry($annulled);
+        $this->getJson($this->base().'?entry_status=PENDING')->assertJsonCount(0, 'data')->assertJsonPath('meta.total', 0)->assertJsonPath('summary.pending', 0);
+    }
+
+    public function test_verification_incidents_are_independent_of_entries_and_global_exam_blockers(): void
+    {
+        $inactive = $this->student('INACTIVE');
+        $this->enroll($inactive);
+        $this->eligible($inactive);
+        $pendingEligibility = $this->student();
+        $this->enroll($pendingEligibility);
+        $ineligible = $this->student();
+        $this->enroll($ineligible);
+        $this->eligible($ineligible, 'NOT_ELIGIBLE');
+        $this->entry($ineligible);
+        $this->actingAs($this->teacherUser)->getJson($this->base().'?has_incident=true')
+            ->assertOk()->assertJsonCount(3, 'data')->assertJsonPath('meta.total', 3)->assertJsonPath('summary.total_students', 4);
+        $this->getJson($this->base().'?has_incident=true&entry_status=REGISTERED')->assertJsonCount(1, 'data')->assertJsonPath('data.0.student_id', $ineligible->id);
+        $this->getJson($this->base().'?has_incident=true&entry_status=PENDING')->assertJsonCount(2, 'data');
+        $this->getJson($this->base().'?has_incident=false')->assertJsonCount(1, 'data')->assertJsonPath('data.0.student_id', $this->student->id);
+        $this->getJson($this->base().'?entry_status=OTHER')->assertUnprocessable();
+        $this->getJson($this->base().'?has_incident=invalid')->assertUnprocessable();
     }
 
     private function enroll(Student $student, string $status = 'ACTIVE'): void
@@ -360,13 +407,13 @@ class EntryControlTest extends TestCase
             $before[$table] = DB::table($table)->orderBy('id')->get()->toJson();
         }
         $this->actingAs($this->teacherUser)->getJson($this->base())->assertOk()
-            ->assertJsonPath('data.0.profile_photo_url', asset('storage/profile-photos/student.png'));
+            ->assertJsonPath('data.0.profile_photo_url', route('entry-control.profile-photo', ['exam_id' => $this->exam->id, 'student_id' => $this->student->id, 'v' => 'legacy']));
         $this->getJson($this->base().'/'.$this->student->id)->assertOk();
         foreach ($tables as $table) {
             $this->assertSame($before[$table], DB::table($table)->orderBy('id')->get()->toJson());
         }
         $this->student->user->update(['profile_photo' => 'https://example.com/photo.png']);
-        $this->getJson($this->base().'/'.$this->student->id)->assertJsonPath('data.profile_photo_url', 'https://example.com/photo.png');
+        $this->getJson($this->base().'/'.$this->student->id)->assertJsonPath('data.profile_photo_url', route('entry-control.profile-photo', ['exam_id' => $this->exam->id, 'student_id' => $this->student->id, 'v' => 'legacy']));
         $this->student->user->update(['profile_photo' => null]);
         $this->getJson($this->base().'/'.$this->student->id)->assertJsonPath('data.profile_photo_url', null);
     }
@@ -417,5 +464,126 @@ class EntryControlTest extends TestCase
         $this->actingAs($this->teacherUser)->getJson($this->base())->assertOk()
             ->assertJsonPath('data.0.entry_status', 'PENDING')->assertJsonPath('summary.registered', 0);
         $this->getJson('/api/v1/exams/999999/entry-control/students')->assertNotFound();
+    }
+
+    private function photoAdmin(): User
+    {
+        $admin = User::factory()->create(['must_change_password' => false]);
+        $role = Role::firstOrCreate(['name' => 'ADMINISTRADOR'], ['status' => 'ACTIVE']);
+        $admin->roles()->attach($role->id, ['status' => 'ACTIVE', 'assigned_at' => now()]);
+
+        return $admin;
+    }
+
+    public function test_historical_photo_is_null_until_admin_upload_and_propagates_to_qr_manual_and_history(): void
+    {
+        Storage::fake('local');
+        $this->student->user->update(['profile_photo' => 'avatars/current.png']);
+        $this->actingAs($this->teacherUser)->getJson($this->base().'/'.$this->student->id)
+            ->assertJsonPath('data.historical_photo_url', null)->assertJsonPath('data.profile_photo_url', route('entry-control.profile-photo', ['exam_id' => $this->exam->id, 'student_id' => $this->student->id, 'v' => 'legacy']));
+        app(StudentProfileService::class)->updateProfilePhoto($this->student->user, RasterImageFixture::image('current.png'), null, null);
+        $profileId = $this->student->user->fresh()->profile_image_id;
+        $profileUrl = route('entry-control.profile-photo', ['exam_id' => $this->exam->id, 'student_id' => $this->student->id, 'v' => $profileId]);
+        $endpoint = "/api/v1/admin/students/{$this->student->id}/historical-photo";
+        $this->actingAs($this->photoAdmin())->postJson($endpoint, ['photo' => RasterImageFixture::image('institution.png'), 'revision' => 0])
+            ->assertCreated()->assertJsonPath('data.historical_photo_revision', 1);
+        $this->student->refresh();
+        $path = $this->student->historical_image_id;
+        $this->assertDatabaseHas('stored_images', ['id' => $path, 'student_id' => $this->student->id]);
+        $this->getJson($endpoint)->assertOk()->assertHeader('Content-Type', 'image/png');
+        $photoUrl = route('entry-control.historical-photo', ['exam_id' => $this->exam->id, 'student_id' => $this->student->id, 'v' => $path]);
+        $this->actingAs($this->teacherUser)->getJson($this->base().'/'.$this->student->id)->assertJsonPath('data.historical_photo_url', $photoUrl);
+        $this->getJson($photoUrl)->assertOk();
+        $this->getJson($profileUrl)->assertOk()->assertHeader('Content-Type', 'image/png');
+        $this->getJson($this->base())->assertJsonPath('data.0.historical_photo_url', $photoUrl);
+        $qr = app(StudentQrService::class)->getOrGenerateForExam($this->student->id, $this->exam->id);
+        $entryBase = "/api/v1/exams/{$this->exam->id}/entry-control";
+        $this->postJson($entryBase.'/qr', ['qr_token' => $qr['token'], 'room_id' => $this->exam->room_id])
+            ->assertCreated()->assertJsonPath('data.student.historical_photo_url', $photoUrl)->assertJsonPath('data.student.profile_photo_url', $profileUrl);
+        $this->postJson($this->base().'/'.$this->student->id.'/entries', ['room_id' => $this->exam->room_id])
+            ->assertConflict()->assertJsonPath('data.student.historical_photo_url', $photoUrl);
+        DB::table('exam_entries')->where('exam_id', $this->exam->id)->update(['status' => 'ANNULLED']);
+        $this->postJson($this->base().'/'.$this->student->id.'/entries', ['room_id' => $this->exam->room_id])
+            ->assertCreated()->assertJsonPath('data.entry.verification_method', 'MANUAL')->assertJsonPath('data.student.historical_photo_url', $photoUrl);
+        $this->getJson($entryBase.'/entries')->assertJsonPath('data.0.student.historical_photo_url', $photoUrl)->assertJsonPath('data.0.student.profile_photo_url', $profileUrl);
+        $otherExam = $this->exam->replicate();
+        $otherExam->course_offering_id = $this->exam->course_offering_id;
+        $otherExam->save();
+        // No eligibility alone is manufactured by this read; enrollment remains
+        // in the same offering, so use a student with no association at all.
+        $unassociated = $this->student();
+        $unassociated->forceFill(['historical_image_id' => $path])->save();
+        $this->getJson(route('entry-control.historical-photo', ['exam_id' => $otherExam->id, 'student_id' => $unassociated->id]))->assertNotFound();
+    }
+
+    public function test_profile_photo_updates_do_not_replace_or_remove_the_institutional_reference(): void
+    {
+        Storage::fake('local');
+        Storage::fake('public');
+        $this->actingAs($this->photoAdmin())->postJson("/api/v1/admin/students/{$this->student->id}/historical-photo", ['photo' => RasterImageFixture::image('institution.jpg'), 'revision' => 0])->assertCreated();
+        $path = $this->student->refresh()->historical_image_id;
+        app(StudentProfileService::class)->updateProfilePhoto($this->student->user, RasterImageFixture::image('current.jpg'), null, null);
+        $this->assertSame($path, $this->student->refresh()->historical_image_id);
+        $this->assertNotSame($path, $this->student->user->fresh()->profile_photo);
+        $this->assertDatabaseHas('stored_images', ['id' => $path, 'student_id' => $this->student->id]);
+    }
+
+    public function test_private_profile_consumers_keep_their_module_authorization(): void
+    {
+        app(StudentProfileService::class)->updateProfilePhoto($this->student->user, RasterImageFixture::image(), null, null);
+        $entryPhoto = route('entry-control.profile-photo', ['exam_id' => $this->exam->id, 'student_id' => $this->student->id]);
+        $eligibilityPhoto = route('eligibilities.profile-photo', ['exam' => $this->exam->id, 'student' => $this->student->id]);
+        $collaborator = $this->collaborator();
+        $this->actingAs($this->teacherUser)->getJson($eligibilityPhoto)->assertOk();
+        $this->actingAs($collaborator)->getJson($eligibilityPhoto)->assertForbidden();
+        $this->getJson($entryPhoto)->assertOk();
+        $this->actingAs($this->student->user)->getJson($entryPhoto)->assertForbidden();
+
+        $portraitOwner = $this->student();
+        $portraitOwner->user_id = $collaborator->id;
+        $portraitOwner->save();
+        app(StudentProfileService::class)->updateProfilePhoto($collaborator, RasterImageFixture::image(), null, null);
+        $portrait = route('collaborators.profile-photo', ['exam_id' => $this->exam->id, 'user_id' => $collaborator->id]);
+        $this->actingAs($this->teacherUser)->getJson($portrait)->assertOk();
+        $this->actingAs($collaborator)->getJson($portrait)->assertForbidden();
+        $this->actingAs($this->teacherUser)->deleteJson("/api/v1/exams/{$this->exam->id}/collaborators/{$collaborator->id}")->assertOk();
+        $this->getJson($portrait)->assertNotFound();
+        $this->actingAs($collaborator)->getJson($entryPhoto)->assertForbidden();
+    }
+
+    public function test_only_admin_can_create_or_correct_institutional_photo_with_revision_and_reason(): void
+    {
+        Storage::fake('local');
+        $endpoint = "/api/v1/admin/students/{$this->student->id}/historical-photo";
+        $this->postJson($endpoint)->assertUnauthorized();
+        $this->actingAs($this->teacherUser)->postJson($endpoint)->assertForbidden();
+        $this->actingAs($this->student->user)->postJson($endpoint)->assertForbidden();
+        $admin = $this->photoAdmin();
+        $this->actingAs($admin)->postJson($endpoint, ['photo' => RasterImageFixture::image('institution.jpg'), 'revision' => 0])->assertCreated();
+        $old = $this->student->refresh()->historical_image_id;
+        $this->postJson($endpoint, ['photo' => RasterImageFixture::image('overwrite.jpg'), 'revision' => 1])->assertConflict()->assertJsonPath('code', 'HISTORICAL_PHOTO_EXISTS');
+        $this->postJson($endpoint.'/corrections', ['photo' => RasterImageFixture::image('correct.jpg'), 'revision' => 1])->assertUnprocessable()->assertJsonValidationErrors('reason');
+        $this->postJson($endpoint.'/corrections', ['photo' => RasterImageFixture::image('correct.jpg'), 'revision' => 0, 'reason' => 'Corrección institucional'])->assertConflict();
+        $this->postJson($endpoint.'/corrections', ['photo' => RasterImageFixture::image('correct.jpg'), 'revision' => 1, 'reason' => 'Corrección institucional'])->assertOk()->assertJsonPath('data.historical_photo_revision', 2);
+        $this->assertDatabaseHas('stored_images', ['id' => $old, 'purpose' => 'historical']);
+        $this->assertNotSame($old, $this->student->refresh()->historical_image_id);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'STUDENT_INSTITUTIONAL_PHOTO_CORRECTED', 'entity_id' => $this->student->id, 'user_id' => $admin->id]);
+        $this->actingAs(User::factory()->create())->getJson(route('entry-control.historical-photo', ['exam_id' => $this->exam->id, 'student_id' => $this->student->id]))->assertForbidden();
+        $admin->update(['status' => 'INACTIVE']);
+        $this->actingAs($admin)->postJson($endpoint)->assertUnauthorized();
+    }
+
+    public function test_invalid_institutional_files_and_audit_failures_do_not_persist_files_or_references(): void
+    {
+        Storage::fake('local');
+        $endpoint = "/api/v1/admin/students/{$this->student->id}/historical-photo";
+        $this->actingAs($this->photoAdmin());
+        foreach ([RasterImageFixture::image('large.png')->size(5121), UploadedFile::fake()->createWithContent('fake.jpg', 'not an image')] as $file) {
+            $this->postJson($endpoint, ['photo' => $file, 'revision' => 0])->assertUnprocessable();
+        }
+        $this->mock(AuditLogService::class)->shouldReceive('log')->once()->andThrow(new \RuntimeException('Audit unavailable'));
+        $this->postJson($endpoint, ['photo' => RasterImageFixture::image('institution.jpg'), 'revision' => 0])->assertStatus(500);
+        $this->assertNull($this->student->refresh()->historical_image_id);
+        $this->assertSame([], Storage::disk('local')->allFiles('institutional-photos'));
     }
 }

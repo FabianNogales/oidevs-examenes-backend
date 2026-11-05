@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Auth;
 
+use App\Enums\RoleName;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -24,7 +25,9 @@ class CurrentUserResource extends JsonResource
             'must_change_password' => $this->must_change_password,
             'roles' => $this->whenLoaded(
                 'activeRoles',
-                fn () => $this->activeRoles->pluck('name')->values()->all(),
+                fn () => $this->activeRoles->pluck('name')
+                    ->map(fn (string $name) => RoleName::fromStoredName($name)?->value ?? $name)
+                    ->unique()->values()->all(),
                 [],
             ),
         ];

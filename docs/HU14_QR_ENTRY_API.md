@@ -56,6 +56,10 @@ La transacción bloquea el examen para serializar registros del mismo examen, re
 
 Fechas en ISO 8601 UTC. profile_photo_url es null si falta foto. `student_id` identifica students.id, no users.id.
 
+Actualización de integración: student agrega historical_photo_url independiente
+de la foto actual, con null si no existe una fuente institucional. Carga administrativa,
+corrección explícita y lectura autorizada se detallan en HU13_HU14_HU15_INTEGRATION_UPDATE.md.
+
 ### Rechazos
 
 Mismo envoltorio result/message/processed_at/data:
