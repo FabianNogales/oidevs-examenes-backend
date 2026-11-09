@@ -191,3 +191,11 @@ imágenes, formatos/tamaño, reemplazo, eliminación y rollback ante fallo de au
 
 HU42–HU45 quedan para las siguientes épicas. HU34 permanece pendiente de definición
 funcional y no se altera HU12, habilitación ni control de ingreso.
+
+## Ampliación de categorías (2026-11-09)
+
+Crear noticias nuevas requiere category_id activo. Noticias anteriores conservan
+category=null; PATCH sin category_id mantiene su asociación. Los recursos agregan
+category {id,name}|null y los listados aceptan category_id antes de paginar.
+Consultar [contrato de categorías](PORTAL_CATEGORIES_API.md) para inicialización,
+selectores, gestión ADMIN, revisión y conservación histórica.

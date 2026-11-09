@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api\V1\Portal;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class SavePortalNewsRequest extends FormRequest
 {
@@ -17,6 +18,7 @@ class SavePortalNewsRequest extends FormRequest
 
         return [
             'title' => [$presence, 'required', 'string', 'max:200'],
+            'category_id' => [$presence, 'required', 'integer', Rule::exists('portal_news_categories', 'id')->where('is_active', true)],
             'summary' => [$presence, 'required', 'string', 'max:1000'],
             'content' => [$presence, 'required', 'string', 'max:50000'],
             'revision' => [$this->isMethod('POST') ? 'prohibited' : 'required', 'integer', 'min:1'],

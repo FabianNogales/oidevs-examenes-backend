@@ -10,12 +10,16 @@ use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class PortalNewsService
 {
     public function paginate(array $filters, bool $public): LengthAwarePaginator
     {
-        $query = PortalNews::query();
+        $query = PortalNews::with('category');
+        if (isset($filters['category_id'])) {
+            $query->where('category_id', $filters['category_id']);
+        }
         if ($public) {
             $query->where('status', 'PUBLISHED');
         } elseif (isset($filters['status'])) {
@@ -38,12 +42,18 @@ class PortalNewsService
 
     public function find(int $id, bool $public = false): PortalNews
     {
-        return PortalNews::when($public, fn ($query) => $query->where('status', 'PUBLISHED'))->findOrFail($id);
+        return PortalNews::with('category')->when($public, fn ($query) => $query->where('status', 'PUBLISHED'))->findOrFail($id);
     }
 
     public function save(array $data, Request $request, ?int $id = null): PortalNews
     {
         return DB::transaction(function () use ($data, $request, $id) {
+            if (isset($data['category_id'])) {
+                $category = DB::table('portal_news_categories')->where('id', $data['category_id'])->lockForUpdate()->first();
+                if (! $category || ! $category->is_active) {
+                    throw ValidationException::withMessages(['category_id' => 'La categoría no está activa.']);
+                }
+            }
             $news = $id === null ? new PortalNews : PortalNews::whereKey($id)->lockForUpdate()->firstOrFail();
             if ($id !== null) {
                 $this->checkRevision($news, $data['revision']);

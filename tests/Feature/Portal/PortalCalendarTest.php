@@ -247,7 +247,8 @@ class PortalCalendarTest extends TestCase
         $this->getJson(self::PUBLIC.'?search=JORNADA&per_page=1&page=2')
             ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('meta.total', 2)->assertJsonPath('meta.current_page', 2);
         $this->getJson(self::PUBLIC.'?search=100%25')->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $event->id);
-        $this->getJson(self::PUBLIC.'?status=DRAFT')->assertJsonCount(2, 'data')->assertJsonMissing(['id' => $private->id, 'title' => $private->title]);
+        $publicRows = $this->getJson(self::PUBLIC.'?status=DRAFT')->assertJsonCount(2, 'data')->json('data');
+        $this->assertNotContains($private->id, array_column($publicRows, 'id'));
         $this->getJson(self::PUBLIC.'?category_id=999')->assertJsonCount(0, 'data');
         $this->getJson(self::ADMIN.'?status=DRAFT')->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $private->id);
         $this->getJson(self::PUBLIC.'?per_page=101')->assertUnprocessable();

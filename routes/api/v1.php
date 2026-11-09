@@ -60,6 +60,7 @@ use Illuminate\Support\Facades\Route;
 use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 
 require __DIR__.'/eligibility-automation.php';
+require __DIR__.'/portal-categories.php';
 
 Route::prefix('admin/students/{student}')->whereNumber('student')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])

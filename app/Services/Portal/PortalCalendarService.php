@@ -63,6 +63,12 @@ class PortalCalendarService
                 $this->checkRevision($event, $data['revision']);
             }
             $before = $event->exists ? $event->getAttributes() : null;
+            if (isset($data['category_id'])) {
+                $category = DB::table('portal_event_categories')->where('id', $data['category_id'])->lockForUpdate()->first();
+                if (! $category || ! $category->is_active) {
+                    throw ValidationException::withMessages(['category_id' => ['La categoría no está activa.']]);
+                }
+            }
             unset($data['revision']);
             foreach (['starts_at', 'ends_at'] as $field) {
                 if (isset($data[$field])) {
@@ -91,8 +97,11 @@ class PortalCalendarService
         return DB::transaction(function () use ($id, $data, $request) {
             $event = PortalEvent::whereKey($id)->lockForUpdate()->firstOrFail();
             $this->checkRevision($event, $data['revision']);
-            if ($data['status'] === 'PUBLISHED' && ! $event->category->is_active) {
-                throw ValidationException::withMessages(['category_id' => ['La categoría no está activa.']]);
+            if ($data['status'] === 'PUBLISHED') {
+                $category = DB::table('portal_event_categories')->where('id', $event->category_id)->lockForUpdate()->first();
+                if (! $category || ! $category->is_active) {
+                    throw ValidationException::withMessages(['category_id' => ['La categoría no está activa.']]);
+                }
             }
             $before = $event->getAttributes();
             $event->status = $data['status'];

@@ -33,7 +33,7 @@ class PortalHistoryResource extends JsonResource
         }
         $fields = match ($this->entity_type) {
             'PortalEvent' => ['title', 'description', 'category_id', 'starts_at', 'ends_at', 'all_day', 'location', 'status', 'visibility', 'published_at', 'revision'],
-            'PortalNews' => ['title', 'summary', 'content', 'status', 'published_at', 'published_by', 'revision'],
+            'PortalNews' => ['title', 'summary', 'content', 'category_id', 'status', 'published_at', 'published_by', 'revision'],
             'PortalInformationContent' => ['kind', 'key', 'is_published', 'published_at', 'revision'],
             'PortalService' => ['name', 'description', 'category_id', 'icon_key', 'destination_type', 'destination', 'requires_auth', 'sort_order', 'status', 'revision'],
             default => [],

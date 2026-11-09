@@ -228,3 +228,10 @@ Contrato vigente, sin cambios:
 - PATCH de un evento histórico omitiendo category_id conserva su categoría, aunque esté
   inactiva; enviarla expresamente exige que esté activa.
 - No existe CRUD administrativo de categorías en el contrato vigente.
+
+## Ampliación de categorías (2026-11-09)
+
+La gestión ADMIN de categorías de eventos ya está disponible. Consultar
+[contrato común de categorías](PORTAL_CATEGORIES_API.md) para rutas manage,
+revision, estados, auditoría y migración automática. Los selectores existentes
+conservan su formato. No hay eliminación física.

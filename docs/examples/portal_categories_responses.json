@@ -1,0 +1,72 @@
+{
+  "news_selection": {
+    "data": [
+      {
+        "id": 1,
+        "name": "Académico"
+      },
+      {
+        "id": 4,
+        "name": "Convocatorias"
+      },
+      {
+        "id": 2,
+        "name": "Institucional"
+      },
+      {
+        "id": 3,
+        "name": "Tecnología"
+      }
+    ]
+  },
+  "news_manage": {
+    "data": [
+      {
+        "id": 1,
+        "name": "Académico",
+        "is_active": true,
+        "revision": 1
+      },
+      {
+        "id": 4,
+        "name": "Convocatorias",
+        "is_active": true,
+        "revision": 1
+      },
+      {
+        "id": 2,
+        "name": "Institucional",
+        "is_active": true,
+        "revision": 1
+      },
+      {
+        "id": 3,
+        "name": "Tecnología",
+        "is_active": true,
+        "revision": 1
+      }
+    ],
+    "meta": {
+      "current_page": 1,
+      "per_page": 100,
+      "total": 4,
+      "last_page": 1
+    }
+  },
+  "event_manage": {
+    "data": [
+      {
+        "id": 1,
+        "name": "Actividades académicas",
+        "is_active": true,
+        "revision": 1
+      }
+    ],
+    "meta": {
+      "current_page": 1,
+      "per_page": 15,
+      "total": 1,
+      "last_page": 1
+    }
+  }
+}

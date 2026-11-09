@@ -41,6 +41,7 @@ class PortalNewsTest extends TestCase
     private function payload(array $changes = []): array
     {
         return array_replace([
+            'category_id' => DB::table('portal_news_categories')->value('id'),
             'title' => 'Comunicado institucional',
             'summary' => 'Resumen del comunicado.',
             'content' => "Contenido completo.\nSegunda línea.",
