@@ -14,7 +14,11 @@ class AuthenticationService
         $token = $user->currentAccessToken();
 
         if ($token instanceof PersonalAccessToken) {
-            $token->delete();
+            if (MobileTokenPermissions::isMobile($token) && $token->mobile_device_id !== null) {
+                app(MobileDeviceService::class)->revoke($user, (int) $token->mobile_device_id, $request, 'LOGOUT');
+            } else {
+                $token->delete();
+            }
 
             return;
         }

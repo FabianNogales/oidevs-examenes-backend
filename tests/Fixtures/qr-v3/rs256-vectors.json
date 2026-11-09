@@ -1,0 +1,114 @@
+{
+    "format": "EIDA-QR-v3-RS256-interoperability-v1",
+    "warning": "Synthetic public test material. Not a production credential. No private key is retained.",
+    "algorithm": "RSASSA-PKCS1-v1_5 with SHA-256",
+    "kid": "interop-rsa-2026-01",
+    "issuer": "https://eida.example.test",
+    "audience": "eida-control-qr",
+    "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0LeEPlJ1/VYOhJLEuaR+\ntts//GMhTb6tO1sjh1XieixqOubCTsexLzATSzrkhJ5yH2f43u/ja32qQ5SD73bd\nSHbYPzBlIx2resVpHDVEibmFpnV9Kt6iURZlSQog4PswaehykQyccwtSUP5DJ9Wr\n+hELZ40mfsUwvx3toDD22cRpYEFzEkJ3w/aMhgJ9oDmUeGRkhTFGErGnUI1awyGi\nDakUJcxExjNNYeu0Bqy9taUvcUJPMoGvpL4i1hYVmrMLE7oURIT1LGlnz82votRn\nGT/kJ0Jv9btJeT0tapYBtQ5pp9Pn0yYvpH1N9E6c+gmno3D6ygJB+sBV/QIGIuqg\nBwIDAQAB\n-----END PUBLIC KEY-----\n",
+    "public_key_sha256": "e883e85b8af5c3e90659375f901ad8a468a0a7ba29ca6c38a0523530f0b50157",
+    "signing_input": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImludGVyb3AtcnNhLTIwMjYtMDEiLCJ0eXAiOiJlaWRhLWVudHJ5LXFyK2p3dCJ9.eyJ2IjozLCJqdGkiOiJmMWNmODQ1OS1hZTI2LTRkZWYtOWEyNC0yOTQ2MjkzMTRjMTciLCJzdWIiOiIxMDEiLCJleGFtX2lkIjoiNDIiLCJpc3MiOiJodHRwczovL2VpZGEuZXhhbXBsZS50ZXN0IiwiYXVkIjoiZWlkYS1jb250cm9sLXFyIiwiaWF0IjoxODkzNDU2MDAwLCJuYmYiOjE4OTM0NTYwMDAsImV4cCI6MTg5MzQ1OTYwMH0",
+    "claims": {
+        "v": 3,
+        "jti": "f1cf8459-ae26-4def-9a24-294629314c17",
+        "sub": "101",
+        "exam_id": "42",
+        "iss": "https://eida.example.test",
+        "aud": "eida-control-qr",
+        "iat": 1893456000,
+        "nbf": 1893456000,
+        "exp": 1893459600
+    },
+    "cases": [
+        {
+            "name": "valid",
+            "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImludGVyb3AtcnNhLTIwMjYtMDEiLCJ0eXAiOiJlaWRhLWVudHJ5LXFyK2p3dCJ9.eyJ2IjozLCJqdGkiOiJmMWNmODQ1OS1hZTI2LTRkZWYtOWEyNC0yOTQ2MjkzMTRjMTciLCJzdWIiOiIxMDEiLCJleGFtX2lkIjoiNDIiLCJpc3MiOiJodHRwczovL2VpZGEuZXhhbXBsZS50ZXN0IiwiYXVkIjoiZWlkYS1jb250cm9sLXFyIiwiaWF0IjoxODkzNDU2MDAwLCJuYmYiOjE4OTM0NTYwMDAsImV4cCI6MTg5MzQ1OTYwMH0.z3W75rP6siWPIA8armTZ89jP1lHlKcjXrC3_waAvMwX3dqQ8JLCXa7XbAKDFppnrK2PRfhR_fOvbG7zZdm4CDUbo8jkqKM1MMwHT8CLkdrTekOAxZpn1f9jz5ysGlwWgKSTDDyq8LSdn3IRLyw3v3m-ENo8DAVEayDc-DqrbHkU_wUf3uesGjRJA_UYWZbjN-JQl6qmLYqjY3IApVb-9Ps6bhCPKiYwRIwcP4BvYq-0hECcjwqOiBzFP8Iu9wDSGNmpLeG_P7-Gk28vLXV8zwqasYnqt9PZVK9RIc6rX3QxIdBFWPd0daJOhIg9HrrTifB7FEofRcmGv-FYfwI14ng",
+            "student_id": 101,
+            "exam_id": 42,
+            "now": 1893456060,
+            "valid": true,
+            "reason": null
+        },
+        {
+            "name": "tampered-payload",
+            "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImludGVyb3AtcnNhLTIwMjYtMDEiLCJ0eXAiOiJlaWRhLWVudHJ5LXFyK2p3dCJ9.eyJ2IjozLCJqdGkiOiJmMWNmODQ1OS1hZTI2LTRkZWYtOWEyNC0yOTQ2MjkzMTRjMTciLCJzdWIiOiIxMDEiLCJleGFtX2lkIjoiNDMiLCJpc3MiOiJodHRwczovL2VpZGEuZXhhbXBsZS50ZXN0IiwiYXVkIjoiZWlkYS1jb250cm9sLXFyIiwiaWF0IjoxODkzNDU2MDAwLCJuYmYiOjE4OTM0NTYwMDAsImV4cCI6MTg5MzQ1OTYwMH0.z3W75rP6siWPIA8armTZ89jP1lHlKcjXrC3_waAvMwX3dqQ8JLCXa7XbAKDFppnrK2PRfhR_fOvbG7zZdm4CDUbo8jkqKM1MMwHT8CLkdrTekOAxZpn1f9jz5ysGlwWgKSTDDyq8LSdn3IRLyw3v3m-ENo8DAVEayDc-DqrbHkU_wUf3uesGjRJA_UYWZbjN-JQl6qmLYqjY3IApVb-9Ps6bhCPKiYwRIwcP4BvYq-0hECcjwqOiBzFP8Iu9wDSGNmpLeG_P7-Gk28vLXV8zwqasYnqt9PZVK9RIc6rX3QxIdBFWPd0daJOhIg9HrrTifB7FEofRcmGv-FYfwI14ng",
+            "student_id": 101,
+            "exam_id": 42,
+            "now": 1893456060,
+            "valid": false,
+            "reason": "SIGNATURE_INVALID"
+        },
+        {
+            "name": "tampered-signature",
+            "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImludGVyb3AtcnNhLTIwMjYtMDEiLCJ0eXAiOiJlaWRhLWVudHJ5LXFyK2p3dCJ9.eyJ2IjozLCJqdGkiOiJmMWNmODQ1OS1hZTI2LTRkZWYtOWEyNC0yOTQ2MjkzMTRjMTciLCJzdWIiOiIxMDEiLCJleGFtX2lkIjoiNDIiLCJpc3MiOiJodHRwczovL2VpZGEuZXhhbXBsZS50ZXN0IiwiYXVkIjoiZWlkYS1jb250cm9sLXFyIiwiaWF0IjoxODkzNDU2MDAwLCJuYmYiOjE4OTM0NTYwMDAsImV4cCI6MTg5MzQ1OTYwMH0.znW75rP6siWPIA8armTZ89jP1lHlKcjXrC3_waAvMwX3dqQ8JLCXa7XbAKDFppnrK2PRfhR_fOvbG7zZdm4CDUbo8jkqKM1MMwHT8CLkdrTekOAxZpn1f9jz5ysGlwWgKSTDDyq8LSdn3IRLyw3v3m-ENo8DAVEayDc-DqrbHkU_wUf3uesGjRJA_UYWZbjN-JQl6qmLYqjY3IApVb-9Ps6bhCPKiYwRIwcP4BvYq-0hECcjwqOiBzFP8Iu9wDSGNmpLeG_P7-Gk28vLXV8zwqasYnqt9PZVK9RIc6rX3QxIdBFWPd0daJOhIg9HrrTifB7FEofRcmGv-FYfwI14ng",
+            "student_id": 101,
+            "exam_id": 42,
+            "now": 1893456060,
+            "valid": false,
+            "reason": "SIGNATURE_INVALID"
+        },
+        {
+            "name": "wrong-algorithm",
+            "token": "eyJhbGciOiJIUzI1NiIsImtpZCI6ImludGVyb3AtcnNhLTIwMjYtMDEiLCJ0eXAiOiJlaWRhLWVudHJ5LXFyK2p3dCJ9.eyJ2IjozLCJqdGkiOiJmMWNmODQ1OS1hZTI2LTRkZWYtOWEyNC0yOTQ2MjkzMTRjMTciLCJzdWIiOiIxMDEiLCJleGFtX2lkIjoiNDIiLCJpc3MiOiJodHRwczovL2VpZGEuZXhhbXBsZS50ZXN0IiwiYXVkIjoiZWlkYS1jb250cm9sLXFyIiwiaWF0IjoxODkzNDU2MDAwLCJuYmYiOjE4OTM0NTYwMDAsImV4cCI6MTg5MzQ1OTYwMH0.z3W75rP6siWPIA8armTZ89jP1lHlKcjXrC3_waAvMwX3dqQ8JLCXa7XbAKDFppnrK2PRfhR_fOvbG7zZdm4CDUbo8jkqKM1MMwHT8CLkdrTekOAxZpn1f9jz5ysGlwWgKSTDDyq8LSdn3IRLyw3v3m-ENo8DAVEayDc-DqrbHkU_wUf3uesGjRJA_UYWZbjN-JQl6qmLYqjY3IApVb-9Ps6bhCPKiYwRIwcP4BvYq-0hECcjwqOiBzFP8Iu9wDSGNmpLeG_P7-Gk28vLXV8zwqasYnqt9PZVK9RIc6rX3QxIdBFWPd0daJOhIg9HrrTifB7FEofRcmGv-FYfwI14ng",
+            "student_id": 101,
+            "exam_id": 42,
+            "now": 1893456060,
+            "valid": false,
+            "reason": "HEADER_INVALID"
+        },
+        {
+            "name": "unknown-kid",
+            "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6InVua25vd24iLCJ0eXAiOiJlaWRhLWVudHJ5LXFyK2p3dCJ9.eyJ2IjozLCJqdGkiOiJmMWNmODQ1OS1hZTI2LTRkZWYtOWEyNC0yOTQ2MjkzMTRjMTciLCJzdWIiOiIxMDEiLCJleGFtX2lkIjoiNDIiLCJpc3MiOiJodHRwczovL2VpZGEuZXhhbXBsZS50ZXN0IiwiYXVkIjoiZWlkYS1jb250cm9sLXFyIiwiaWF0IjoxODkzNDU2MDAwLCJuYmYiOjE4OTM0NTYwMDAsImV4cCI6MTg5MzQ1OTYwMH0.z3W75rP6siWPIA8armTZ89jP1lHlKcjXrC3_waAvMwX3dqQ8JLCXa7XbAKDFppnrK2PRfhR_fOvbG7zZdm4CDUbo8jkqKM1MMwHT8CLkdrTekOAxZpn1f9jz5ysGlwWgKSTDDyq8LSdn3IRLyw3v3m-ENo8DAVEayDc-DqrbHkU_wUf3uesGjRJA_UYWZbjN-JQl6qmLYqjY3IApVb-9Ps6bhCPKiYwRIwcP4BvYq-0hECcjwqOiBzFP8Iu9wDSGNmpLeG_P7-Gk28vLXV8zwqasYnqt9PZVK9RIc6rX3QxIdBFWPd0daJOhIg9HrrTifB7FEofRcmGv-FYfwI14ng",
+            "student_id": 101,
+            "exam_id": 42,
+            "now": 1893456060,
+            "valid": false,
+            "reason": "UNKNOWN_KID"
+        },
+        {
+            "name": "unexpected-header",
+            "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImludGVyb3AtcnNhLTIwMjYtMDEiLCJ0eXAiOiJlaWRhLWVudHJ5LXFyK2p3dCIsImprdSI6Imh0dHBzOi8vdW50cnVzdGVkLmV4YW1wbGUudGVzdCJ9.eyJ2IjozLCJqdGkiOiJmMWNmODQ1OS1hZTI2LTRkZWYtOWEyNC0yOTQ2MjkzMTRjMTciLCJzdWIiOiIxMDEiLCJleGFtX2lkIjoiNDIiLCJpc3MiOiJodHRwczovL2VpZGEuZXhhbXBsZS50ZXN0IiwiYXVkIjoiZWlkYS1jb250cm9sLXFyIiwiaWF0IjoxODkzNDU2MDAwLCJuYmYiOjE4OTM0NTYwMDAsImV4cCI6MTg5MzQ1OTYwMH0.z3W75rP6siWPIA8armTZ89jP1lHlKcjXrC3_waAvMwX3dqQ8JLCXa7XbAKDFppnrK2PRfhR_fOvbG7zZdm4CDUbo8jkqKM1MMwHT8CLkdrTekOAxZpn1f9jz5ysGlwWgKSTDDyq8LSdn3IRLyw3v3m-ENo8DAVEayDc-DqrbHkU_wUf3uesGjRJA_UYWZbjN-JQl6qmLYqjY3IApVb-9Ps6bhCPKiYwRIwcP4BvYq-0hECcjwqOiBzFP8Iu9wDSGNmpLeG_P7-Gk28vLXV8zwqasYnqt9PZVK9RIc6rX3QxIdBFWPd0daJOhIg9HrrTifB7FEofRcmGv-FYfwI14ng",
+            "student_id": 101,
+            "exam_id": 42,
+            "now": 1893456060,
+            "valid": false,
+            "reason": "HEADER_INVALID"
+        },
+        {
+            "name": "wrong-student",
+            "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImludGVyb3AtcnNhLTIwMjYtMDEiLCJ0eXAiOiJlaWRhLWVudHJ5LXFyK2p3dCJ9.eyJ2IjozLCJqdGkiOiJmMWNmODQ1OS1hZTI2LTRkZWYtOWEyNC0yOTQ2MjkzMTRjMTciLCJzdWIiOiIxMDEiLCJleGFtX2lkIjoiNDIiLCJpc3MiOiJodHRwczovL2VpZGEuZXhhbXBsZS50ZXN0IiwiYXVkIjoiZWlkYS1jb250cm9sLXFyIiwiaWF0IjoxODkzNDU2MDAwLCJuYmYiOjE4OTM0NTYwMDAsImV4cCI6MTg5MzQ1OTYwMH0.z3W75rP6siWPIA8armTZ89jP1lHlKcjXrC3_waAvMwX3dqQ8JLCXa7XbAKDFppnrK2PRfhR_fOvbG7zZdm4CDUbo8jkqKM1MMwHT8CLkdrTekOAxZpn1f9jz5ysGlwWgKSTDDyq8LSdn3IRLyw3v3m-ENo8DAVEayDc-DqrbHkU_wUf3uesGjRJA_UYWZbjN-JQl6qmLYqjY3IApVb-9Ps6bhCPKiYwRIwcP4BvYq-0hECcjwqOiBzFP8Iu9wDSGNmpLeG_P7-Gk28vLXV8zwqasYnqt9PZVK9RIc6rX3QxIdBFWPd0daJOhIg9HrrTifB7FEofRcmGv-FYfwI14ng",
+            "student_id": 102,
+            "exam_id": 42,
+            "now": 1893456060,
+            "valid": false,
+            "reason": "SUBJECT_EXAM_MISMATCH"
+        },
+        {
+            "name": "wrong-exam",
+            "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImludGVyb3AtcnNhLTIwMjYtMDEiLCJ0eXAiOiJlaWRhLWVudHJ5LXFyK2p3dCJ9.eyJ2IjozLCJqdGkiOiJmMWNmODQ1OS1hZTI2LTRkZWYtOWEyNC0yOTQ2MjkzMTRjMTciLCJzdWIiOiIxMDEiLCJleGFtX2lkIjoiNDIiLCJpc3MiOiJodHRwczovL2VpZGEuZXhhbXBsZS50ZXN0IiwiYXVkIjoiZWlkYS1jb250cm9sLXFyIiwiaWF0IjoxODkzNDU2MDAwLCJuYmYiOjE4OTM0NTYwMDAsImV4cCI6MTg5MzQ1OTYwMH0.z3W75rP6siWPIA8armTZ89jP1lHlKcjXrC3_waAvMwX3dqQ8JLCXa7XbAKDFppnrK2PRfhR_fOvbG7zZdm4CDUbo8jkqKM1MMwHT8CLkdrTekOAxZpn1f9jz5ysGlwWgKSTDDyq8LSdn3IRLyw3v3m-ENo8DAVEayDc-DqrbHkU_wUf3uesGjRJA_UYWZbjN-JQl6qmLYqjY3IApVb-9Ps6bhCPKiYwRIwcP4BvYq-0hECcjwqOiBzFP8Iu9wDSGNmpLeG_P7-Gk28vLXV8zwqasYnqt9PZVK9RIc6rX3QxIdBFWPd0daJOhIg9HrrTifB7FEofRcmGv-FYfwI14ng",
+            "student_id": 101,
+            "exam_id": 43,
+            "now": 1893456060,
+            "valid": false,
+            "reason": "SUBJECT_EXAM_MISMATCH"
+        },
+        {
+            "name": "expired-at-boundary",
+            "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImludGVyb3AtcnNhLTIwMjYtMDEiLCJ0eXAiOiJlaWRhLWVudHJ5LXFyK2p3dCJ9.eyJ2IjozLCJqdGkiOiJmMWNmODQ1OS1hZTI2LTRkZWYtOWEyNC0yOTQ2MjkzMTRjMTciLCJzdWIiOiIxMDEiLCJleGFtX2lkIjoiNDIiLCJpc3MiOiJodHRwczovL2VpZGEuZXhhbXBsZS50ZXN0IiwiYXVkIjoiZWlkYS1jb250cm9sLXFyIiwiaWF0IjoxODkzNDU2MDAwLCJuYmYiOjE4OTM0NTYwMDAsImV4cCI6MTg5MzQ1OTYwMH0.z3W75rP6siWPIA8armTZ89jP1lHlKcjXrC3_waAvMwX3dqQ8JLCXa7XbAKDFppnrK2PRfhR_fOvbG7zZdm4CDUbo8jkqKM1MMwHT8CLkdrTekOAxZpn1f9jz5ysGlwWgKSTDDyq8LSdn3IRLyw3v3m-ENo8DAVEayDc-DqrbHkU_wUf3uesGjRJA_UYWZbjN-JQl6qmLYqjY3IApVb-9Ps6bhCPKiYwRIwcP4BvYq-0hECcjwqOiBzFP8Iu9wDSGNmpLeG_P7-Gk28vLXV8zwqasYnqt9PZVK9RIc6rX3QxIdBFWPd0daJOhIg9HrrTifB7FEofRcmGv-FYfwI14ng",
+            "student_id": 101,
+            "exam_id": 42,
+            "now": 1893459600,
+            "valid": false,
+            "reason": "TIME_INVALID"
+        },
+        {
+            "name": "not-yet-valid",
+            "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImludGVyb3AtcnNhLTIwMjYtMDEiLCJ0eXAiOiJlaWRhLWVudHJ5LXFyK2p3dCJ9.eyJ2IjozLCJqdGkiOiJmMWNmODQ1OS1hZTI2LTRkZWYtOWEyNC0yOTQ2MjkzMTRjMTciLCJzdWIiOiIxMDEiLCJleGFtX2lkIjoiNDIiLCJpc3MiOiJodHRwczovL2VpZGEuZXhhbXBsZS50ZXN0IiwiYXVkIjoiZWlkYS1jb250cm9sLXFyIiwiaWF0IjoxODkzNDU2MDAwLCJuYmYiOjE4OTM0NTYwMDAsImV4cCI6MTg5MzQ1OTYwMH0.z3W75rP6siWPIA8armTZ89jP1lHlKcjXrC3_waAvMwX3dqQ8JLCXa7XbAKDFppnrK2PRfhR_fOvbG7zZdm4CDUbo8jkqKM1MMwHT8CLkdrTekOAxZpn1f9jz5ysGlwWgKSTDDyq8LSdn3IRLyw3v3m-ENo8DAVEayDc-DqrbHkU_wUf3uesGjRJA_UYWZbjN-JQl6qmLYqjY3IApVb-9Ps6bhCPKiYwRIwcP4BvYq-0hECcjwqOiBzFP8Iu9wDSGNmpLeG_P7-Gk28vLXV8zwqasYnqt9PZVK9RIc6rX3QxIdBFWPd0daJOhIg9HrrTifB7FEofRcmGv-FYfwI14ng",
+            "student_id": 101,
+            "exam_id": 42,
+            "now": 1893455999,
+            "valid": false,
+            "reason": "TIME_INVALID"
+        }
+    ]
+}

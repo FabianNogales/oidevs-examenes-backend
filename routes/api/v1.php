@@ -17,6 +17,8 @@ use App\Http\Controllers\Api\V1\Admin\TeacherController;
 use App\Http\Controllers\Api\V1\Attendance\AttendanceController;
 use App\Http\Controllers\Api\V1\Auth\AuthController;
 use App\Http\Controllers\Api\V1\Auth\CurrentUserController;
+use App\Http\Controllers\Api\V1\Auth\MobileAuthController;
+use App\Http\Controllers\Api\V1\Auth\MobileDeviceController;
 use App\Http\Controllers\Api\V1\Collaborators\ExamCollaboratorController;
 use App\Http\Controllers\Api\V1\Eligibility\ExamEligibilityController;
 use App\Http\Controllers\Api\V1\Enrollments\StudentEnrollmentController;
@@ -55,6 +57,7 @@ use App\Http\Middleware\EnsureExpulsionExamOwner;
 use App\Http\Middleware\EnsureInfractionExamOwner;
 use App\Http\Middleware\HandlePortalServiceErrors;
 use Illuminate\Support\Facades\Route;
+use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 
 require __DIR__.'/eligibility-automation.php';
 
@@ -222,8 +225,14 @@ Route::prefix('exams/{exam_id}/offline')->whereNumber('exam_id')
 Route::get('health', HealthCheckController::class)->name('health');
 
 // Autenticación genérica
+Route::post('auth/mobile/login', [MobileAuthController::class, 'login'])
+    ->withoutMiddleware(EnsureFrontendRequestsAreStateful::class)
+    ->middleware('throttle:mobile-login')->name('auth.mobile.login');
+
 Route::prefix('auth')->middleware(['auth:sanctum', 'session.current'])->group(function () {
     Route::post('/logout', [AuthController::class, 'revokeSessionToken']);
+    Route::get('/devices', [MobileDeviceController::class, 'index']);
+    Route::delete('/devices/{id}', [MobileDeviceController::class, 'destroy'])->whereNumber('id');
 });
 
 // HU02 Auth: devuelve usuario, roles y estado de primer acceso

@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Services\QrV3\QrV3Factory;
+use App\Services\QrV3\QrV3Service;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Support\ServiceProvider;
 
@@ -12,7 +14,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->bind(QrV3Service::class,
+            fn () => app(QrV3Factory::class)->make());
     }
 
     /**
