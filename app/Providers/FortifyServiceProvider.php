@@ -57,5 +57,15 @@ class FortifyServiceProvider extends ServiceProvider
 
             return Limit::perMinute(5)->by($throttleKey);
         });
+
+        RateLimiter::for('mobile-login', function (Request $request) {
+            $identifier = $request->input('identifier');
+            $normalized = is_string($identifier) ? Str::lower(trim($identifier)) : '';
+
+            return [
+                Limit::perMinute(5)->by('mobile-identity:'.hash('sha256', $normalized.'|'.$request->ip())),
+                Limit::perMinute(30)->by('mobile-ip:'.$request->ip()),
+            ];
+        });
     }
 }

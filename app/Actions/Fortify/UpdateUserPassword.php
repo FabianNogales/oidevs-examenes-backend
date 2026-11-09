@@ -3,8 +3,10 @@
 namespace App\Actions\Fortify;
 
 use App\Models\User;
+use App\Services\Auth\MobileDeviceService;
 use Illuminate\Auth\SessionGuard;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
@@ -30,10 +32,18 @@ class UpdateUserPassword implements UpdatesUserPasswords
             'current_password.current_password' => __('The provided password does not match your current password.'),
         ])->validateWithBag('updatePassword');
 
-        $user->forceFill([
-            'password' => Hash::make($input['password']),
-            'must_change_password' => false,
-        ])->save();
+        $originalHash = $user->getAuthPassword();
+        DB::transaction(function () use ($user, $input, $originalHash) {
+            $locked = User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            if (! hash_equals($originalHash, $locked->getAuthPassword())) {
+                throw ValidationException::withMessages(['current_password' => 'La contraseña cambió. Inicia sesión nuevamente.']);
+            }
+            $user->forceFill([
+                'password' => Hash::make($input['password']),
+                'must_change_password' => false,
+            ])->save();
+            app(MobileDeviceService::class)->revokeForPassword($user, 'PASSWORD_CHANGED');
+        }, 3);
 
         $request = request();
         $guardName = config('fortify.guard', 'web');
