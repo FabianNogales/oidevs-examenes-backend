@@ -23,13 +23,14 @@ class StoreExpulsionRequest extends FormRequest
     {
         return ['student_id' => ['required', 'integer', 'min:1', 'max:'.PHP_INT_MAX, 'exists:students,id'],
             'reason' => ['required', 'string'],
-            'infraction_id' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:'.PHP_INT_MAX]];
+            'infraction_id' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:'.PHP_INT_MAX],
+            'discipline_case_id' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:'.PHP_INT_MAX]];
     }
 
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator) {
-            foreach (array_diff(array_keys($this->all()), ['student_id', 'reason', 'infraction_id']) as $field) {
+            foreach (array_diff(array_keys($this->all()), ['student_id', 'reason', 'infraction_id', 'discipline_case_id']) as $field) {
                 $validator->errors()->add($field, 'Este campo no está permitido en el registro de expulsiones.');
             }
         });

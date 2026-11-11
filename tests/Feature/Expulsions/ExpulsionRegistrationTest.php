@@ -36,6 +36,22 @@ class ExpulsionRegistrationTest extends TestCase
             'occurred_at' => now()->subMinute(), 'status' => 'REPORTED']);
     }
 
+    public function test_incident_link_requires_same_exam_and_identified_student(): void
+    {
+        $incident = \App\Models\SpecialCase::create([
+            'exam_id' => $this->exam->id, 'student_id' => null,
+            'type' => 'IDENTIFICATION', 'description' => 'Documento ilegible.',
+            'reported_by' => $this->owner->id, 'status' => 'PENDING',
+        ]);
+        $this->actingAs($this->owner);
+        $caseId = \App\Models\DisciplineCase::where('source_type', 'INCIDENT')->where('source_id', $incident->id)->value('id');
+        $payload = $this->payload() + ['discipline_case_id' => $caseId];
+        $this->postJson($this->endpoint(), $payload)->assertUnprocessable()->assertJsonValidationErrors('discipline_case_id');
+        $incident->update(['student_id' => $this->student->id]);
+        $this->postJson($this->endpoint(), $payload)->assertCreated()->assertJsonPath('data.discipline_case_id', $caseId);
+        $this->assertDatabaseHas('special_cases', ['id' => $incident->id, 'status' => 'PENDING']);
+    }
+
     public function test_owner_registers_expulsion_with_server_metadata_and_no_infraction(): void
     {
         $this->actingAs($this->owner)->postJson($this->endpoint(), $this->payload())->assertCreated()

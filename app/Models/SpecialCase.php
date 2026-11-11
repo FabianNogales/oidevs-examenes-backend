@@ -8,6 +8,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SpecialCase extends Model
 {
+    protected static function booted(): void
+    {
+        static::created(fn (self $record) => DisciplineCase::registerSource($record, 'INCIDENT'));
+    }
+
     protected $fillable = ['exam_id', 'student_id', 'type', 'description', 'reported_by', 'status'];
 
     protected function casts(): array

@@ -5,6 +5,7 @@ namespace App\Services\Expulsions;
 use App\Models\Expulsion;
 use App\Models\Infraction;
 use App\Models\Student;
+use App\Models\DisciplineCase;
 use App\Services\Audit\AuditLogService;
 use App\Services\Entries\ExamEntryAvailability;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -49,11 +50,22 @@ class ExpulsionRegistrationService
                         throw ValidationException::withMessages(['infraction_id' => 'La infracción debe corresponder al mismo estudiante y examen.']);
                     }
                 }
+                if (isset($data['discipline_case_id'])) {
+                    $case = DisciplineCase::where('exam_id', $examId)->whereKey($data['discipline_case_id'])->lockForUpdate()->firstOrFail();
+                    $studentId = $case->studentId();
+                    if ($studentId !== (int) $data['student_id']) {
+                        throw ValidationException::withMessages(['discipline_case_id' => 'El caso debe corresponder al mismo estudiante y examen.']);
+                    }
+                    if (isset($data['infraction_id']) && ($case->source_type !== 'INFRACTION' || $case->source_id !== (int) $data['infraction_id'])) {
+                        throw ValidationException::withMessages(['discipline_case_id' => 'La infracción y el caso deben coincidir.']);
+                    }
+                }
                 $expulsion = Expulsion::create(['exam_id' => $examId, 'student_id' => $data['student_id'],
+                    'discipline_case_id' => $data['discipline_case_id'] ?? null,
                     'infraction_id' => $data['infraction_id'] ?? null, 'reason' => $data['reason'],
                     'expelled_by' => $request->user()->id, 'expelled_at' => now()]);
                 $this->audit->log($request, $request->user()->id, 'STUDENT_EXPELLED', 'Expulsion', $expulsion->id,
-                    newValues: $expulsion->only(['exam_id', 'student_id', 'infraction_id', 'reason', 'expelled_by'])
+                    newValues: $expulsion->only(['exam_id', 'student_id', 'infraction_id', 'discipline_case_id', 'reason', 'expelled_by'])
                         + ['expelled_at' => $expulsion->expelled_at->toISOString()]);
 
                 return Expulsion::withContext()->findOrFail($expulsion->id);

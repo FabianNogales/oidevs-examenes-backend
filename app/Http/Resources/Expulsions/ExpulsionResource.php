@@ -10,7 +10,7 @@ class ExpulsionResource extends JsonResource
     public function toArray(Request $request): array
     {
         return ['id' => $this->id, 'exam_id' => $this->exam_id, 'student_id' => $this->student_id,
-            'infraction_id' => $this->infraction_id, 'reason' => $this->reason,
+            'infraction_id' => $this->infraction_id, 'discipline_case_id' => $this->discipline_case_id, 'reason' => $this->reason,
             'expelled_at' => $this->expelled_at->toISOString(),
             'expelled_by' => ['id' => (int) $this->expelled_by, 'name' => $this->responsible?->display_name],
             'status' => 'EXPELLED', 'condition' => 'EXPELLED',

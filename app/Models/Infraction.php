@@ -11,6 +11,11 @@ class Infraction extends Model
 {
     public const AUDIT_ACTIONS = ['INFRACTION_REPORTED', 'INFRACTION_UPDATED', 'INFRACTION_STATUS_CHANGED'];
 
+    protected static function booted(): void
+    {
+        static::created(fn (self $record) => DisciplineCase::registerSource($record, 'INFRACTION'));
+    }
+
     protected $fillable = ['exam_id', 'student_id', 'type', 'description', 'observations', 'reported_by', 'occurred_at', 'status'];
 
     protected function casts(): array
