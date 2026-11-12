@@ -21,7 +21,7 @@ class AcademicDataService
     public function validateRecord(array $input): array
     {
         $data = Validator::make($input, [
-            'assessments' => ['required', 'array', 'min:1', 'max:2'],
+            'assessments' => ['present', 'array', 'max:2'],
             'assessments.*' => ['required', 'array:was_taken,score'],
             'assessments.*.was_taken' => ['required', 'boolean'],
             'assessments.*.score' => ['present', 'nullable', 'numeric', 'min:0', 'max:100', 'decimal:0,2'],
@@ -44,6 +44,11 @@ class AcademicDataService
             throw ValidationException::withMessages(['attendance' => 'Proporciona ambas cantidades de asistencia; asistencias no puede superar el total.']);
         }
         ksort($data['assessments']);
+        $data['attended_classes'] = $data['attended_classes'] === null ? null : (int) $data['attended_classes'];
+        $data['total_classes'] = $data['total_classes'] === null ? null : (int) $data['total_classes'];
+        if (! $data['assessments'] && $data['total_classes'] === null) {
+            throw ValidationException::withMessages(['assessments' => 'Proporciona una evaluación o datos de asistencia.']);
+        }
 
         return $data;
     }
@@ -55,7 +60,7 @@ class AcademicDataService
             ->orderBy('students.id')->select('students.id', 'students.sis_code', 'students.first_names', 'students.last_names')->get()->all();
     }
 
-    public function preview(Request $request, int $offering, UploadedFile $file): AcademicImport
+    public function readRows(UploadedFile $file, bool $merge = false): array
     {
         $raw = file_get_contents($file->getRealPath());
         if (! mb_check_encoding($raw, 'UTF-8') || str_contains($raw, "\0")) {
@@ -68,7 +73,8 @@ class AcademicDataService
             if ($header) {
                 $header[0] = preg_replace('/^\xEF\xBB\xBF/', '', $header[0]);
             }
-            if ($header !== self::HEADER) {
+            if ($merge ? (! $header || ! in_array('sis', $header, true) || count($header) !== count(array_unique($header))
+                || array_diff($header, self::HEADER)) : $header !== self::HEADER) {
                 throw ValidationException::withMessages(['file' => 'Encabezado requerido: '.implode(',', self::HEADER)]);
             }
             $offset = ftell($handle);
@@ -86,7 +92,7 @@ class AcademicDataService
                 if (count($rows) >= 1000) {
                     throw ValidationException::withMessages(['file' => 'Máximo 1000 filas.']);
                 }
-                $rows[] = count($fields) === 6 ? array_combine(self::HEADER, array_map('trim', $fields)) : null;
+                $rows[] = count($fields) === count($header) ? array_combine($header, array_map('trim', $fields)) : null;
             }
         } finally {
             fclose($handle);
@@ -94,6 +100,16 @@ class AcademicDataService
         if (! $rows) {
             throw ValidationException::withMessages(['file' => 'El archivo no contiene filas.']);
         }
+
+        return $rows;
+    }
+
+    public function preview(Request $request, int $offering, UploadedFile $file): AcademicImport
+    {
+        if ($request->input('mode', 'CREATE_ONLY') === 'MERGE') {
+            return app(AcademicMergeService::class)->preview($request, $offering, $file);
+        }
+        $rows = $this->readRows($file);
         $students = collect($this->activeStudents($offering))->keyBy('sis_code');
         $existing = AcademicRecord::where('course_offering_id', $offering)->pluck('student_id')->all();
         $errors = [];
@@ -159,6 +175,9 @@ class AcademicDataService
             if ($import->preview['errors']) {
                 throw ValidationException::withMessages(['preview' => 'Corrige las filas con error antes de confirmar.']);
             }
+            if (($import->preview['mode'] ?? 'CREATE_ONLY') === 'MERGE') {
+                return app(AcademicMergeService::class)->confirm($request, $offering, $import);
+            }
             $activeIds = array_map(fn ($s) => (int) $s->id, $this->activeStudents($offering));
             $ids = [];
             foreach ($import->preview['valid_records'] as $data) {
@@ -181,7 +200,7 @@ class AcademicDataService
     public function correct(Request $request, int $offering, int $record): AcademicRecord
     {
         $input = $request->validate(['revision' => ['required', 'integer', 'min:1'], 'reason' => ['required', 'string', 'max:500'],
-            'assessments' => ['required', 'array'], 'attended_classes' => ['present', 'nullable'], 'total_classes' => ['present', 'nullable']]);
+            'assessments' => ['present', 'array'], 'attended_classes' => ['present', 'nullable'], 'total_classes' => ['present', 'nullable']]);
         $values = $this->validateRecord($input);
 
         return DB::transaction(function () use ($request, $offering, $record, $input, $values) {

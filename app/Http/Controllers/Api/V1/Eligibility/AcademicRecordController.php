@@ -20,13 +20,20 @@ class AcademicRecordController extends Controller
 
         return $this->support->response(['data' => ['columns' => AcademicDataService::HEADER, 'assessment_keys' => CriteriaCatalog::ASSESSMENTS,
             'encoding' => 'UTF-8', 'delimiter' => ',', 'max_rows' => 1000, 'max_file_kb' => 5120,
-            'score_min' => 0, 'score_max' => 100, 'score_decimal_places' => 2, 'was_taken_values' => ['true', 'false']]]);
+            'score_min' => 0, 'score_max' => 100, 'score_decimal_places' => 2, 'was_taken_values' => ['true', 'false'],
+            'default_mode' => 'CREATE_ONLY', 'modes' => ['CREATE_ONLY', 'MERGE'],
+            'merge' => ['allowed_columns' => AcademicDataService::HEADER, 'required_columns' => ['sis'],
+                'attendance_columns' => ['sis', 'attended_classes', 'total_classes'],
+                'assessment_columns' => ['sis', 'assessment_key', 'was_taken', 'score'],
+                'empty_values' => 'PRESERVE', 'reason_required_for_updates' => true,
+                'reason_max_length' => 500, 'confirmation_revalidates_revisions' => true]]]);
     }
 
     public function preview(Request $request, int $offering)
     {
         $this->support->offering($request, $offering);
-        $request->validate(['file' => ['required', 'file', 'mimes:csv,txt', 'extensions:csv', 'max:5120']]);
+        $request->validate(['file' => ['required', 'file', 'mimes:csv,txt', 'extensions:csv', 'max:5120'],
+            'mode' => ['sometimes', 'in:CREATE_ONLY,MERGE'], 'reason' => ['sometimes', 'nullable', 'string', 'max:500']]);
         $preview = $this->data->preview($request, $offering, $request->file('file'));
 
         return $this->support->response(['data' => ['preview_id' => $preview->id, 'expires_at' => $preview->expires_at->toIso8601String(),

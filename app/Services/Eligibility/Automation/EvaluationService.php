@@ -34,6 +34,8 @@ class EvaluationService
     {
         $input = $request->validate(['configuration_revision' => ['required', 'integer', 'min:1'],
             'catalog_revision' => ['required', 'string', 'size:64'],
+            'search' => ['sometimes', 'nullable', 'string', 'max:200'],
+            'filter' => ['sometimes', 'in:ALL,CHANGES,ELIGIBLE,INELIGIBLE,PENDING,PROTECTED'],
             'page' => ['sometimes', 'integer', 'min:1'], 'per_page' => ['sometimes', 'integer', 'min:1', 'max:100']]);
 
         return DB::transaction(function () use ($request, $examId, $input) {
@@ -70,7 +72,7 @@ class EvaluationService
                 }, $configuration['criteria']);
                 $statuses = array_column($criteria, 'status');
                 $computed = in_array('FAILED', $statuses, true) ? 'INELIGIBLE'
-                    : ((! $criteria || in_array('PENDING', $statuses, true)) ? 'PENDING' : 'ELIGIBLE');
+                    : (in_array('PENDING', $statuses, true) ? 'PENDING' : 'ELIGIBLE');
                 $preserve = $current !== null && ! in_array($current->decision_source, ['AUTOMATIC', 'INITIALIZED'], true);
                 $canApply = $computed !== 'PENDING' && ! $preserve;
                 $currentStatus = $current?->status === 'NOT_ELIGIBLE' ? 'INELIGIBLE' : $current?->status;
@@ -83,12 +85,17 @@ class EvaluationService
                     'student' => ['id' => (int) $student->id, 'display_name' => trim($student->first_names.' '.$student->last_names), 'sis' => $student->sis_code],
                     'computed_status' => $computed, 'current_status' => $currentStatus, 'effective_status' => $canApply ? $computed : $currentStatus,
                     'manual_override_preserved' => $preserve, 'will_update' => $canApply,
+                    'state_will_change' => $canApply && $computed !== $currentStatus,
+                    'traceability_only' => $canApply && $computed === $currentStatus,
+                    'protected_source' => $preserve ? ($current->decision_source ?? 'LEGACY') : null,
+                    'current_reason' => $current?->reason,
+                    'effective_reason' => $canApply ? ($computed === 'INELIGIBLE' ? $reason : null) : $current?->reason,
                     'reason' => $reason, 'missing_fields' => array_values(array_unique(array_merge(...array_column($criteria, 'missing_fields')))),
                     'eligibility_revision' => $current?->revision, 'criteria_results' => $criteria];
             }
             $evaluation = EligibilityEvaluation::create(['preview_id' => (string) Str::uuid(), 'exam_id' => $examId,
                 'eligibility_policy_id' => $policy->id, 'created_by' => $request->user()->id,
-                'snapshot' => ['fingerprint' => $this->fingerprint($snapshot), 'configuration' => $configuration,
+                'snapshot' => ['result_contract_version' => 2, 'fingerprint' => $this->fingerprint($snapshot), 'configuration' => $configuration,
                     'catalog' => $this->global->rows()->map(fn ($row) => $this->global->data($row))->all()],
                 'results' => $results, 'expires_at' => now()->addMinutes(30)]);
             $this->support->audit($request, 'ELIGIBILITY_EVALUATION_PREVIEWED', 'Exam', $examId, null, ['evaluation_id' => $evaluation->id, 'preview_id' => $evaluation->preview_id]);
@@ -106,7 +113,7 @@ class EvaluationService
             if ($evaluation->confirmed_at) {
                 return $evaluation->confirmation;
             }
-            if ($evaluation->expires_at->isPast()) {
+            if (($evaluation->snapshot['result_contract_version'] ?? 1) !== 2 || $evaluation->expires_at->isPast()) {
                 $this->support->conflict('La vista previa venció.');
             }
             $eligibilities = ExamEligibility::where('exam_id', $examId)->orderBy('student_id')->lockForUpdate()->get()->keyBy('student_id');
@@ -149,10 +156,37 @@ class EvaluationService
 
     public function view(Request $request, EligibilityEvaluation $evaluation): array
     {
-        $request->validate(['page' => ['sometimes', 'integer', 'min:1'], 'per_page' => ['sometimes', 'integer', 'min:1', 'max:100']]);
+        $request->validate(['page' => ['sometimes', 'integer', 'min:1'], 'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'search' => ['sometimes', 'nullable', 'string', 'max:200'],
+            'filter' => ['sometimes', 'in:ALL,CHANGES,ELIGIBLE,INELIGIBLE,PENDING,PROTECTED']]);
         $page = $request->integer('page', 1);
         $size = $request->integer('per_page', 10);
-        $results = $evaluation->results;
+        $results = array_map(function ($result) {
+            $result += ['will_update' => false, 'current_status' => null, 'manual_override_preserved' => false];
+            $result += ['effective_status' => $result['current_status']];
+            // Derive presentation flags without recalculating historical snapshots.
+            $changes = $result['will_update'] && $result['effective_status'] !== $result['current_status'];
+
+            return $result + ['state_will_change' => $changes,
+                'traceability_only' => $result['will_update'] && ! $changes, 'protected_source' => null];
+        }, $evaluation->results);
+        $search = mb_strtolower(trim((string) $request->input('search', '')));
+        $filter = $request->input('filter', 'ALL');
+        $filtered = array_values(array_filter($results, function ($result) use ($search, $filter) {
+            $student = $result['student'];
+            if ($search !== '' && ! str_contains(mb_strtolower($student['display_name'] ?? ''), $search)
+                && ! str_contains(mb_strtolower((string) ($student['sis'] ?? '')), $search)) {
+                return false;
+            }
+
+            return match ($filter) {
+                'CHANGES' => $result['state_will_change'],
+                'ELIGIBLE', 'INELIGIBLE' => $result['effective_status'] === $filter,
+                'PENDING' => $result['computed_status'] === 'PENDING',
+                'PROTECTED' => $result['manual_override_preserved'],
+                default => true,
+            };
+        }));
 
         return ['id' => $evaluation->id, 'preview_id' => $evaluation->preview_id, 'exam_id' => $evaluation->exam_id,
             'expires_at' => $evaluation->expires_at->toIso8601String(), 'confirmed_at' => $evaluation->confirmed_at?->toIso8601String(),
@@ -162,9 +196,15 @@ class EvaluationService
             // Retain the original definition for historical evaluations created before the catalog.
             'policy_definition' => $evaluation->snapshot['policy_definition'] ?? null,
             'confirmation' => $evaluation->confirmation,
-            'results' => ['data' => array_slice($results, ($page - 1) * $size, $size),
-                'meta' => ['current_page' => $page, 'per_page' => $size, 'total' => count($results), 'last_page' => max(1, (int) ceil(count($results) / $size))]],
+            'results' => ['data' => array_slice($filtered, ($page - 1) * $size, $size),
+                'meta' => ['current_page' => $page, 'per_page' => $size, 'total' => count($filtered), 'last_page' => max(1, (int) ceil(count($filtered) / $size))]],
             'summary' => ['total' => count($results), 'eligible' => count(array_filter($results, fn ($r) => $r['computed_status'] === 'ELIGIBLE')),
-                'ineligible' => count(array_filter($results, fn ($r) => $r['computed_status'] === 'INELIGIBLE')), 'pending' => count(array_filter($results, fn ($r) => $r['computed_status'] === 'PENDING'))]];
+                'ineligible' => count(array_filter($results, fn ($r) => $r['computed_status'] === 'INELIGIBLE')), 'pending' => count(array_filter($results, fn ($r) => $r['computed_status'] === 'PENDING')),
+                'effective_eligible' => count(array_filter($results, fn ($r) => $r['effective_status'] === 'ELIGIBLE')),
+                'effective_ineligible' => count(array_filter($results, fn ($r) => $r['effective_status'] === 'INELIGIBLE')),
+                'effective_unset' => count(array_filter($results, fn ($r) => $r['effective_status'] === null)),
+                'state_changes' => count(array_filter($results, fn ($r) => $r['state_will_change'])),
+                'traceability_only' => count(array_filter($results, fn ($r) => $r['traceability_only'])),
+                'protected' => count(array_filter($results, fn ($r) => $r['manual_override_preserved']))]];
     }
 }

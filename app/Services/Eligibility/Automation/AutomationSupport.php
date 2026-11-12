@@ -6,6 +6,7 @@ use App\Models\CourseOffering;
 use App\Models\Exam;
 use App\Services\Audit\AuditLogService;
 use App\Services\Eligibility\ExamEligibilityService;
+use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,12 +16,15 @@ class AutomationSupport
     public function response(array $payload, int $status = 200): JsonResponse
     {
         $normalize = function ($value) use (&$normalize) {
+            if ($value instanceof Arrayable) {
+                $value = $value->toArray();
+            }
             if (! is_array($value)) {
                 return $value;
             }
             foreach ($value as $key => $item) {
                 // Catalog parameters are a list of field schemas; historical selections use an object.
-                $value[$key] = $key === 'parameters' && $item === [] && ! array_key_exists('mandatory_for_exam_types', $value)
+                $value[$key] = $item === [] && ($key === 'assessments' || ($key === 'parameters' && ! array_key_exists('mandatory_for_exam_types', $value)))
                     ? (object) [] : $normalize($item);
             }
 
