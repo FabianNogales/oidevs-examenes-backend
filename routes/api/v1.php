@@ -440,3 +440,15 @@ Route::prefix('exams/{exam_id}/entry-control')
         Route::get('/students/{student_id}', [EntryControlController::class, 'show'])
             ->whereNumber('student_id');
     });
+
+Route::prefix('exams/{exam_id}/discipline-cases')->where(['exam_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
+    ->group(function () {
+        $controller = \App\Http\Controllers\Api\V1\DisciplineCaseController::class;
+        Route::get('/', [$controller, 'index']);
+        Route::post('/', [$controller, 'store']);
+        Route::get('/resolve', [$controller, 'resolve']);
+        Route::get('/export', [$controller, 'export']);
+        Route::get('/{case_id}', [$controller, 'show'])->whereNumber('case_id');
+        Route::post('/{case_id}/expulsion', [$controller, 'expel'])->whereNumber('case_id');
+    });

@@ -48,6 +48,11 @@ class AuditLog extends Model
 
     protected static function booted(): void
     {
+        static::created(function (self $record) {
+            if ($record->action === 'ENTRY_QR_WRONG_EXAM' && $record->entity_type === 'Exam') {
+                DisciplineCase::registerSource($record, 'QR', (int) $record->entity_id);
+            }
+        });
         static::updating(function ($auditLog) {
             throw new Exception('Violación de seguridad: Los registros de auditoría son inmutables y no pueden ser modificados.');
         });
