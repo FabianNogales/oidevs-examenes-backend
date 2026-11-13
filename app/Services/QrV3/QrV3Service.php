@@ -2,7 +2,7 @@
 
 namespace App\Services\QrV3;
 
-// Narrow interoperability prototype. Never called by HU11/HU14/HU37.
+// Shared strict verifier. Issuance remains experimental; offline sync may verify public evidence.
 class QrV3Service
 {
     public const TYPE = 'eida-entry-qr+jwt';
@@ -35,6 +35,17 @@ class QrV3Service
 
     public function verify(string $token, int $expectedStudentId, int $expectedExamId, int $now): array
     {
+        $claims = $this->verifyAuthentic($token, $expectedStudentId, $expectedExamId);
+        if ($now < 0 || $claims['iat'] > $now || $claims['nbf'] > $now || $claims['exp'] <= $now) {
+            throw new QrV3Exception('TIME_INVALID');
+        }
+
+        return $claims;
+    }
+
+    /** Authenticity only: callers MUST classify temporal validity; never authorizes an entry alone. */
+    public function verifyAuthentic(string $token, int $expectedStudentId, int $expectedExamId): array
+    {
         if (strlen($token) > 4096 || count($parts = explode('.', $token)) !== 3) {
             throw new QrV3Exception('FORMAT_INVALID');
         }
@@ -54,10 +65,6 @@ class QrV3Service
         if ($claims['sub'] !== (string) $expectedStudentId || $claims['exam_id'] !== (string) $expectedExamId) {
             throw new QrV3Exception('SUBJECT_EXAM_MISMATCH');
         }
-        if ($now < 0 || $claims['iat'] > $now || $claims['nbf'] > $now || $claims['exp'] <= $now) {
-            throw new QrV3Exception('TIME_INVALID');
-        }
-
         return $claims;
     }
 

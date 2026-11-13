@@ -100,8 +100,19 @@ class DatabaseImageService
         }
     }
 
-    /** Authorization belongs to the existing module controller/middleware. */
-    public function response(?string $id, string $purpose, int $ownerId, ?string $legacyPath = null): StreamedResponse
+    /** Authorization belongs to the calling module. No public URLs or new copies. */
+    public function metadata(?string $id, string $purpose, int $ownerId, ?string $legacyPath = null): array
+    {
+        if ($id) {
+            $record = $this->owned($id, $purpose, $ownerId)->first(['mime_type', 'byte_size', 'sha256']);
+            abort_unless($record, 404);
+            return ['mime' => $record->mime_type, 'size' => (int) $record->byte_size, 'sha256' => $record->sha256];
+        }
+        $image = $this->read($id, $purpose, $ownerId, $legacyPath);
+        return ['mime' => $image['mime'], 'size' => strlen($image['bytes']), 'sha256' => $image['hash']];
+    }
+
+    public function read(?string $id, string $purpose, int $ownerId, ?string $legacyPath = null): array
     {
         if ($id) {
             $record = $this->owned($id, $purpose, $ownerId)->first();
@@ -129,6 +140,13 @@ class DatabaseImageService
             $hash = hash('sha256', $bytes);
         }
 
+        return compact('bytes', 'mime', 'hash');
+    }
+
+    /** Authorization belongs to the existing module controller/middleware. */
+    public function response(?string $id, string $purpose, int $ownerId, ?string $legacyPath = null): StreamedResponse
+    {
+        ['bytes' => $bytes, 'mime' => $mime, 'hash' => $hash] = $this->read($id, $purpose, $ownerId, $legacyPath);
         return response()->stream(static function () use ($bytes) {
             echo $bytes;
         }, 200, [

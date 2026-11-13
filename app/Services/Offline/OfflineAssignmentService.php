@@ -25,29 +25,7 @@ class OfflineAssignmentService
             if ($reason = ExamEntryAvailability::preparationReason($exam)) {
                 $this->access->fail($reason, 'El examen no permite preparar listas offline.');
             }
-            $responsibles = ExamCollaborator::where('exam_id', $examId)->where('status', 'ACTIVE')
-                ->orderBy('user_id')->get()->map(fn ($row) => User::find($row->user_id))
-                ->filter(fn ($user) => $user && $this->access->authorizationHash($exam, $user) !== null)->values();
-            if ($responsibles->isEmpty()) {
-                $responsibles = collect([$actor]);
-            }
-            $students = DB::table('students as s')->join('enrollments as en', 'en.student_id', '=', 's.id')
-                ->where('en.course_offering_id', $exam->course_offering_id)->where('en.status', 'ACTIVE')
-                ->select('s.id', 's.last_names', 's.first_names', 's.sis_code')->get()
-                // Stable Unicode lowercasing and binary comparison avoid DB collation-dependent boundaries.
-                ->sort(function ($a, $b) {
-                    foreach (['last_names', 'first_names', 'sis_code'] as $field) {
-                        $order = strcmp(mb_strtolower($a->$field, 'UTF-8'), mb_strtolower($b->$field, 'UTF-8'));
-                        if ($order !== 0) {
-                            return $order;
-                        }
-                    }
-
-                    return $a->id <=> $b->id;
-                })->values();
-            $authorizations = $responsibles->map(fn ($user) => [$user->id, $this->access->authorizationHash($exam, $user)])->all();
-            $examHash = $this->access->examHash($exam);
-            $inputHash = hash('sha256', json_encode([$examHash, $authorizations, $students->all()], JSON_THROW_ON_ERROR));
+            [$responsibles, $students, $authorizations, $examHash, $inputHash] = $this->inputs($exam, $actor);
             $distribution = ExamOfflineDistribution::where('exam_id', $examId)->first();
             if ($distribution) {
                 if (! hash_equals($distribution->input_hash, $inputHash)) {
@@ -74,6 +52,43 @@ class OfflineAssignmentService
 
             return $this->distribution($examId);
         }, 3);
+    }
+
+    /** Same HU35 inputs for read-only freshness checks; never reallocates members. */
+    public function isStale(Exam $exam, ExamOfflineDistribution $distribution): bool
+    {
+        $owner = User::findOrFail($distribution->prepared_by);
+
+        return ! hash_equals($distribution->input_hash, $this->inputs($exam, $owner)[4]);
+    }
+
+    private function inputs(Exam $exam, User $actor): array
+    {
+        $responsibles = ExamCollaborator::where('exam_id', $exam->id)->where('status', 'ACTIVE')
+            ->orderBy('user_id')->get()->map(fn ($row) => User::find($row->user_id))
+            ->filter(fn ($user) => $user && $this->access->authorizationHash($exam, $user) !== null)->values();
+        if ($responsibles->isEmpty()) {
+            $responsibles = collect([$actor]);
+        }
+        $students = DB::table('students as s')->join('enrollments as en', 'en.student_id', '=', 's.id')
+            ->where('en.course_offering_id', $exam->course_offering_id)->where('en.status', 'ACTIVE')
+            ->select('s.id', 's.last_names', 's.first_names', 's.sis_code')->get()
+            // Stable Unicode lowercasing and binary comparison avoid DB collation-dependent boundaries.
+            ->sort(function ($a, $b) {
+                foreach (['last_names', 'first_names', 'sis_code'] as $field) {
+                    $order = strcmp(mb_strtolower($a->$field, 'UTF-8'), mb_strtolower($b->$field, 'UTF-8'));
+                    if ($order !== 0) {
+                        return $order;
+                    }
+                }
+
+                return $a->id <=> $b->id;
+            })->values();
+        $authorizations = $responsibles->map(fn ($user) => [$user->id, $this->access->authorizationHash($exam, $user)])->all();
+        $examHash = $this->access->examHash($exam);
+        $inputHash = hash('sha256', json_encode([$examHash, $authorizations, $students->all()], JSON_THROW_ON_ERROR));
+
+        return [$responsibles, $students, $authorizations, $examHash, $inputHash];
     }
 
     public function assignments(int $examId, Request $request): array
