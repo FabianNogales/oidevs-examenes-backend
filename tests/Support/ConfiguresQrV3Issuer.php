@@ -4,6 +4,8 @@ namespace Tests\Support;
 
 trait ConfiguresQrV3Issuer
 {
+    private array $originalQrKeyEnvironment = [];
+
     private function configureQrV3Issuer(): string
     {
         $key = QrV3TestKeys::rsa();
@@ -17,22 +19,30 @@ trait ConfiguresQrV3Issuer
             'qr_v3.kid' => 'offline-test',
             'qr_v3.issuer' => 'https://eida.example.test',
             'qr_v3.audience' => 'eida-control-qr',
-            'qr_v3.private_key_path' => $this->writeTemporaryQrPem($privatePem),
-            'qr_v3.public_key_path' => $this->writeTemporaryQrPem($publicPem),
             'offline_sync.qr_v3_verify_enabled' => true,
             'mobile_offline.qr_v3_issued' => true,
         ]);
 
+        $this->setQrKeyEnvironment('EIDA_QR_V3_PRIVATE_KEY', $this->qrPemBody($privatePem, 'PRIVATE KEY'));
+        $this->setQrKeyEnvironment('EIDA_QR_V3_PUBLIC_KEY', $this->qrPemBody($publicPem, 'PUBLIC KEY'));
+
         return $publicPem;
     }
 
-    private function writeTemporaryQrPem(string $pem): string
+    private function qrPemBody(string $pem, string $label): string
     {
-        $path = tempnam(sys_get_temp_dir(), 'eida_qr_');
-        self::assertNotFalse($path);
-        $this->beforeApplicationDestroyed(fn () => unlink($path));
-        self::assertSame(strlen($pem), file_put_contents($path, $pem));
+        return str_replace(["-----BEGIN {$label}-----", "-----END {$label}-----", "\r", "\n"], '', $pem);
+    }
 
-        return $path;
+    private function setQrKeyEnvironment(string $name, string $body): void
+    {
+        if (! array_key_exists($name, $this->originalQrKeyEnvironment)) {
+            $previous = getenv($name);
+            $this->originalQrKeyEnvironment[$name] = $previous;
+            $this->beforeApplicationDestroyed(static function () use ($name, $previous): void {
+                putenv($previous === false ? $name : $name.'='.$previous);
+            });
+        }
+        self::assertTrue(putenv($name.'='.$body));
     }
 }

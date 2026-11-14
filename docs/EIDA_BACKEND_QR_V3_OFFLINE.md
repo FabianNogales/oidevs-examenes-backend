@@ -38,16 +38,16 @@ El personal descarga su lista propia con `GET /api/v1/exams/{exam_id}/offline/pa
 | `EIDA_QR_V3_KID` | Identificador único del par activo. |
 | `EIDA_QR_V3_ISSUER` | Identificador estable, por ejemplo `https://eida.example.test`. |
 | `EIDA_QR_V3_AUDIENCE` | `eida-control-qr` por defecto. Coordinar con Android. |
-| `EIDA_QR_V3_PUBLIC_KEY_PATH` | Ruta absoluta al PEM público SPKI. |
-| `EIDA_QR_V3_PRIVATE_KEY_PATH` | Ruta absoluta al PEM privado en un montaje de secretos, fuera de los repositorios y del directorio público. |
+| `EIDA_QR_V3_PUBLIC_KEY` | Cuerpo Base64 en una línea del PEM público SPKI (`PUBLIC KEY`). |
+| `EIDA_QR_V3_PRIVATE_KEY` | Cuerpo Base64 en una línea del PEM privado PKCS#8 (`PRIVATE KEY`), sin frase de paso. |
 | `EIDA_OFFLINE_SYNC_QR_V3_VERIFY` | `false` por defecto. Activa la verificación pública v3 en sincronización. |
 | `MOBILE_OFFLINE_QR_V3_ISSUED` | `false` por defecto. Habilita la publicación tras validar la entrega estudiantil y la interoperabilidad Android. |
 
-Provisionar RSA de 2048 a 4096 bits. La privada debe ser legible por el proceso PHP, en PEM sin frase de paso dentro del montaje protegido. Mantenerla fuera de las respuestas, registros, base de datos y clientes. Emisor y audiencia requieren ASCII imprimible sin espacios. Las instancias deben compartir el mismo par, `kid`, emisor y audiencia.
+En Vercel, las dos variables deben estar disponibles para PHP en ejecución. Usar el cuerpo Base64 original de cada PEM RSA de 2048 a 4096 bits, sin líneas BEGIN/END, espacios ni saltos de línea. Conservar el relleno `=` si existe. Laravel reconstruye el PEM en memoria y entrega el resultado a OpenSSL. No hace falta volver a codificar las claves ni cargar archivos. Los cuerpos se leen fuera de la caché de configuración. La sincronización carga solo la pública. Emisor y audiencia requieren ASCII imprimible sin espacios.
 
 `qr.available` exige los tres interruptores, una lista propia autorizada, una ventana compatible, un par correspondiente, una prueba de firma y verificación satisfactoria y el esquema de evidencia de HU37. Mantener deshabilitada la publicación en producción hasta validar portal y APK.
 
-Solo se carga un par activo. Para rotar entre convocatorias, detener emisiones y publicaciones nuevas mientras se conserva la clave pública anterior para sincronizar pendientes. Una vez procesados los pendientes y cerrada la vigencia de los paquetes, cambiar ambos PEM y el `kid` de forma coordinada. Los estudiantes deben volver a obtener su QR y el personal debe descargar paquetes nuevos. Una rotación con paquetes activos requeriría verificar de forma simultánea con la clave nueva y la anterior.
+Solo se carga un par activo. Para rotar entre convocatorias, detener emisiones y publicaciones nuevas mientras se conserva la clave pública anterior para sincronizar pendientes. Una vez procesados los pendientes y cerrada la vigencia de los paquetes, cambiar el contenido de ambas variables y el `kid` de forma coordinada. Los estudiantes deben volver a obtener su QR y el personal debe descargar paquetes nuevos. Una rotación con paquetes activos requeriría verificar de forma simultánea con la clave nueva y la anterior.
 
 Tras habilitar o rotar, descargar con `/package?schema_version=2`. Reanudar mediante `/packages/{package_id}` recupera el manifiesto original. Conservar los ingresos pendientes con su `package_id` original. Una descarga nueva crea un paquete para la distribución existente.
 

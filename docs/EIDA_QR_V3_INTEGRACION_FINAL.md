@@ -22,20 +22,20 @@ Los vectores públicos de Laravel y Android coinciden byte por byte. La nueva re
 
 ## Configuración de laboratorio
 
-Provisiona RSA de 2048 a 4096 bits. Guarda la privada PEM sin frase de paso en un montaje protegido y legible por PHP, fuera de los repositorios y del directorio público. Exporta la pública como SPKI `BEGIN PUBLIC KEY`. Configura estas variables solo en el entorno de laboratorio.
+En el backend de Vercel, usa las variables de ejecución `EIDA_QR_V3_PRIVATE_KEY` y `EIDA_QR_V3_PUBLIC_KEY`. Deben contener los cuerpos Base64 originales de los PEM RSA de 2048 a 4096 bits. La privada de `openssl genpkey` es PKCS#8 (`PRIVATE KEY`) y la pública de `openssl pkey -pubout` es SPKI (`PUBLIC KEY`). Cada valor va en una línea sin espacios ni los delimitadores PEM. Conserva el relleno `=` cuando exista. Laravel reconstruye los PEM en memoria, sin una segunda codificación Base64.
 
 ```dotenv
 EIDA_QR_V3_ENABLED=true
 EIDA_QR_V3_KID=lab-rsa-01
 EIDA_QR_V3_ISSUER=https://eida.lab.example
 EIDA_QR_V3_AUDIENCE=eida-control-qr
-EIDA_QR_V3_PUBLIC_KEY_PATH=C:/eida-lab/keys/qr-lab-public.pem
-EIDA_QR_V3_PRIVATE_KEY_PATH=C:/eida-lab/secrets/qr-lab-private.pem
+EIDA_QR_V3_PUBLIC_KEY=
+EIDA_QR_V3_PRIVATE_KEY=
 EIDA_OFFLINE_SYNC_QR_V3_VERIFY=true
 MOBILE_OFFLINE_QR_V3_ISSUED=false
 ```
 
-Sustituye las rutas y el identificador de emisor de ejemplo. Verifica primero que la cuenta autorizada pueda obtener v3. Para la prueba de integración, configura `MOBILE_OFFLINE_QR_V3_ISSUED=true` en laboratorio y recarga la configuración si está cacheada. `qr.available` requiere los tres flags, esquema de evidencia HU37, ventana compatible, autorización de la lista y un par que supere la comprobación de firma. El flag de publicación representa la validación operativa de la entrega y del APK. Mantenlo deshabilitado en producción hasta completarla.
+Los campos de clave se muestran vacíos a propósito. Conserva los valores ya configurados en Vercel y usa el emisor de tu infraestructura. Verifica primero que la cuenta autorizada pueda obtener v3. Para la prueba de integración, aplica la configuración de flags del entorno. `qr.available` requiere los tres flags, esquema de evidencia HU37, ventana compatible, autorización de la lista y un par que supere la comprobación de firma. El flag de publicación representa la validación operativa de la entrega y del APK. Los cuerpos de las claves se leen en ejecución fuera de la caché de configuración.
 
 El portal requiere `VITE_BACKEND_URL` para la raíz Laravel y `VITE_API_URL` con `/api/v1`, con autenticación real y la sesión Sanctum configurada para su origen. Android requiere `EXPO_PUBLIC_EIDA_API_BASE_URL` con la URL HTTPS de laboratorio y `/api/v1`, junto con una build que incluya los módulos nativos ya usados. No hay dependencias ni migraciones nuevas. El laboratorio necesita el esquema HU37 existente. Hay un solo par activo. Para rotarlo, sincroniza pendientes con la clave anterior y sigue la [guía de rotación](EIDA_BACKEND_QR_V3_OFFLINE.md#claves-configuración-y-rotación).
 
@@ -52,7 +52,7 @@ El portal requiere `VITE_BACKEND_URL` para la raíz Laravel y `VITE_API_URL` con
 | Síntoma | Comprobación |
 | --- | --- |
 | HTTP 401 o 403 | Revisar sesión, rol, perfil, inscripción activa, habilitación y ventana. Probar con un estudiante ajeno a la oferta. |
-| HTTP 503 `QR_V3_UNAVAILABLE` | Revisar flag de emisión, ventana, rutas, permisos y par RSA. El estudiante puede elegir por separado el QR de control web. |
+| HTTP 503 `QR_V3_UNAVAILABLE` | Revisar flag de emisión, ventana, disponibilidad de las variables en ejecución, formato de una línea y coincidencia del par RSA. El estudiante puede elegir por separado el QR de control web. |
 | Escáner deshabilitado | Verificar `qr.available`, lista propia, flags, esquema HU37 y que se descargó un manifiesto nuevo. |
 | `UNKNOWN_KID` | Confirmar que el portal emitió con el `kid` presente en el paquete. Renovar ambos después de una rotación. |
 | `SIGNATURE_INVALID` o `HEADER_INVALID` | Probar QR alterado, una firma incorrecta y un algoritmo distinto. El QR v2 se rechaza offline. |

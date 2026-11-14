@@ -224,6 +224,8 @@ Este servicio estrecho prueba el contrato y la interoperabilidad; antes de activ
 
 ## 9. Claves y configuración
 
+Esta sección describe la configuración histórica de la fase 1. Para el cargador actual por variables de ejecución en Vercel, consulta la [guía de QR v3 offline](EIDA_BACKEND_QR_V3_OFFLINE.md#claves-configuración-y-rotación).
+
 `config/qr_v3.php`: deshabilitado por defecto.
 
 | Variable | Uso |

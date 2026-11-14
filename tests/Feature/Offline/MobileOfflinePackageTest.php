@@ -215,7 +215,7 @@ class MobileOfflinePackageTest extends TestCase
             'revoked_jtis' => null,
         ], $manifest['qr']);
         $this->assertStringNotContainsString('PRIVATE KEY', $response->getContent());
-        $this->assertStringNotContainsString(config('qr_v3.private_key_path'), $manifest['qr']['keys'][0]['pem']);
+        $this->assertStringNotContainsString((string) getenv('EIDA_QR_V3_PRIVATE_KEY'), $response->getContent());
         $this->assertSame($previousManifest['students'], $manifest['students']);
         $this->assertSame($previousManifest['list_id'], $manifest['list_id']);
         $this->assertNotSame($previousManifest['package_id'], $manifest['package_id']);
@@ -238,14 +238,11 @@ class MobileOfflinePackageTest extends TestCase
         $this->configureQrV3Issuer();
         $owner = $this->bearer($this->fixture['user']);
         $this->mobile($owner, 'POST', '/prepare')->assertOk();
-        $otherPublic = openssl_pkey_get_details(QrV3TestKeys::rsa())['key'];
 
         foreach ([
             'qr_v3.enabled' => false,
             'mobile_offline.qr_v3_issued' => false,
             'offline_sync.qr_v3_verify_enabled' => false,
-            'qr_v3.private_key_path' => '',
-            'qr_v3.public_key_path' => $this->writeTemporaryQrPem($otherPublic),
             'qr_v3.issuer' => '',
             'qr_v3.kid' => 'invalid kid',
             'qr_v3.max_lifetime_seconds' => 3600,
@@ -259,9 +256,28 @@ class MobileOfflinePackageTest extends TestCase
             config([$setting => $previous]);
         }
 
-        config(['qr_v3.public_key_path' => '']);
+        $this->setQrKeyEnvironment('EIDA_QR_V3_PRIVATE_KEY', '');
         $manifest = $this->manifest($this->mobile($owner, 'GET', '/package?schema_version=2'));
         $this->assertFalse($manifest['qr']['available']);
         $this->assertSame([], $manifest['qr']['keys']);
+        $this->mobile($owner, 'GET', '/sync-capabilities')->assertOk()->assertJsonPath('data.qr_versions', [2, 3]);
+    }
+
+    public function test_manifest_does_not_publish_keys_for_invalid_or_mismatched_environment_bodies(): void
+    {
+        $this->configureQrV3Issuer();
+        $owner = $this->bearer($this->fixture['user']);
+        $this->mobile($owner, 'POST', '/prepare')->assertOk();
+        $otherPublic = openssl_pkey_get_details(QrV3TestKeys::rsa())['key'];
+
+        foreach (['', 'not base64', base64_encode('not a public key'), $this->qrPemBody($otherPublic, 'PUBLIC KEY')] as $index => $body) {
+            $this->setQrKeyEnvironment('EIDA_QR_V3_PUBLIC_KEY', $body);
+            $manifest = $this->manifest($this->mobile($owner, 'GET', '/package?schema_version=2'));
+            $this->assertFalse($manifest['qr']['available']);
+            $this->assertSame('PRODUCTION_QR_V3_NOT_CONFIRMED', $manifest['qr']['reason']);
+            $this->assertSame([], $manifest['qr']['keys']);
+            $this->mobile($owner, 'GET', '/sync-capabilities')->assertOk()
+                ->assertJsonPath('data.qr_versions', $index === 3 ? [2, 3] : [2]);
+        }
     }
 }

@@ -374,12 +374,15 @@ class StudentQrStatusTest extends TestCase
 
     public function test_v3_misconfiguration_fails_without_registering_a_token_or_falling_back_to_v2(): void
     {
-        $this->configureQrV3Issuer();
-        config(['qr_v3.private_key_path' => '']);
+        $publicPem = $this->configureQrV3Issuer();
         Carbon::setTestNow(Carbon::parse('2026-06-15 10:00:00', 'America/La_Paz'));
         Sanctum::actingAs($this->studentUser, ['*']);
         $url = "/api/v1/students/exams/{$this->examId}/qr";
-        $this->getJson($url.'?version=3')->assertStatus(503)->assertJsonPath('code', 'QR_V3_UNAVAILABLE');
+        $validPrivateBody = (string) getenv('EIDA_QR_V3_PRIVATE_KEY');
+        foreach (['', 'invalid%', $validPrivateBody."\n", base64_encode('not a key'), $this->qrPemBody($publicPem, 'PUBLIC KEY')] as $body) {
+            $this->setQrKeyEnvironment('EIDA_QR_V3_PRIVATE_KEY', $body);
+            $this->getJson($url.'?version=3')->assertStatus(503)->assertJsonPath('code', 'QR_V3_UNAVAILABLE');
+        }
         $this->getJson($url.'?version=4')->assertUnprocessable();
         $this->assertDatabaseCount('student_qr_tokens', 0);
         $this->getJson($url)->assertOk();
