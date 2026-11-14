@@ -12,7 +12,7 @@ class QrV3Factory
         $publicPem = $this->pemFromEnvironment('EIDA_QR_V3_PUBLIC_KEY', 'PUBLIC KEY');
         $private = @openssl_pkey_get_private($this->pemFromEnvironment('EIDA_QR_V3_PRIVATE_KEY', 'PRIVATE KEY'));
         if (! $private) {
-            throw new QrV3Exception('KEY_CONFIGURATION_INVALID');
+            throw new QrV3Exception('KEY_CONFIGURATION_INVALID', 'PRIVATE_KEY_OPENSSL_REJECTED');
         }
 
         $kid = (string) config('qr_v3.kid');
@@ -42,15 +42,22 @@ class QrV3Factory
             $value = $_ENV[$variable] ?? $_SERVER[$variable] ?? null;
         }
 
+        $key = $label === 'PRIVATE KEY' ? 'PRIVATE_KEY' : 'PUBLIC_KEY';
+        if ($value === null) {
+            throw new QrV3Exception('KEY_CONFIGURATION_INVALID', $key.'_MISSING_OR_EMPTY');
+        }
         if (! is_string($value)) {
-            throw new QrV3Exception('KEY_CONFIGURATION_INVALID');
+            throw new QrV3Exception('KEY_CONFIGURATION_INVALID', $key.'_PEM_INVALID');
         }
         $pem = trim($value, " \t\r\n");
+        if ($pem === '') {
+            throw new QrV3Exception('KEY_CONFIGURATION_INVALID', $key.'_MISSING_OR_EMPTY');
+        }
         $begin = "-----BEGIN {$label}-----";
         $end = "-----END {$label}-----";
         if ((! str_starts_with($pem, $begin."\n") && ! str_starts_with($pem, $begin."\r\n"))
             || ! str_ends_with($pem, "\n".$end) || str_contains($pem, "\0")) {
-            throw new QrV3Exception('KEY_CONFIGURATION_INVALID');
+            throw new QrV3Exception('KEY_CONFIGURATION_INVALID', $key.'_PEM_INVALID');
         }
 
         return $pem;

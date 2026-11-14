@@ -13,23 +13,30 @@ class QrV3KeyRing
     {
         foreach ($publicKeys as $kid => $pem) {
             // PHP casts decimal string array keys to integers.
-            if (! preg_match('/^[A-Za-z0-9_-]{1,64}$/D', (string) $kid) || ! is_string($pem)
-                || ! str_starts_with($pem, '-----BEGIN PUBLIC KEY-----')) {
-                throw new QrV3Exception('KEY_CONFIGURATION_INVALID');
+            if (! preg_match('/^[A-Za-z0-9_-]{1,64}$/D', (string) $kid)) {
+                throw new QrV3Exception('KEY_CONFIGURATION_INVALID', 'KID_INVALID');
+            }
+            if (! is_string($pem) || ! str_starts_with($pem, '-----BEGIN PUBLIC KEY-----')) {
+                throw new QrV3Exception('KEY_CONFIGURATION_INVALID', 'PUBLIC_KEY_PEM_INVALID');
             }
             $key = @openssl_pkey_get_public($pem);
-            $details = $key ? openssl_pkey_get_details($key) : false;
+            if (! $key) {
+                throw new QrV3Exception('KEY_CONFIGURATION_INVALID', 'PUBLIC_KEY_OPENSSL_REJECTED');
+            }
+            $details = openssl_pkey_get_details($key);
             if (! $details || $details['type'] !== OPENSSL_KEYTYPE_RSA || $details['bits'] < 2048) {
-                throw new QrV3Exception('KEY_CONFIGURATION_INVALID');
+                throw new QrV3Exception('KEY_CONFIGURATION_INVALID', 'PUBLIC_KEY_RSA_INVALID');
             }
             $this->publicKeys[$kid] = $key;
         }
         if ($privateKey !== null) {
             $details = openssl_pkey_get_details($privateKey);
             $public = isset($this->publicKeys[$activeKid ?? '']) ? openssl_pkey_get_details($this->publicKeys[$activeKid]) : false;
-            if (! $details || ! $public || $details['type'] !== OPENSSL_KEYTYPE_RSA
-                || $details['bits'] < 2048 || ! hash_equals($public['key'], $details['key'])) {
-                throw new QrV3Exception('KEY_CONFIGURATION_INVALID');
+            if (! $details || $details['type'] !== OPENSSL_KEYTYPE_RSA || $details['bits'] < 2048) {
+                throw new QrV3Exception('KEY_CONFIGURATION_INVALID', 'PRIVATE_KEY_RSA_INVALID');
+            }
+            if (! $public || ! hash_equals($public['key'], $details['key'])) {
+                throw new QrV3Exception('KEY_CONFIGURATION_INVALID', 'KEY_PAIR_MISMATCH');
             }
         }
     }
