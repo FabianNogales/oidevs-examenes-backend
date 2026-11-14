@@ -13,6 +13,7 @@ use App\Services\Students\StudentQrService;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Tests\Support\ConfiguresQrV3Issuer;
 use Tests\Support\IsolatedMobileDatabase;
 use Tests\Support\OfflineExamFixture;
 use Tests\Support\QrV3TestKeys;
@@ -20,7 +21,7 @@ use Tests\TestCase;
 
 class OfflineSyncEvidenceTest extends TestCase
 {
-    use IsolatedMobileDatabase, OfflineExamFixture;
+    use ConfiguresQrV3Issuer, IsolatedMobileDatabase, OfflineExamFixture;
 
     protected function setUp(): void
     {
@@ -156,6 +157,22 @@ class OfflineSyncEvidenceTest extends TestCase
         $this->sync($this->batch($package, [$this->evidenceEvent(null, ['method' => 'QR', 'qr_token' => $token])]))
             ->assertOk()->assertJsonPath('data.results.0.status', 'ACCEPTED');
         $this->assertFalse((bool) config('mobile_offline.qr_v3_issued'));
+    }
+
+    public function test_issued_v3_uses_existing_sync_receipt_and_duplicate_rules(): void
+    {
+        $this->configureQrV3Issuer();
+        $package = $this->package();
+        $qr = app(StudentQrService::class)->getOrGenerateForExam($this->fixture['studentId'], $this->exam->id, 3);
+
+        $event = $this->evidenceEvent(null, ['method' => 'QR', 'qr_token' => $qr['token']]);
+        $batch = $this->batch($package, [$event]);
+        $first = $this->sync($batch)->assertOk()->assertJsonPath('data.results.0.status', 'ACCEPTED')->json();
+        $this->sync($batch)->assertExactJson($first);
+
+        $manual = $this->batch($package, [$this->evidenceEvent()]);
+        $this->sync($manual)->assertOk()->assertJsonPath('data.results.0.code', 'ALREADY_REGISTERED');
+        $this->assertDatabaseCount('exam_entries', 1);
     }
 
     public function test_expired_v3_is_authentic_evidence_but_never_automatically_confirms_a_late_entry(): void

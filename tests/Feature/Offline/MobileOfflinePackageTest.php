@@ -8,17 +8,22 @@ use App\Models\MobileDevice;
 use App\Models\Student;
 use App\Models\User;
 use App\Services\Auth\MobileTokenPermissions;
+use App\Services\QrV3\QrV3KeyRing;
+use App\Services\QrV3\QrV3Service;
+use App\Services\Students\StudentQrService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
+use Tests\Support\ConfiguresQrV3Issuer;
 use Tests\Support\IsolatedMobileDatabase;
 use Tests\Support\OfflineExamFixture;
+use Tests\Support\QrV3TestKeys;
 use Tests\TestCase;
 
 // Written for isolated SQLite :memory:. Never run against an application database.
 class MobileOfflinePackageTest extends TestCase
 {
-    use IsolatedMobileDatabase, OfflineExamFixture;
+    use ConfiguresQrV3Issuer, IsolatedMobileDatabase, OfflineExamFixture;
 
     protected function setUp(): void
     {
@@ -189,5 +194,74 @@ class MobileOfflinePackageTest extends TestCase
         $m = $this->manifest($this->mobile($token, 'GET', '/package?schema_version=2'));
         $this->assertFalse($m['qr']['available']);
         $this->assertSame([], $m['qr']['keys']);
+    }
+
+    public function test_qr_v3_is_published_only_in_new_authorized_mobile_packages(): void
+    {
+        $owner = $this->bearer($this->fixture['user']);
+        $other = $this->bearer(User::factory()->create());
+        $this->mobile($owner, 'POST', '/prepare')->assertOk();
+        $download = '/package?schema_version=2';
+        $previous = $this->mobile($owner, 'GET', $download);
+        $previousManifest = $this->manifest($previous);
+        $this->assertFalse($previousManifest['qr']['available']);
+
+        $publicPem = $this->configureQrV3Issuer();
+        $response = $this->mobile($owner, 'GET', $download);
+        $manifest = $this->manifest($response);
+        $this->assertSame([
+            'available' => true, 'reason' => null, 'issuer' => 'https://eida.example.test',
+            'audience' => 'eida-control-qr', 'keys' => [['kid' => 'offline-test', 'algorithm' => 'RS256', 'pem' => $publicPem]],
+            'revoked_jtis' => null,
+        ], $manifest['qr']);
+        $this->assertStringNotContainsString('PRIVATE KEY', $response->getContent());
+        $this->assertStringNotContainsString(config('qr_v3.private_key_path'), $manifest['qr']['keys'][0]['pem']);
+        $this->assertSame($previousManifest['students'], $manifest['students']);
+        $this->assertSame($previousManifest['list_id'], $manifest['list_id']);
+        $this->assertNotSame($previousManifest['package_id'], $manifest['package_id']);
+        $qr = app(StudentQrService::class)->getOrGenerateForExam($this->fixture['studentId'], $this->exam->id, 3);
+        $key = $manifest['qr']['keys'][0];
+        $verifier = new QrV3Service(new QrV3KeyRing([$key['kid'] => $key['pem']]),
+            $manifest['qr']['issuer'], $manifest['qr']['audience']);
+        $claims = $verifier->verify($qr['token'], $this->fixture['studentId'], $this->exam->id, now()->timestamp);
+        $this->assertSame($manifest['students'][0]['student_id'], $claims['sub']);
+
+        $this->mobile($owner, 'GET', '/sync-capabilities')->assertOk()->assertJsonPath('data.qr_versions', [2, 3]);
+        $this->mobile($other, 'GET', $download)->assertForbidden();
+        $this->mobile($other, 'GET', '/packages/'.$manifest['package_id'])->assertForbidden();
+        $resume = $this->mobile($owner, 'GET', '/packages/'.$previousManifest['package_id'])->assertOk();
+        $this->assertSame($previous->json('data.mobile'), $resume->json('data.mobile'));
+    }
+
+    public function test_mobile_manifest_fails_closed_for_incomplete_or_incompatible_v3_configuration(): void
+    {
+        $this->configureQrV3Issuer();
+        $owner = $this->bearer($this->fixture['user']);
+        $this->mobile($owner, 'POST', '/prepare')->assertOk();
+        $otherPublic = openssl_pkey_get_details(QrV3TestKeys::rsa())['key'];
+
+        foreach ([
+            'qr_v3.enabled' => false,
+            'mobile_offline.qr_v3_issued' => false,
+            'offline_sync.qr_v3_verify_enabled' => false,
+            'qr_v3.private_key_path' => '',
+            'qr_v3.public_key_path' => $this->writeTemporaryQrPem($otherPublic),
+            'qr_v3.issuer' => '',
+            'qr_v3.kid' => 'invalid kid',
+            'qr_v3.max_lifetime_seconds' => 3600,
+        ] as $setting => $value) {
+            $previous = config($setting);
+            config([$setting => $value]);
+            $manifest = $this->manifest($this->mobile($owner, 'GET', '/package?schema_version=2'));
+            $this->assertFalse($manifest['qr']['available'], $setting);
+            $this->assertSame([], $manifest['qr']['keys'], $setting);
+            $this->assertNull($manifest['qr']['issuer'], $setting);
+            config([$setting => $previous]);
+        }
+
+        config(['qr_v3.public_key_path' => '']);
+        $manifest = $this->manifest($this->mobile($owner, 'GET', '/package?schema_version=2'));
+        $this->assertFalse($manifest['qr']['available']);
+        $this->assertSame([], $manifest['qr']['keys']);
     }
 }

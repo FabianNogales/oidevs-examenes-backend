@@ -5,6 +5,7 @@ namespace App\Services\Students;
 use App\Models\Exam;
 use App\Models\StudentQrToken;
 use App\Services\Entries\ExamEntryAvailability;
+use App\Services\QrV3\ExamQrV3;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -25,6 +26,8 @@ class StudentQrService
     private const ELIGIBLE_STATUS = 'ELIGIBLE';
     private const NOT_ELIGIBLE_STATUS = 'INELIGIBLE';
     private const VISIBLE_EXAM_STATUSES = ExamEntryAvailability::STATES;
+
+    public function __construct(private ExamQrV3 $qrV3) {}
 
     /**
      * Obtiene los exámenes disponibles para el estudiante junto con su QR (si está en ventana de 24h).
@@ -89,12 +92,12 @@ class StudentQrService
     /**
      * Genera u obtiene el QR del examen si el estudiante y la inscripción están en status ACTIVE.
      */
-    public function getOrGenerateForExam(int $studentId, int $examId): array
+    public function getOrGenerateForExam(int $studentId, int $examId, int $version = 2): array
     {
-        return DB::transaction(fn () => $this->generateForLockedExam($studentId, $examId));
+        return DB::transaction(fn () => $this->generateForLockedExam($studentId, $examId, $version));
     }
 
-    private function generateForLockedExam(int $studentId, int $examId): array
+    private function generateForLockedExam(int $studentId, int $examId, int $version): array
     {
         // 1. Validar que el examen exista y que el estudiante esté inscrito y activo
         $exam = Exam::with(['courseOffering.subject'])
@@ -147,17 +150,20 @@ class StudentQrService
             ]);
         }
 
-        // 4. Generar JWT Estándar HS256 (3 partes) con timestamp Unix
-        $expTimestamp = $examEnd->timestamp;
-        $signedToken  = $this->generateStandardJwt($tokenValue, $expTimestamp);
+        // Both versions use the existing token registry for revocation and sync.
+        $signedToken = $version === 3
+            ? $this->qrV3->issue($exam, $studentId, $tokenValue, $now)
+            : $this->generateStandardJwt($tokenValue, $examEnd->timestamp);
 
-        // 5. Generar Matriz QR SVG Real escaneable directamente con BaconQrCode v3 (Nivel H, 200px)
+        // The longer RS256 token benefits from a larger image and fewer modules.
         $renderer = new ImageRenderer(
-            new RendererStyle(200),
+            new RendererStyle($version === 3 ? 480 : 200),
             new SvgImageBackEnd()
         );
         $writer = new Writer($renderer);
-        $svgQr  = $writer->writeString($signedToken, 'UTF-8', ErrorCorrectionLevel::H());
+        $svgQr = $writer->writeString($signedToken, 'UTF-8', $version === 3
+            ? ErrorCorrectionLevel::M()
+            : ErrorCorrectionLevel::H());
 
         $qrBase64 = "data:image/svg+xml;base64," . base64_encode($svgQr);
 

@@ -12,7 +12,8 @@ class QrV3KeyRing
         private ?OpenSSLAsymmetricKey $privateKey = null)
     {
         foreach ($publicKeys as $kid => $pem) {
-            if (! is_string($kid) || ! preg_match('/^[A-Za-z0-9_-]{1,64}$/D', $kid) || ! is_string($pem)
+            // PHP casts decimal string array keys to integers.
+            if (! preg_match('/^[A-Za-z0-9_-]{1,64}$/D', (string) $kid) || ! is_string($pem)
                 || ! str_starts_with($pem, '-----BEGIN PUBLIC KEY-----')) {
                 throw new QrV3Exception('KEY_CONFIGURATION_INVALID');
             }

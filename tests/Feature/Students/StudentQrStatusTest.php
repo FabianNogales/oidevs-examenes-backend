@@ -9,11 +9,12 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
+use Tests\Support\ConfiguresQrV3Issuer;
 use Tests\TestCase;
 
 class StudentQrStatusTest extends TestCase
 {
-    use RefreshDatabase;
+    use ConfiguresQrV3Issuer, RefreshDatabase;
 
     protected User $studentUser;
     protected User $teacherUser;
@@ -305,6 +306,103 @@ class StudentQrStatusTest extends TestCase
 
         $this->getJson("/api/v1/students/exams/{$this->examId}/qr")
             ->assertStatus(403);
+    }
+
+    public function test_explicit_v3_request_delivers_signed_svg_and_preserves_default_v2(): void
+    {
+        $publicPem = $this->configureQrV3Issuer();
+        $issuedAt = Carbon::parse('2026-06-14 10:00:00', 'America/La_Paz');
+        Carbon::setTestNow($issuedAt);
+        Sanctum::actingAs($this->studentUser, ['*']);
+        $url = "/api/v1/students/exams/{$this->examId}/qr";
+
+        $response = $this->getJson($url.'?version=3&student_id=999999')->assertOk();
+        $data = $response->json('data');
+        $this->assertTrue($response->headers->hasCacheControlDirective('no-store'));
+        $this->assertTrue($response->headers->hasCacheControlDirective('private'));
+        $this->assertSame($this->examId, $data['exam_id']);
+        $prefix = 'data:image/svg+xml;base64,';
+        $this->assertStringStartsWith($prefix, $data['qr_code_base64']);
+        $this->assertStringContainsString('<svg', base64_decode(substr($data['qr_code_base64'], strlen($prefix)), true));
+
+        $this->assertMatchesRegularExpression('/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/D', $data['token']);
+        [$header, $payload, $signature] = explode('.', $data['token']);
+        $decode = static fn (string $segment) => base64_decode(strtr($segment, '-_', '+/'), true);
+        $claims = json_decode($decode($payload), true, flags: JSON_THROW_ON_ERROR);
+        $this->assertSame(['alg' => 'RS256', 'kid' => 'offline-test', 'typ' => 'eida-entry-qr+jwt'],
+            json_decode($decode($header), true, flags: JSON_THROW_ON_ERROR));
+        $this->assertSame(1, openssl_verify($header.'.'.$payload, $decode($signature), $publicPem, OPENSSL_ALGO_SHA256));
+        $this->assertSame([
+            'v' => 3, 'jti' => $claims['jti'], 'sub' => (string) $this->studentId,
+            'exam_id' => (string) $this->examId, 'iss' => 'https://eida.example.test', 'aud' => 'eida-control-qr',
+            'iat' => $issuedAt->timestamp, 'nbf' => $issuedAt->timestamp,
+            'exp' => Carbon::parse('2026-06-15 11:30:00', 'America/La_Paz')->timestamp,
+        ], $claims);
+        $this->assertDatabaseHas('student_qr_tokens', [
+            'token' => $claims['jti'], 'student_id' => $this->studentId, 'exam_id' => $this->examId, 'status' => 'ACTIVE',
+        ]);
+
+        $legacy = $this->getJson($url)->assertOk()->json('data.token');
+        [$legacyHeader, $legacyPayload] = explode('.', $legacy);
+        $this->assertSame(['alg' => 'HS256', 'typ' => 'JWT'], json_decode($decode($legacyHeader), true));
+        $this->assertSame(['v' => 2, 'jti' => $claims['jti'], 'exp' => $claims['exp']], json_decode($decode($legacyPayload), true));
+        $this->assertDatabaseCount('student_qr_tokens', 1);
+    }
+
+    public function test_v3_reuses_student_authorization_and_time_window(): void
+    {
+        $this->configureQrV3Issuer();
+        $url = "/api/v1/students/exams/{$this->examId}/qr?version=3";
+        $this->getJson($url)->assertUnauthorized();
+
+        Sanctum::actingAs($this->studentUser, ['*']);
+        Carbon::setTestNow(Carbon::parse('2026-06-14 09:59:59', 'America/La_Paz'));
+        $this->getJson($url)->assertForbidden();
+        Carbon::setTestNow(Carbon::parse('2026-06-15 11:30:00', 'America/La_Paz'));
+        $this->getJson($url)->assertForbidden();
+        Carbon::setTestNow(Carbon::parse('2026-06-15 10:00:00', 'America/La_Paz'));
+        $this->setEligibility($this->studentId, $this->examId, 'INELIGIBLE');
+        $this->getJson($url)->assertForbidden();
+        [, $otherId] = $this->createStudent('20260005');
+        $otherExamId = $this->createSeparateExamForStudent($otherId);
+        $this->getJson('/api/v1/students/exams/'.$otherExamId.'/qr?version=3')->assertForbidden();
+
+        Sanctum::actingAs($this->createStudentUserWithoutProfile(), ['*']);
+        $this->getJson($url)->assertForbidden()->assertJsonPath('code', 'STUDENT_PROFILE_MISSING');
+        $this->assertDatabaseCount('student_qr_tokens', 0);
+    }
+
+    public function test_v3_misconfiguration_fails_without_registering_a_token_or_falling_back_to_v2(): void
+    {
+        $this->configureQrV3Issuer();
+        config(['qr_v3.private_key_path' => '']);
+        Carbon::setTestNow(Carbon::parse('2026-06-15 10:00:00', 'America/La_Paz'));
+        Sanctum::actingAs($this->studentUser, ['*']);
+        $url = "/api/v1/students/exams/{$this->examId}/qr";
+        $this->getJson($url.'?version=3')->assertStatus(503)->assertJsonPath('code', 'QR_V3_UNAVAILABLE');
+        $this->getJson($url.'?version=4')->assertUnprocessable();
+        $this->assertDatabaseCount('student_qr_tokens', 0);
+        $this->getJson($url)->assertOk();
+    }
+
+    public function test_disabled_v3_reports_unavailability_while_v2_responses_prevent_caching(): void
+    {
+        config(['qr_v3.enabled' => false]);
+        Carbon::setTestNow(Carbon::parse('2026-06-15 10:00:00', 'America/La_Paz'));
+        Sanctum::actingAs($this->studentUser, ['*']);
+        $url = '/api/v1/students/exams/'.$this->examId.'/qr';
+        $unavailable = $this->getJson($url.'?version=3')->assertStatus(503)
+            ->assertJsonPath('code', 'QR_V3_UNAVAILABLE');
+        $this->assertNull($unavailable->json('data'));
+        $this->assertTrue($unavailable->headers->hasCacheControlDirective('no-store'));
+        $this->assertDatabaseCount('student_qr_tokens', 0);
+
+        foreach (['/api/v1/students/exams', $url] as $legacyUrl) {
+            $response = $this->getJson($legacyUrl)->assertOk();
+            $this->assertTrue($response->headers->hasCacheControlDirective('no-store'));
+            $this->assertTrue($response->headers->hasCacheControlDirective('private'));
+        }
+        $this->assertDatabaseCount('student_qr_tokens', 1);
     }
 
     public function test_qr_is_denied_after_exam_has_finished(): void
