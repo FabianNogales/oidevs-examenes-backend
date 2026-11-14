@@ -234,10 +234,6 @@ Esta sección describe la configuración histórica de la fase 1. Para el cargad
 | EIDA_QR_V3_KID | Identificador confiable de la clave |
 | EIDA_QR_V3_ISSUER | Emisor esperado |
 | EIDA_QR_V3_AUDIENCE | eida-control-qr por defecto |
-| EIDA_QR_V3_PUBLIC_KEY_PATH | PEM público RSA, BEGIN PUBLIC KEY |
-| EIDA_QR_V3_PRIVATE_KEY_PATH | Opcional; sin él, solo verificación |
-
-La fábrica verifica que la clave privada resuelta esté fuera del árbol del backend y que corresponda a la pública. El operador debe provisionarla fuera de cualquier repositorio, con permisos mínimos y montaje de secretos del servidor. Nunca usar APP_KEY ni almacenar claves privadas en .env versionado, respuestas HTTP, vectores o APK. No se generaron claves privadas persistentes.
 
 QrV3KeyRing admite varias públicas por kid en memoria; la fábrica de configuración de esta fase carga una. Publicación JWKS, rotación operativa, revocaciones y distribución al paquete quedan pendientes. No hay endpoint público ni privado de emisión/verificación v3.
 

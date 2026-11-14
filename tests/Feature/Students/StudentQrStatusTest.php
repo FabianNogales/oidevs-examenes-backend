@@ -378,9 +378,10 @@ class StudentQrStatusTest extends TestCase
         Carbon::setTestNow(Carbon::parse('2026-06-15 10:00:00', 'America/La_Paz'));
         Sanctum::actingAs($this->studentUser, ['*']);
         $url = "/api/v1/students/exams/{$this->examId}/qr";
-        $validPrivateBody = (string) getenv('EIDA_QR_V3_PRIVATE_KEY');
-        foreach (['', 'invalid%', $validPrivateBody."\n", base64_encode('not a key'), $this->qrPemBody($publicPem, 'PUBLIC KEY')] as $body) {
-            $this->setQrKeyEnvironment('EIDA_QR_V3_PRIVATE_KEY', $body);
+        $validPrivatePem = (string) getenv('EIDA_QR_V3_PRIVATE_KEY');
+        $escapedPrivatePem = str_replace(["\r\n", "\n"], '\n', $validPrivatePem);
+        foreach (['', 'not a PEM', $escapedPrivatePem, "-----BEGIN PRIVATE KEY-----\ninvalid\n-----END PRIVATE KEY-----", $publicPem] as $pem) {
+            $this->setQrKeyEnvironment('EIDA_QR_V3_PRIVATE_KEY', $pem);
             $this->getJson($url.'?version=3')->assertStatus(503)->assertJsonPath('code', 'QR_V3_UNAVAILABLE');
         }
         $this->getJson($url.'?version=4')->assertUnprocessable();

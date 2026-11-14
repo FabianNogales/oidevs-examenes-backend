@@ -37,19 +37,22 @@ class QrV3Factory
     private function pemFromEnvironment(string $variable, string $label): string
     {
         // Read on demand, independently of Laravel's configuration cache.
-        $body = getenv($variable);
-        if ($body === false) {
-            $body = $_ENV[$variable] ?? $_SERVER[$variable] ?? null;
+        $value = getenv($variable);
+        if ($value === false) {
+            $value = $_ENV[$variable] ?? $_SERVER[$variable] ?? null;
         }
 
-        if (! is_string($body) || ! preg_match('/^[A-Za-z0-9+\/]+={0,2}\z/', $body)) {
+        if (! is_string($value)) {
             throw new QrV3Exception('KEY_CONFIGURATION_INVALID');
         }
-        $der = base64_decode($body, true);
-        if ($der === false || base64_encode($der) !== $body) {
+        $pem = trim($value, " \t\r\n");
+        $begin = "-----BEGIN {$label}-----";
+        $end = "-----END {$label}-----";
+        if ((! str_starts_with($pem, $begin."\n") && ! str_starts_with($pem, $begin."\r\n"))
+            || ! str_ends_with($pem, "\n".$end) || str_contains($pem, "\0")) {
             throw new QrV3Exception('KEY_CONFIGURATION_INVALID');
         }
 
-        return "-----BEGIN {$label}-----\n".chunk_split($body, 64, "\n")."-----END {$label}-----\n";
+        return $pem;
     }
 }

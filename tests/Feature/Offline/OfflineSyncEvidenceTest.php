@@ -132,7 +132,8 @@ class OfflineSyncEvidenceTest extends TestCase
     private function verifierFixture(): array
     {
         $private = QrV3TestKeys::rsa(); $details = openssl_pkey_get_details($private);
-        $this->setQrKeyEnvironment('EIDA_QR_V3_PUBLIC_KEY', $this->qrPemBody($details['key'], 'PUBLIC KEY'));
+        $publicPem = str_replace("\r\n", "\n", $details['key']);
+        $this->setQrKeyEnvironment('EIDA_QR_V3_PUBLIC_KEY', str_replace("\n", "\r\n", $publicPem));
         $this->setQrKeyEnvironment('EIDA_QR_V3_PRIVATE_KEY', '');
         config(['offline_sync.qr_v3_verify_enabled' => true, 'qr_v3.enabled' => false, 'qr_v3.kid' => 'sync-test',
             'qr_v3.issuer' => 'https://eida.example.test', 'qr_v3.audience' => 'eida-control-qr']);

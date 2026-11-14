@@ -23,18 +23,13 @@ trait ConfiguresQrV3Issuer
             'mobile_offline.qr_v3_issued' => true,
         ]);
 
-        $this->setQrKeyEnvironment('EIDA_QR_V3_PRIVATE_KEY', $this->qrPemBody($privatePem, 'PRIVATE KEY'));
-        $this->setQrKeyEnvironment('EIDA_QR_V3_PUBLIC_KEY', $this->qrPemBody($publicPem, 'PUBLIC KEY'));
+        $this->setQrKeyEnvironment('EIDA_QR_V3_PRIVATE_KEY', $privatePem);
+        $this->setQrKeyEnvironment('EIDA_QR_V3_PUBLIC_KEY', $publicPem);
 
         return $publicPem;
     }
 
-    private function qrPemBody(string $pem, string $label): string
-    {
-        return str_replace(["-----BEGIN {$label}-----", "-----END {$label}-----", "\r", "\n"], '', $pem);
-    }
-
-    private function setQrKeyEnvironment(string $name, string $body): void
+    private function setQrKeyEnvironment(string $name, string $pem): void
     {
         if (! array_key_exists($name, $this->originalQrKeyEnvironment)) {
             $previous = getenv($name);
@@ -43,6 +38,6 @@ trait ConfiguresQrV3Issuer
                 putenv($previous === false ? $name : $name.'='.$previous);
             });
         }
-        self::assertTrue(putenv($name.'='.$body));
+        self::assertTrue(putenv($name.'='.$pem));
     }
 }
