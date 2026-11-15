@@ -4,12 +4,11 @@ namespace App\Services\Offline;
 
 use App\Services\Entries\QrTokenValidator;
 use App\Services\QrV3\QrV3Exception;
-use App\Services\QrV3\QrV3KeyRing;
-use App\Services\QrV3\QrV3Service;
+use App\Services\QrV3\QrV3Factory;
 
 class OfflineQrEvidence
 {
-    public function __construct(private QrTokenValidator $v2) {}
+    public function __construct(private QrTokenValidator $v2, private QrV3Factory $keys) {}
 
     /** No private keys, no client-supplied trust roots and no trust in a phone's verdict. */
     public function assess(string $token, int $studentId, int $examId): array
@@ -23,7 +22,7 @@ class OfflineQrEvidence
         if (! is_array($header) || ($header['alg'] ?? null) !== 'RS256') return $this->invalid('INVALID_QR');
         if (! config('offline_sync.qr_v3_verify_enabled')) return $this->invalid('QR_V3_UNAVAILABLE');
         try {
-            $service = $this->verifier();
+            $service = $this->keys->makeVerifier();
         } catch (QrV3Exception) {
             return $this->invalid('QR_VERIFICATION_UNAVAILABLE');
         }
@@ -35,20 +34,16 @@ class OfflineQrEvidence
         }
     }
 
-    private function verifier(): QrV3Service
-    {
-        $path = realpath((string) config('qr_v3.public_key_path'));
-        if (! $path || ! is_file($path) || ! is_readable($path)) throw new QrV3Exception('KEY_CONFIGURATION_INVALID');
-        $pem = file_get_contents($path);
-        $ring = new QrV3KeyRing([(string) config('qr_v3.kid') => $pem]);
-        return new QrV3Service($ring, (string) config('qr_v3.issuer'), (string) config('qr_v3.audience'),
-            (int) config('qr_v3.max_lifetime_seconds'));
-    }
-
     public function supportsV3(): bool
     {
         if (! config('offline_sync.qr_v3_verify_enabled')) return false;
-        try { $this->verifier(); return true; } catch (QrV3Exception) { return false; }
+        try {
+            $this->keys->makeVerifier();
+
+            return true;
+        } catch (QrV3Exception) {
+            return false;
+        }
     }
 
     private function invalid(string $code): array

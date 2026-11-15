@@ -10,6 +10,9 @@ use App\Models\StudentQrToken;
 use App\Models\User;
 use App\Services\Collaborators\ExamCollaboratorService;
 use App\Services\Incidents\IncidentIdentity;
+use App\Services\QrV3\QrV3Exception;
+use App\Services\QrV3\QrV3Factory;
+use App\Services\QrV3\QrV3Service;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +23,7 @@ class QrEntryService
         private QrTokenValidator $tokens,
         private EntryControlService $control,
         private WrongExamAuditService $wrongExamAudit,
+        private QrV3Factory $qrV3,
     ) {}
 
     public function process(int $examId, User $user, array $parameters): JsonResponse
@@ -63,12 +67,16 @@ class QrEntryService
 
             $studentId = $manualStudentId;
             if ($manualStudentId === null) {
-                $claims = $this->tokens->decode($parameters['qr_token']);
+                $claims = $this->currentQrClaims($parameters['qr_token']);
                 if (! $claims) {
                     return $this->result('INVALID_QR', 'QR inválido.', null, 422);
                 }
                 $token = StudentQrToken::where('token', $claims['jti'])->lockForUpdate()->first();
                 if (! $token || $token->status !== 'ACTIVE' || $token->revoked_at !== null) {
+                    return $this->result('INVALID_QR', 'QR inválido.', null, 422);
+                }
+                if ($claims['v'] === 3 && ($claims['sub'] !== (string) $token->student_id
+                    || $claims['exam_id'] !== (string) $token->exam_id)) {
                     return $this->result('INVALID_QR', 'QR inválido.', null, 422);
                 }
                 if ((int) $token->exam_id !== $exam->id) {
@@ -122,6 +130,23 @@ class QrEntryService
 
             return $this->result('AUTHORIZED', $manualStudentId !== null ? 'Ingreso manual registrado exitosamente.' : 'Ingreso autorizado.', $data, 201);
         });
+    }
+
+    private function currentQrClaims(string $token): ?array
+    {
+        // The unverified header only selects the validator. It never authorizes an entry.
+        $encodedHeader = explode('.', $token, 2)[0];
+        $decodedHeader = base64_decode(strtr($encodedHeader, '-_', '+/'), true);
+        $header = $decodedHeader === false ? null : json_decode($decodedHeader, true);
+        if (! is_array($header) || (($header['alg'] ?? null) !== 'RS256' && ($header['typ'] ?? null) !== QrV3Service::TYPE)) {
+            return $this->tokens->decode($token);
+        }
+
+        try {
+            return $this->qrV3->makeVerifier()->verifyCurrent($token, now()->timestamp);
+        } catch (QrV3Exception) {
+            return null;
+        }
     }
 
     private function studentNotFound(): JsonResponse
