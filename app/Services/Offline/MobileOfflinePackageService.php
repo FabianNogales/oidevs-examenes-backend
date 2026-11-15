@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Services\Entries\EntryControlService;
 use App\Services\Entries\ExamEntryAvailability;
 use App\Services\Images\DatabaseImageService;
+use App\Services\QrV3\ExamQrV3;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -25,6 +26,7 @@ class MobileOfflinePackageService
         private OfflineAssignmentService $assignments,
         private OfflinePackageService $packages,
         private DatabaseImageService $images,
+        private ExamQrV3 $qrV3,
     ) {}
 
     private function binding(Request $request): array
@@ -103,7 +105,7 @@ class MobileOfflinePackageService
                 'responsible_name' => $request->user()->display_name, 'prepared_at' => $legacy['prepared_at'],
                 'server_time' => now()->toISOString(), 'expires_at' => $legacy['expires_at'], 'timezone' => $legacy['timezone'],
                 'room_id' => (string) $legacy['room_id'], 'surname_range' => $legacy['surname_range'],
-                'students' => $students, 'qr' => $this->publicQrMaterial()];
+                'students' => $students, 'qr' => $this->qrV3->manifest($exam)];
             $json = json_encode($manifest, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             $mobile = ['schema_version' => 1, 'manifest_json' => $json, 'manifest_sha256' => hash('sha256', $json)];
             $package = ExamOfflinePackage::findOrFail($legacy['package_id']);
@@ -162,25 +164,5 @@ class MobileOfflinePackageService
             ['Content-Type' => $image['mime'], 'Content-Length' => (string) strlen($image['bytes']),
                 'Cache-Control' => 'private, no-store', 'X-Content-Type-Options' => 'nosniff',
                 'Content-Security-Policy' => "default-src 'none'; sandbox"]);
-    }
-
-    private function publicQrMaterial(): array
-    {
-        $unavailable = ['available' => false, 'reason' => 'PRODUCTION_QR_V3_NOT_CONFIRMED',
-            'issuer' => null, 'audience' => null, 'keys' => [], 'revoked_jtis' => null];
-        if (! config('mobile_offline.qr_v3_issued') || ! config('qr_v3.enabled')) return $unavailable;
-        $path = config('qr_v3.public_key_path');
-        $pem = is_string($path) && is_readable($path) ? file_get_contents($path) : false;
-        // Only an explicit PUBLIC KEY PEM. Never load the private key or APP_KEY.
-        if (! is_string($pem) || ! str_starts_with(trim($pem), '-----BEGIN PUBLIC KEY-----')) return $unavailable;
-        $key = openssl_pkey_get_public($pem);
-        $details = $key ? openssl_pkey_get_details($key) : false;
-        $kid = config('qr_v3.kid');
-        if (! $details || $details['type'] !== OPENSSL_KEYTYPE_RSA || $details['bits'] < 2048
-            || ! is_string($kid) || ! preg_match('/^[A-Za-z0-9_-]{1,64}$/', $kid)
-            || ! config('qr_v3.issuer') || ! config('qr_v3.audience')) return $unavailable;
-        return ['available' => true, 'reason' => null, 'issuer' => config('qr_v3.issuer'), 'audience' => config('qr_v3.audience'),
-            'keys' => [['kid' => $kid, 'algorithm' => 'RS256', 'pem' => $details['key']]],
-            'revoked_jtis' => null]; // No revocation feed exists: null means UNKNOWN, never an empty guarantee.
     }
 }
