@@ -18,7 +18,8 @@ class StoreExamRequest extends FormRequest
             'name' => ['required', 'string', 'max:255'],
             'exam_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:'.now('America/La_Paz')->toDateString()],
             'start_time' => [
-                'bail', 'required',
+                'bail',
+                'required',
                 'date_format:H:i:s',
                 function ($attribute, $value, $fail) {
                     $date = $this->input('exam_date');
@@ -34,10 +35,14 @@ class StoreExamRequest extends FormRequest
                     }
                 },
             ],
-
             'duration_minutes' => ['required', 'integer', 'gt:0', 'max:2147483647'],
             'room_id' => ['required', 'integer', 'exists:rooms,id'],
             'evaluation_type' => ['required', 'string', 'in:partial,final,makeup'],
+            'partial_number' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:6'],
+            'is_shared_room' => ['sometimes', 'boolean'],
+            'shared_consent' => ['sometimes', 'boolean'],
+            'additional_room_ids' => ['sometimes', 'array'],
+            'additional_room_ids.*' => ['integer', 'distinct', 'exists:rooms,id'],
             'rules' => ['nullable', 'string'],
         ];
     }
