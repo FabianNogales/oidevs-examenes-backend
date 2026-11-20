@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\Exams;
 
-use App\Services\Exams\ExamScheduleTime;
+use App\Enums\EvaluationType;
+use App\Services\Exams\ExamSchedulePolicy;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
 class UpdateExamRequest extends StoreExamRequest
@@ -29,10 +31,23 @@ class UpdateExamRequest extends StoreExamRequest
         return [
             'name' => ['bail', 'required', 'string', 'max:255'],
             'exam_date' => ['bail', 'required', 'string', 'date_format:Y-m-d', 'after_or_equal:'.now('America/La_Paz')->toDateString()],
-            'start_time' => ['bail', 'required', 'string', 'date_format:H:i:s'],
-            'duration_minutes' => ['bail', 'required', $integer, 'integer', 'min:1', 'max:2147483647'],
+            'start_time' => [
+                'bail',
+                'required',
+                'string',
+                'date_format:H:i:s',
+                Rule::in(ExamSchedulePolicy::ALLOWED_START_TIMES),
+            ],
+            'duration_minutes' => [
+                'bail',
+                'required',
+                $integer,
+                'integer',
+                'min:'.ExamSchedulePolicy::MIN_DURATION_MINUTES,
+                'max:'.ExamSchedulePolicy::MAX_DURATION_MINUTES,
+            ],
             'room_id' => ['bail', 'required', $integer, 'integer', 'min:1', 'exists:rooms,id'],
-            'evaluation_type' => ['bail', 'required', 'string', 'in:partial,final,makeup'],
+            'evaluation_type' => ['bail', 'required', 'string', EvaluationType::validationRule()],
             'partial_number' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:6'],
             'is_shared_room' => ['sometimes', 'boolean'],
             'shared_consent' => ['sometimes', 'boolean'],
@@ -51,14 +66,11 @@ class UpdateExamRequest extends StoreExamRequest
 
     public function withValidator(Validator $validator): void
     {
-        $validator->after(function ($validator) {
+        parent::withValidator($validator);
+
+        $validator->after(function (Validator $validator): void {
             foreach (array_diff(array_keys($this->all()), array_keys($this->rules())) as $field) {
                 $validator->errors()->add($field, 'Este campo no se puede modificar.');
-            }
-            if (! $validator->errors()->has('exam_date') && ! $validator->errors()->has('start_time')) {
-                if (! ExamScheduleTime::isFutureStart($this->input('exam_date'), $this->input('start_time'))) {
-                    $validator->errors()->add('start_time', ExamScheduleTime::FUTURE_START_ERROR);
-                }
             }
         });
     }
@@ -68,10 +80,11 @@ class UpdateExamRequest extends StoreExamRequest
         return [
             'name.*' => 'El nombre es obligatorio y debe tener hasta 255 caracteres.',
             'exam_date.*' => 'Selecciona una fecha real YYYY-MM-DD que no sea anterior a hoy.',
-            'start_time.*' => 'La hora debe usar el formato HH:mm:ss.',
-            'duration_minutes.*' => 'La duración debe ser un entero entre 1 y 2147483647.',
+            'start_time.in' => ExamSchedulePolicy::INVALID_START_TIME_ERROR,
+            'start_time.*' => 'La hora debe usar el formato HH:mm:ss y corresponder a un periodo institucional.',
+            'duration_minutes.*' => ExamSchedulePolicy::INVALID_DURATION_ERROR,
             'room_id.*' => 'Selecciona un aula existente mediante su ID entero positivo.',
-            'evaluation_type.*' => 'El tipo debe ser partial, final o makeup.',
+            'evaluation_type.*' => EvaluationType::validationMessage(),
             'partial_number.*' => 'El número de parcial debe ser un entero entre 1 y 6.',
             'additional_room_ids.*' => 'Las aulas adicionales deben ser IDs válidos y existentes.',
             'rules.*' => 'Envía las normas como texto o null.',

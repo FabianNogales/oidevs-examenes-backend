@@ -54,22 +54,24 @@ class RoomAvailabilityTest extends TestCase
 
     public function test_query_excludes_inactive_and_overlaps_but_allows_adjacent_intervals(): void
     {
-        $this->exam('2026-10-11', '10:00:00', 90);
+        $this->exam('2026-10-11', '09:45:00', 90);
         Room::create(['code' => 'OFF', 'status' => 'INACTIVE']);
         $this->getJson('/api/v1/rooms')->assertOk()->assertJsonCount(1, 'data');
-        foreach ([['09:30', 31], ['10:00', 90], ['10:30', 15], ['09:00', 240]] as [$time, $duration]) {
+        foreach ([['09:00', 60], ['09:45', 90], ['10:30', 15], ['08:15', 120]] as [$time, $duration]) {
             $this->query('2026-10-11', $time, $duration)->assertOk()->assertJsonCount(0, 'data');
         }
-        $this->query('2026-10-11', '09:00', 60)->assertJsonCount(1, 'data');
-        $this->query('2026-10-11', '11:30:00', 60)->assertJsonCount(1, 'data');
-        $this->query('2026-10-12', '10:00', 90)->assertJsonCount(1, 'data');
+        $this->query('2026-10-11', '08:15', 60)->assertJsonCount(1, 'data');
+        $this->query('2026-10-11', '11:15:00', 60)->assertJsonCount(1, 'data');
+        $this->query('2026-10-12', '09:45', 90)->assertJsonCount(1, 'data');
     }
 
     public function test_cross_midnight_conflicts_and_cancelled_exams(): void
     {
+        // 120 min reserves 2 full 90-min periods (180 min -> 23:30 to 02:30).
         $id = $this->exam('2026-10-11', '23:30:00', 120);
         $this->query('2026-10-12', '00:30', 30)->assertJsonCount(0, 'data');
-        $this->query('2026-10-12', '01:30', 30)->assertJsonCount(1, 'data');
+        $this->query('2026-10-12', '01:30', 30)->assertJsonCount(0, 'data');
+        $this->query('2026-10-12', '02:30', 30)->assertJsonCount(1, 'data');
         DB::table('exams')->where('id', $id)->update(['status' => 'CANCELLED']);
         $this->query('2026-10-12', '00:30', 30)->assertJsonCount(1, 'data');
     }
@@ -87,16 +89,16 @@ class RoomAvailabilityTest extends TestCase
     public function test_scheduling_rechecks_overlap_and_inactive_state_without_side_effects(): void
     {
         $date = now('America/La_Paz')->addDays(5)->toDateString();
-        $this->exam($date, '10:00:00', 90);
+        $this->exam($date, '09:45:00', 120);
         $audits = DB::table('audit_logs')->count();
         $payload = ['name' => 'Nuevo parcial', 'room_id' => $this->room->id, 'exam_date' => $date,
-            'start_time' => '10:30:00', 'duration_minutes' => 30, 'evaluation_type' => 'partial'];
+            'start_time' => '11:15:00', 'duration_minutes' => 30, 'evaluation_type' => 'partial'];
         $endpoint = '/api/v1/course-offerings/'.$this->offering.'/exams';
         $this->postJson($endpoint, $payload)->assertUnprocessable()->assertJsonValidationErrors('room_id');
         $this->assertDatabaseCount('exams', 1);
         $this->assertSame($audits, DB::table('audit_logs')->count());
         $this->room->update(['status' => 'INACTIVE']);
-        $payload['start_time'] = '11:30:00';
+        $payload['start_time'] = '12:45:00';
         $this->postJson($endpoint, $payload)->assertUnprocessable()->assertJsonValidationErrors('room_id');
         $this->room->update(['status' => 'ACTIVE']);
         $this->postJson($endpoint, $payload)->assertCreated();

@@ -3,6 +3,7 @@
 namespace App\Services\Rooms;
 
 use App\Models\Room;
+use App\Services\Exams\ExamSchedulePolicy;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
@@ -16,22 +17,43 @@ class RoomAvailabilityService
 
     private const RESERVING_STATUSES = ['ACTIVE', 'SCHEDULED', 'IN_PROGRESS'];
 
+    private readonly ExamSchedulePolicy $schedulePolicy;
+
+    public function __construct(?ExamSchedulePolicy $schedulePolicy = null)
+    {
+        $this->schedulePolicy = $schedulePolicy ?? new ExamSchedulePolicy;
+    }
+
+    public function reservedMinutes(int $duration): int
+    {
+        return $this->schedulePolicy->reservedMinutes($duration);
+    }
+
     public function interval(string $date, string $time, int $duration): array
     {
         $start = CarbonImmutable::parse($date.' '.$time, self::TIMEZONE);
 
-        return [$start, $start->addMinutes($duration)];
+        return [$start, $start->addMinutes($this->reservedMinutes($duration))];
     }
 
     public function overlaps(CarbonImmutable $start, ?CarbonImmutable $end = null): Builder
     {
+        $period = ExamSchedulePolicy::PERIOD_MINUTES;
+        $roundUp = $period - 1;
+
         [$startSql, $endSql] = match (DB::connection()->getDriverName()) {
-            'pgsql' => ['(exam_date + start_time)', "(exam_date + start_time + duration_minutes * INTERVAL '1 minute')"],
-            'sqlite' => ["datetime(exam_date || ' ' || start_time)", "datetime(exam_date || ' ' || start_time, '+' || duration_minutes || ' minutes')"],
+            'pgsql' => [
+                '(exam_date + start_time)',
+                "(exam_date + start_time + (((CAST(duration_minutes AS BIGINT) + {$roundUp}) / {$period}) * {$period}) * INTERVAL '1 minute')",
+            ],
+            'sqlite' => [
+                "datetime(exam_date || ' ' || start_time)",
+                "datetime(exam_date || ' ' || start_time, '+' || (((duration_minutes + {$roundUp}) / {$period}) * {$period}) || ' minutes')",
+            ],
             default => throw new \LogicException('El cálculo de disponibilidad requiere PostgreSQL o SQLite.'),
         };
         $query = DB::table('exams')->whereIn('status', self::RESERVING_STATUSES);
-        // [start, end): a new exam can begin at the previous exam's end.
+        // [start, end): a new exam can begin at the previous exam's reserved block end.
         $query->whereRaw($startSql.($end === null ? ' <= ?' : ' < ?'), [($end ?? $start)->format('Y-m-d H:i:s')])
             ->whereRaw($endSql.' > ?', [$start->format('Y-m-d H:i:s')]);
 
@@ -52,7 +74,7 @@ class RoomAvailabilityService
             $room->setAttribute('availability', $exam ? 'OCCUPIED' : 'AVAILABLE');
             $current = null;
             if ($exam) {
-                [, $end] = $this->interval($exam->exam_date, $exam->start_time, $exam->duration_minutes);
+                [, $end] = $this->interval($exam->exam_date, $exam->start_time, (int) $exam->duration_minutes);
                 $current = ['id' => (int) $exam->id, 'name' => $exam->name, 'exam_date' => $exam->exam_date,
                     'start_time' => $exam->start_time, 'end_time' => $end->format('H:i:s')];
             }
@@ -102,14 +124,13 @@ class RoomAvailabilityService
         ?int $excludeExamId = null,
         bool $allowSharing = false
     ): void {
+        // Shared rooms are disabled; $allowSharing is intentionally ignored.
+        unset($allowSharing);
+
         // Called inside the exam transaction. The same room lock is used by state changes.
         $room = Room::query()->lockForUpdate()->find($roomId);
         if (! $room || $room->status !== 'ACTIVE') {
             throw ValidationException::withMessages(['room_id' => 'El aula no está activa para nuevas reservas.']);
-        }
-
-        if ($allowSharing) {
-            return;
         }
 
         [$start, $end] = $this->interval($date, $time, $duration);
