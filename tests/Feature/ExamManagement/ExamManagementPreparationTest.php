@@ -75,10 +75,10 @@ class ExamManagementPreparationTest extends TestCase
         $this->rooms(['exam_date' => '2026-10-22', 'start_time' => '00:30', 'duration_minutes' => 15])->assertOk()->assertJsonCount(1, 'data');
     }
 
-    public function test_complete_edit_payload_is_normalized_without_imposing_a_new_duration_or_rules_limit(): void
+    public function test_complete_edit_payload_is_normalized_within_institutional_duration_and_rules_limits(): void
     {
-        $payload = $this->payload(['name' => '  Actualizado  ', 'rules' => str_repeat('x', 10000), 'duration_minutes' => 2147483647]);
-        $this->patchJson('/test-hu18-edit-validation', $payload)->assertOk()->assertJsonPath('data.name', 'Actualizado')->assertJsonPath('data.duration_minutes', 2147483647);
+        $payload = $this->payload(['name' => '  Actualizado  ', 'rules' => str_repeat('x', 10000), 'duration_minutes' => 270]);
+        $this->patchJson('/test-hu18-edit-validation', $payload)->assertOk()->assertJsonPath('data.name', 'Actualizado')->assertJsonPath('data.duration_minutes', 270);
         $this->patchJson('/test-hu18-edit-validation', $this->payload(['rules' => '  ']))->assertOk()->assertJsonPath('data.rules', null);
         $this->patchJson('/test-hu18-edit-validation', $this->payload(['rules' => '0']))->assertOk()->assertJsonPath('data.rules', '0');
     }
@@ -86,7 +86,7 @@ class ExamManagementPreparationTest extends TestCase
     public function test_invalid_dates_time_durations_room_type_version_and_protected_fields_are_rejected(): void
     {
         $cases = ['name' => ['', str_repeat('x', 256)], 'exam_date' => ['2026-02-30', '2026-10-15', 'invalid'],
-            'start_time' => ['24:00:00', '10:00', 'bad'], 'duration_minutes' => [0, -1, 1.5, '60', 2147483648],
+            'start_time' => ['24:00:00', '10:00', '10:00:00', 'bad'], 'duration_minutes' => [0, -1, 1.5, '60', 271],
             'room_id' => [0, 999999, '1'], 'evaluation_type' => ['unknown'],
             'expected_updated_at' => ['invalid', '2026-02-30T09:00:00Z', '2026-10-16 09:00:00']];
         foreach ($cases as $field => $values) {
@@ -97,7 +97,7 @@ class ExamManagementPreparationTest extends TestCase
         foreach (['id', 'course_offering_id', 'subject_id', 'teacher_id', 'academic_term_id', 'status', 'created_by'] as $field) {
             $this->patchJson('/test-hu18-edit-validation', $this->payload([$field => 1]))->assertUnprocessable()->assertJsonValidationErrors($field);
         }
-        $this->patchJson('/test-hu18-edit-validation', $this->payload(['exam_date' => '2026-10-16', 'start_time' => '09:00:00']))->assertUnprocessable()->assertJsonValidationErrors('start_time');
+        $this->patchJson('/test-hu18-edit-validation', $this->payload(['exam_date' => '2026-10-16', 'start_time' => '08:15:00']))->assertUnprocessable()->assertJsonValidationErrors('start_time');
         foreach (array_keys($this->payload()) as $field) {
             $payload = $this->payload();
             unset($payload[$field]);
@@ -114,7 +114,7 @@ class ExamManagementPreparationTest extends TestCase
 
     private function payload(array $overrides = []): array
     {
-        return array_replace($this->examPayload($this->fixture['room']->id) + ['expected_updated_at' => $this->exam->fresh()->updated_at->toISOString()], $overrides);
+        return array_replace($this->examPayload($this->fixture['room']->id) + ['expected_updated_at' => $this->exam->fresh()->updated_at->toISOString()], ['start_time' => '09:45:00'], $overrides);
     }
 
     private function rooms(array $overrides = [])

@@ -26,6 +26,7 @@ class AcademicAuditContextTest extends TestCase
         parent::setUp();
         $this->travelTo(CarbonImmutable::parse('2026-10-20 09:00:00', 'America/La_Paz'));
         $this->fixture = $this->offeringFixture();
+        $this->fixture['term']->update(['start_date' => '2026-08-01', 'end_date' => '2026-12-31']);
         $this->fixture['user']->roles()->detach(DB::table('roles')->where('name', 'ADMINISTRADOR')->value('id'));
         Sanctum::actingAs($this->fixture['user']);
         $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.20'])->withHeader('User-Agent', 'FIX-025A regression');
@@ -144,7 +145,7 @@ class AcademicAuditContextTest extends TestCase
             'course_offering_id' => $this->fixture['offering']->id, 'created_by' => $this->fixture['user']->id, 'status' => 'SCHEDULED',
         ]));
         $baselineCount = AuditLog::count();
-        $payload = $this->examPayload($this->fixture['room']->id);
+        $payload = array_replace($this->examPayload($this->fixture['room']->id), ['start_time' => '09:45:00']);
         $payload['name'] = 'Private free-text name';
         $payload['rules'] = 'Private free-text rules';
         $response = $this->postJson($this->base().'/exams', $payload + [
@@ -158,6 +159,7 @@ class AcademicAuditContextTest extends TestCase
         $this->assertEquals([
             'source' => 'APPLICATION', 'operation' => 'EXAM_SCHEDULED', 'outcome' => 'CONFIRMED',
             'course_offering_id' => $this->fixture['offering']->id, 'room_id' => $payload['room_id'],
+            'additional_room_ids' => [], 'is_shared_room' => false, 'partial_number' => null,
             'exam_date' => $payload['exam_date'], 'start_time' => $payload['start_time'],
             'duration_minutes' => $payload['duration_minutes'], 'evaluation_type' => $payload['evaluation_type'], 'status' => 'SCHEDULED',
         ], $audit->new_values);
@@ -196,7 +198,7 @@ class AcademicAuditContextTest extends TestCase
         $response = match ($operation) {
             'manual' => $this->manual(),
             'csv' => $this->csv("202600001\n"),
-            'exam' => $this->postJson($this->base().'/exams', $this->examPayload($this->fixture['room']->id)),
+            'exam' => $this->postJson($this->base().'/exams', array_replace($this->examPayload($this->fixture['room']->id), ['start_time' => '09:45:00'])),
         };
         $response->assertStatus(500);
         $this->assertSame($baseline, DB::table('audit_logs')->orderBy('id')->get()->toJson());
@@ -213,7 +215,7 @@ class AcademicAuditContextTest extends TestCase
         $other->roles()->attach(DB::table('roles')->where('name', 'DOCENTE')->value('id'), ['status' => 'ACTIVE']);
         Sanctum::actingAs($other);
         $this->manual()->assertForbidden();
-        $this->postJson($this->base().'/exams', $this->examPayload($this->fixture['room']->id))->assertForbidden();
+        $this->postJson($this->base().'/exams', array_replace($this->examPayload($this->fixture['room']->id), ['start_time' => '09:45:00']))->assertForbidden();
         $this->assertDatabaseCount('audit_logs', 0);
         $this->assertDatabaseCount('enrollments', 0);
         $this->assertDatabaseCount('exams', 0);

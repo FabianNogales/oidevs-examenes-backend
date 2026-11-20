@@ -29,7 +29,9 @@ class ExamUpdateService
         private readonly CourseOfferingAccess $access,
         private readonly RoomAvailabilityService $availability,
         private readonly AuditLogService $audit,
-        private readonly ExamRevision $revision
+        private readonly ExamRevision $revision,
+        private readonly ExamSchedulePolicy $schedulePolicy,
+        private readonly ExamRoomAssignmentService $roomAssignments
     ) {}
 
     public function update(string $id, array $data, Request $request): Exam
@@ -59,34 +61,25 @@ class ExamUpdateService
                             );
                         }
 
-                        $hasExamRoomsTable = Schema::hasTable('exam_rooms');
+                        $this->schedulePolicy->assertWithinAcademicTerm(
+                            $offering->academicTerm,
+                            (string) $data['exam_date']
+                        );
+
                         $hasSharedColumn = Schema::hasColumn('exams', 'is_shared_room');
                         $hasPartialColumn = Schema::hasColumn('exams', 'partial_number');
 
-                        $isSharedRoom = array_key_exists('is_shared_room', $data)
-                            ? (bool) $data['is_shared_room']
-                            : $request->boolean('is_shared_room', (bool) ($exam->is_shared_room ?? false));
-                        $sharedConsent = $request->boolean('shared_consent');
-                        $allowSharing = $isSharedRoom || $sharedConsent;
+                        // Shared rooms are disabled; ignore is_shared_room and shared_consent.
+                        $allowSharing = false;
 
                         $primaryRoomId = (int) $data['room_id'];
-                        $rawAdditionalRooms = $data['additional_room_ids'] ?? $request->input('additional_room_ids', []);
-                        $additionalRoomIds = collect(is_array($rawAdditionalRooms) ? $rawAdditionalRooms : [])
-                            ->filter(fn ($roomId) => is_numeric($roomId) && (int) $roomId > 0 && (int) $roomId !== $primaryRoomId)
-                            ->map(fn ($roomId) => (int) $roomId)
-                            ->unique()
-                            ->values()
-                            ->all();
+                        $additionalRoomIds = $this->roomAssignments->normalizeAdditionalRoomIds(
+                            $primaryRoomId,
+                            $data['additional_room_ids'] ?? $request->input('additional_room_ids', [])
+                        );
 
                         $targetRoomIds = array_merge([$primaryRoomId], $additionalRoomIds);
-
-                        $existingPivotRoomIds = $hasExamRoomsTable
-                            ? DB::table('exam_rooms')
-                                ->where('exam_id', $exam->id)
-                                ->pluck('room_id')
-                                ->map(fn ($roomId) => (int) $roomId)
-                                ->all()
-                            : [$exam->room_id];
+                        $existingPivotRoomIds = $this->roomAssignments->assignedRoomIds($exam->id, (int) $exam->room_id);
 
                         // Bloquea en orden numérico todas las aulas involucradas para evitar interbloqueos
                         $roomIdsToLock = array_values(array_unique(array_merge(
@@ -105,7 +98,7 @@ class ExamUpdateService
 
                         if ($start->lessThanOrEqualTo(CarbonImmutable::now(ExamManagementPolicy::TIMEZONE))) {
                             throw ValidationException::withMessages([
-                                'start_time' => 'La fecha y hora del examen deben estar en el futuro.',
+                                'start_time' => ExamScheduleTime::FUTURE_START_ERROR,
                             ]);
                         }
 
@@ -121,21 +114,17 @@ class ExamUpdateService
                         }
 
                         $evaluationType = (string) $data['evaluation_type'];
-                        $partialNumber = null;
-                        if ($evaluationType === 'partial') {
-                            $rawPartial = $data['partial_number'] ?? $request->input('partial_number');
-                            if (is_numeric($rawPartial)) {
-                                $partialNumber = min(6, max(1, (int) $rawPartial));
-                            } elseif (preg_match('/([1-6])/', (string) $data['name'], $matches)) {
-                                $partialNumber = (int) $matches[1];
-                            }
-                        }
+                        $partialNumber = $this->schedulePolicy->resolvePartialNumber(
+                            $evaluationType,
+                            $data['partial_number'] ?? $request->input('partial_number'),
+                            (string) $data['name']
+                        );
 
                         $old = $this->snapshot($exam, $existingPivotRoomIds);
                         $exam->fill(array_intersect_key($data, array_flip(self::FIELDS)));
 
                         $extraColumnsChanged = false;
-                        if ($hasSharedColumn && (bool) ($exam->is_shared_room ?? false) !== $allowSharing) {
+                        if ($hasSharedColumn && (bool) ($exam->is_shared_room ?? false) !== false) {
                             $extraColumnsChanged = true;
                         }
                         if ($hasPartialColumn && ($exam->partial_number ?? null) !== $partialNumber) {
@@ -158,7 +147,7 @@ class ExamUpdateService
                         if ($hasSharedColumn || $hasPartialColumn) {
                             $extraUpdates = [];
                             if ($hasSharedColumn) {
-                                $extraUpdates['is_shared_room'] = $allowSharing;
+                                $extraUpdates['is_shared_room'] = false;
                             }
                             if ($hasPartialColumn) {
                                 $extraUpdates['partial_number'] = $partialNumber;
@@ -166,23 +155,7 @@ class ExamUpdateService
                             DB::table('exams')->where('id', $exam->id)->update($extraUpdates);
                         }
 
-                        if ($hasExamRoomsTable) {
-                            DB::table('exam_rooms')->where('exam_id', $exam->id)->delete();
-                            $now = now();
-                            $pivotRows = [];
-                            foreach ($targetRoomIds as $index => $assignedRoomId) {
-                                $pivotRows[] = [
-                                    'exam_id' => $exam->id,
-                                    'room_id' => $assignedRoomId,
-                                    'is_primary' => $index === 0,
-                                    'is_shared' => $allowSharing,
-                                    'shared_with_consent' => $sharedConsent,
-                                    'created_at' => $now,
-                                    'updated_at' => $now,
-                                ];
-                            }
-                            DB::table('exam_rooms')->insert($pivotRows);
-                        }
+                        $this->roomAssignments->syncExamRooms($exam->id, $targetRoomIds, replaceExisting: true);
 
                         $revoked = $rescheduled
                             ? StudentQrToken::where('exam_id', $exam->id)

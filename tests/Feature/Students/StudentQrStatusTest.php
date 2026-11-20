@@ -191,7 +191,7 @@ class StudentQrStatusTest extends TestCase
         $response = $this->postJson("/api/v1/course-offerings/{$this->courseOfferingId}/exams", [
             'name' => 'Scheduled Integration Exam',
             'exam_date' => '2026-06-15',
-            'start_time' => '10:00:00',
+            'start_time' => '09:45:00',
             'duration_minutes' => 90,
             'room_id' => $integrationRoomId,
             'evaluation_type' => 'partial',

@@ -33,7 +33,8 @@ class ExamUpdateTest extends TestCase
         $this->enableExamMicroseconds();
         $this->travelTo(CarbonImmutable::parse('2026-10-16 09:00:00', 'America/La_Paz'));
         $this->fixture = $this->offeringFixture();
-        $this->exam = Exam::create($this->examPayload($this->fixture['room']->id) + ['course_offering_id' => $this->fixture['offering']->id,
+        $this->fixture['term']->update(['start_date' => '2026-08-01', 'end_date' => '2026-12-31']);
+        $this->exam = Exam::create(array_replace($this->examPayload($this->fixture['room']->id), ['start_time' => '09:45:00']) + ['course_offering_id' => $this->fixture['offering']->id,
             'created_by' => $this->fixture['user']->id, 'status' => 'SCHEDULED']);
         $this->version = $this->exam->fresh()->updated_at->toISOString();
         Sanctum::actingAs($this->fixture['user']);
@@ -44,10 +45,10 @@ class ExamUpdateTest extends TestCase
         DB::table('enrollments')->insert(['course_offering_id' => $this->fixture['offering']->id, 'student_id' => $this->fixture['studentId'], 'status' => 'ACTIVE', 'registered_by' => $this->fixture['user']->id]);
         DB::table('exam_eligibilities')->insert(['exam_id' => $this->exam->id, 'student_id' => $this->fixture['studentId'], 'status' => 'ELIGIBLE']);
         $room = Room::create(['code' => 'NEW', 'name' => 'Otra aula', 'status' => 'ACTIVE']);
-        $response = $this->edit(['name' => '  Actualizado  ', 'room_id' => $room->id, 'exam_date' => '2026-10-22', 'start_time' => '11:30:00',
+        $response = $this->edit(['name' => '  Actualizado  ', 'room_id' => $room->id, 'exam_date' => '2026-10-22', 'start_time' => '11:15:00',
             'duration_minutes' => 120, 'evaluation_type' => 'final', 'rules' => '  Nuevas normas  '])->assertOk()
             ->assertJsonPath('data.name', 'Actualizado')->assertJsonPath('data.room.id', $room->id)->assertJsonPath('data.exam_date', '2026-10-22')
-            ->assertJsonPath('data.start_time', '11:30:00')->assertJsonPath('data.duration_minutes', 120)->assertJsonPath('data.evaluation_type', 'final')
+            ->assertJsonPath('data.start_time', '11:15:00')->assertJsonPath('data.duration_minutes', 120)->assertJsonPath('data.evaluation_type', 'final')
             ->assertJsonPath('data.rules', 'Nuevas normas')->assertJsonPath('data.id', $this->exam->id)
             ->assertJsonPath('data.course_offering_id', $this->fixture['offering']->id)->assertJsonPath('data.status', 'SCHEDULED')->assertJsonPath('data.can_edit', true);
         $this->assertNotSame($this->version, $response->json('data.updated_at'));
@@ -91,20 +92,20 @@ class ExamUpdateTest extends TestCase
         $this->edit(['name' => 'Misma aula'])->assertOk();
         $this->version = $this->exam->fresh()->updated_at->toISOString();
         $other = $this->exam->replicate();
-        $other->start_time = '11:00:00';
+        $other->start_time = '11:15:00';
         $other->save();
-        $this->edit(['start_time' => '10:30:00', 'duration_minutes' => 60])->assertUnprocessable()->assertJsonValidationErrors('room_id');
-        $this->assertSame('10:00:00', $this->exam->fresh()->start_time);
-        $this->edit(['start_time' => '10:30:00', 'duration_minutes' => 30])->assertOk();
+        $this->edit(['start_time' => '09:45:00', 'duration_minutes' => 120])->assertUnprocessable()->assertJsonValidationErrors('room_id');
+        $this->assertSame('09:45:00', $this->exam->fresh()->start_time);
+        $this->edit(['start_time' => '09:45:00', 'duration_minutes' => 90])->assertOk();
     }
 
     public function test_cross_midnight_overlap_and_inactive_room_are_rejected(): void
     {
         $other = $this->exam->replicate();
-        $other->exam_date = '2026-10-22';
-        $other->start_time = '00:15:00';
+        $other->exam_date = '2026-10-21';
+        $other->start_time = '20:15:00';
         $other->save();
-        $this->edit(['exam_date' => '2026-10-21', 'start_time' => '23:30:00', 'duration_minutes' => 90])->assertUnprocessable()->assertJsonValidationErrors('room_id');
+        $this->edit(['exam_date' => '2026-10-21', 'start_time' => '18:45:00', 'duration_minutes' => 120])->assertUnprocessable()->assertJsonValidationErrors('room_id');
         $this->fixture['room']->update(['status' => 'INACTIVE']);
         $this->edit(['name' => 'No guardar'])->assertUnprocessable()->assertJsonValidationErrors('room_id');
         $this->assertSame('Parcial', $this->exam->fresh()->name);
@@ -184,7 +185,7 @@ class ExamUpdateTest extends TestCase
 
     private function payload(array $overrides = []): array
     {
-        return array_replace($this->examPayload($this->fixture['room']->id) + ['expected_updated_at' => $this->version], $overrides);
+        return array_replace($this->examPayload($this->fixture['room']->id) + ['expected_updated_at' => $this->version], ['start_time' => '09:45:00'], $overrides);
     }
 
     private function edit(array $overrides = [])

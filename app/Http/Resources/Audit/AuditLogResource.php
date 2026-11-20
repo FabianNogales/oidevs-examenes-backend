@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Audit;
 
+use App\Enums\EvaluationType;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -32,7 +33,7 @@ class AuditLogResource extends JsonResource
             'scope' => ['ENROLLMENT', 'COURSE_OFFERING'], 'method' => ['MANUAL', 'QR'], 'reason' => ['WRONG_EXAM'],
             'operation' => ['ENROLLMENT_CREATED', 'ENROLLMENTS_IMPORTED', 'EXAM_SCHEDULED'],
             'status' => ['ACTIVE', 'INACTIVE', 'ELIGIBLE', 'INELIGIBLE', 'SCHEDULED', 'RESCHEDULED', 'CANCELLED'],
-            'evaluation_type' => ['partial', 'final', 'makeup']];
+            'evaluation_type' => EvaluationType::values()];
         foreach ($enums as $key => $allowed) {
             if (isset($values[$key]) && in_array($values[$key], $allowed, true)) {
                 $safe[$key] = $values[$key];
