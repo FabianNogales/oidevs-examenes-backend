@@ -45,4 +45,16 @@ class SubjectController extends Controller
     {
         return SubjectResource::make($subject->load(['careers' => fn ($query) => $query->orderBy('careers.name')->orderBy('careers.id')]));
     }
+
+    public function edit(Subject $subject): JsonResponse
+    {
+        return response()->json(['data' => $subject->only(['id', 'code', 'name']) + [
+            'careers' => CareerResource::collection($subject->careers()->orderBy('careers.name')->get()),
+        ]]);
+    }
+
+    public function formCareers(): AnonymousResourceCollection
+    {
+        return CareerResource::collection(Career::where('status', 'ACTIVE')->orderBy('name')->orderBy('id')->get());
+    }
 }

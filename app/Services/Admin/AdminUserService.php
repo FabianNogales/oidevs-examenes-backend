@@ -15,7 +15,7 @@ use Illuminate\Validation\ValidationException;
 
 class AdminUserService
 {
-    public const ACTIONS = ['USER_STATUS_CHANGED', 'USER_ROLE_ASSIGNED', 'USER_ROLE_REVOKED'];
+    public const ACTIONS = ['USER_STATUS_CHANGED', 'USER_ROLE_ASSIGNED', 'USER_ROLE_REVOKED', 'STAFF_ACCOUNT_CREATED'];
 
     public function __construct(private readonly AuditLogService $audit) {}
 
@@ -26,6 +26,7 @@ class AdminUserService
             $term = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($search)).'%';
             $query->where(function ($q) use ($term) {
                 $q->whereRaw("LOWER(email) LIKE ? ESCAPE '!'", [$term]);
+                $q->orWhereRaw("LOWER(COALESCE(staff_first_names, '') || ' ' || COALESCE(staff_last_names, '')) LIKE ? ESCAPE '!'", [$term]);
                 foreach (['teacher' => 'institutional_code', 'student' => 'sis_code'] as $relation => $code) {
                     $q->orWhereHas($relation, fn ($profile) => $profile->whereRaw(
                         "LOWER(first_names || ' ' || last_names) LIKE ? ESCAPE '!'", [$term])
@@ -62,7 +63,8 @@ class AdminUserService
     {
         return $this->mutate($target, $request, function (User $user) use ($selected, $assign, $request) {
             $role = Role::whereKey($selected->id)->lockForUpdate()->firstOrFail();
-            abort_unless(in_array($role->name, array_column(RoleName::cases(), 'value'), true), 422, 'Este rol no es un rol permanente permitido.');
+            abort_unless($role->isCustom() || in_array($role->name, array_column(RoleName::cases(), 'value'), true),
+                422, 'Este rol no es un rol de cuenta permitido.');
             $pivot = DB::table('role_user')->where('user_id', $user->id)->where('role_id', $role->id)->lockForUpdate()->first();
             $assigned = $pivot?->status === 'ACTIVE';
             abort_if($assign === $assigned, 409, $assign ? 'El rol ya está asignado.' : 'El rol no tiene una asignación activa.');
@@ -73,7 +75,8 @@ class AdminUserService
                     'ESTUDIANTE' => $user->student,
                     default => null,
                 };
-                if ($role->name !== 'ADMINISTRADOR' && (! $profile || (string) ($profile->getRawOriginal('status')) !== 'ACTIVE')) {
+                if (in_array($role->name, ['DOCENTE', 'ESTUDIANTE'], true)
+                    && (! $profile || (string) ($profile->getRawOriginal('status')) !== 'ACTIVE')) {
                     throw ValidationException::withMessages(['role_id' => 'Se necesita el perfil correspondiente activo. No se crean perfiles académicos al asignar roles.']);
                 }
             } elseif ($role->name === 'ADMINISTRADOR') {

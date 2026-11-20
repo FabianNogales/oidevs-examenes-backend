@@ -9,6 +9,7 @@ use App\Http\Requests\Api\V1\CourseOfferings\UpdateCourseOfferingRequest;
 use App\Http\Requests\Api\V1\CourseOfferings\UpdateCourseOfferingStatusRequest;
 use App\Http\Resources\CourseOfferings\CourseOfferingResource;
 use App\Services\CourseOfferings\CourseOfferingService;
+use App\Models\AcademicTerm;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\JsonResponse;
 
@@ -37,5 +38,11 @@ class CourseOfferingController extends Controller
     public function show(int $courseOffering, CourseOfferingService $offerings): CourseOfferingResource
     {
         return CourseOfferingResource::make($offerings->find($courseOffering));
+    }
+
+    public function periods(): JsonResponse
+    {
+        return response()->json(['data' => AcademicTerm::orderByDesc('start_date')->orderByDesc('id')
+            ->get(['id', 'name', 'status'])]);
     }
 }

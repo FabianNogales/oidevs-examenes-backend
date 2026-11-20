@@ -3,6 +3,7 @@
 namespace App\Services\Rooms;
 
 use App\Models\Room;
+use App\Models\User;
 use App\Services\Audit\AuditLogService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -13,7 +14,8 @@ use Illuminate\Validation\ValidationException;
 
 class RoomService
 {
-    public function __construct(private readonly AuditLogService $audit, private readonly RoomAvailabilityService $availability) {}
+    public function __construct(private readonly AuditLogService $audit, private readonly RoomAvailabilityService $availability,
+        private readonly RoomAuthorization $access) {}
 
     public function save(array $data, Request $request, ?Room $room = null): Room
     {
@@ -21,6 +23,11 @@ class RoomService
         try {
             return DB::transaction(function () use ($data, $request, $room) {
                 $creating = $room === null;
+                $actor = User::whereKey($request->user()->id)->lock('FOR NO KEY UPDATE')->firstOrFail();
+                if ($request->hasSession() && $actor->active_session_id) {
+                    abort_unless($actor->active_session_id === $request->session()->getId(), 401);
+                }
+                $this->access->authorize($actor, $creating ? 'rooms.create' : 'rooms.update');
                 $room = $creating ? new Room : Room::query()->lockForUpdate()->findOrFail($room->id);
                 $old = $creating ? null : $room->only(['code', 'name', 'location', 'description', 'capacity', 'floor', 'status']);
                 $room->fill($data);

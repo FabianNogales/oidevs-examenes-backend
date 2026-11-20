@@ -5,6 +5,7 @@ namespace App\Services\Subjects;
 use App\Models\Subject;
 use App\Models\Career;
 use App\Services\Audit\AuditLogService;
+use App\Services\Admin\PermissionAuthorization;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
@@ -13,13 +14,14 @@ use Illuminate\Validation\ValidationException;
 
 class SubjectService
 {
-    public function __construct(private readonly AuditLogService $audit) {}
+    public function __construct(private readonly AuditLogService $audit, private readonly PermissionAuthorization $access) {}
 
     public function save(array $data, Request $request, ?Subject $subject = null): Subject
     {
         try {
             return DB::transaction(function () use ($data, $request, $subject) {
                 $creating = $subject === null;
+                $this->access->authorizeWrite($request, $creating ? 'subjects.create' : 'subjects.update');
                 $subject = $creating ? new Subject : Subject::query()->lockForUpdate()->findOrFail($subject->id);
                 $old = $creating ? null : $this->snapshot($subject);
                 $ids = $data['career_ids'];

@@ -13,10 +13,11 @@ class AdminUserResource extends JsonResource
 
         return [
             'id' => $this->id, 'email' => $this->email, 'status' => $this->status,
-            'first_names' => $profile?->first_names ?? '', 'last_names' => $profile?->last_names ?? '',
+            'first_names' => $profile?->first_names ?? $this->staff_first_names ?? '',
+            'last_names' => $profile?->last_names ?? $this->staff_last_names ?? '',
             'full_name' => $this->display_name,
             'institutional_code' => $this->teacher?->institutional_code ?? $this->student?->sis_code,
-            'identity_number' => $profile?->identity_number,
+            'identity_number' => $profile?->identity_number ?? $this->staff_identity_number,
             'student_id' => $this->student?->id, 'teacher_id' => $this->teacher?->id,
             'student_status' => $this->student?->getRawOriginal('status'),
             'teacher_status' => $this->teacher?->getRawOriginal('status'),

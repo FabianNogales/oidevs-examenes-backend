@@ -7,6 +7,8 @@ use Illuminate\Validation\Rule;
 
 class SavePortalEventRequest extends FormRequest
 {
+    use RestrictsDelegatedPortalFields;
+
     public function authorize(): bool
     {
         return true;

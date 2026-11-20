@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Audit;
 
 use App\Enums\EvaluationType;
+use App\Services\Admin\RolePermissionCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -23,6 +24,15 @@ class AuditLogResource extends JsonResource
             return [];
         }
         $safe = [];
+        if ($this->entity_type === 'Role' && in_array($this->action, ['ROLE_CREATED', 'ROLE_UPDATED', 'ROLE_PERMISSIONS_CHANGED'], true)) {
+            if (isset($values['name']) && is_string($values['name']) && mb_strlen($values['name']) <= 100) {
+                $safe['name'] = $values['name'];
+            }
+            if (isset($values['permission_keys']) && is_array($values['permission_keys'])) {
+                $safe['permission_keys'] = array_values(array_filter($values['permission_keys'],
+                    fn ($key) => is_string($key) && array_key_exists($key, RolePermissionCatalog::ENABLED)));
+            }
+        }
         foreach (['course_offering_id', 'exam_id', 'qr_exam_id', 'student_id', 'room_id',
             'collaborator_user_id', 'assigned_by', 'opening_event_id', 'duration_minutes'] as $key) {
             if (isset($values[$key]) && is_int($values[$key]) && $values[$key] >= 0) {

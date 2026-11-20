@@ -44,6 +44,7 @@ class PortalNewsService
     public function save(array $data, Request $request, ?int $id = null): PortalNews
     {
         return DB::transaction(function () use ($data, $request, $id) {
+            app(PortalEditing::class)->authorizeSave('news', $data, $request, $id);
             $news = $id === null ? new PortalNews : PortalNews::whereKey($id)->lockForUpdate()->firstOrFail();
             if ($id !== null) {
                 $this->checkRevision($news, $data['revision']);

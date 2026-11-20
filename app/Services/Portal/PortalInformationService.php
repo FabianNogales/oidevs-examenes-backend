@@ -57,6 +57,7 @@ class PortalInformationService
     public function save(string $kind, array $data, Request $request, ?int $id = null): PortalInformationContent
     {
         return DB::transaction(function () use ($kind, $data, $request, $id) {
+            app(PortalEditing::class)->authorizeSave($kind === 'FAQ' ? 'faqs' : 'sections', $data, $request, $id);
             $item = $id === null ? new PortalInformationContent : PortalInformationContent::where('kind', $kind)->whereKey($id)->lockForUpdate()->firstOrFail();
             if ($id !== null) {
                 $this->checkRevision($item, $data['revision']);
@@ -73,6 +74,12 @@ class PortalInformationService
                 $item->created_by = $request->user()->id;
             } else {
                 $item->draft = array_replace($item->draft, $data);
+                if ($item->is_published) {
+                    // Editing a visible record updates its visible snapshot; it never publishes a draft.
+                    $required = $kind === 'SECTION' ? ['title', 'description'] : ['question', 'answer'];
+                    Validator::make($item->draft, array_fill_keys($required, ['required', 'string']))->validate();
+                    $item->published = $item->draft;
+                }
                 $item->revision++;
             }
             $item->updated_by = $request->user()->id;

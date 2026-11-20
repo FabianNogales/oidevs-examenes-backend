@@ -4,10 +4,13 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Enums\RoleName;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\V1\Admin\StoreStaffAccountRequest;
+use App\Http\Resources\Admin\AdminRoleResource;
 use App\Http\Resources\Admin\AdminUserResource;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Admin\AdminUserService;
+use App\Services\Admin\StaffAccountService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -37,9 +40,15 @@ class AdminUserController extends Controller
     {
         $assigned = $user?->roles()->wherePivot('status', 'ACTIVE')->pluck('roles.id')->all() ?? [];
 
-        return response()->json(['data' => Role::whereIn('name', array_column(RoleName::cases(), 'value'))
-            ->orderBy('id')->get()->map(fn ($role) => ['id' => $role->id, 'name' => $role->name,
-                'status' => $role->status, 'assigned' => in_array($role->id, $assigned, true)])]);
+        return response()->json(['data' => Role::with('permissions')
+            ->where(fn ($query) => $query->whereIn('name', array_column(RoleName::cases(), 'value'))->orWhere('is_custom', true))
+            ->orderBy('id')->get()->map(fn ($role) => (new AdminRoleResource($role))->resolve()
+                + ['assigned' => in_array($role->id, $assigned, true)])]);
+    }
+
+    public function storeStaff(StoreStaffAccountRequest $request, StaffAccountService $service)
+    {
+        return (new AdminUserResource($service->create($request->validated(), $request)))->response()->setStatusCode(201);
     }
 
     public function assign(Request $request, User $user)

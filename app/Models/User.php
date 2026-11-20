@@ -124,7 +124,9 @@ class User extends Authenticatable
                 }
             }
 
-            return $this->email;
+            $staffName = trim(($this->staff_first_names ?? '').' '.($this->staff_last_names ?? ''));
+
+            return $staffName !== '' ? $staffName : $this->email;
         });
     }
 }
