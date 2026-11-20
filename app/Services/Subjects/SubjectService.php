@@ -22,6 +22,7 @@ class SubjectService
             return DB::transaction(function () use ($data, $request, $subject) {
                 $creating = $subject === null;
                 $this->access->authorizeWrite($request, $creating ? 'subjects.create' : 'subjects.update');
+                app(\App\Services\CatalogNameGuard::class)->check('subjects', trim($data['name']), $subject?->id);
                 $subject = $creating ? new Subject : Subject::query()->lockForUpdate()->findOrFail($subject->id);
                 $old = $creating ? null : $this->snapshot($subject);
                 $ids = $data['career_ids'];

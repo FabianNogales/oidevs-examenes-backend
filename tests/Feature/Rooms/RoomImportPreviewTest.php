@@ -68,7 +68,7 @@ class RoomImportPreviewTest extends TestCase
     public function test_bom_quoted_headers_commas_escaped_quotes_and_multiline_descriptions(): void
     {
         $text = "\xEF\xBB\xBF\" CODIGO \",\"Nombre\",DESCRIPCION, capacidad ,PISO\r\n".
-            "A-01,Principal,\"Línea 1, con coma\r\nLínea 2 con \"\"comillas\"\"\",10,Sótano\r\nB-02,Segunda,,,\r\n";
+            "A-01,Principal,\"Línea 1, con coma\r\nLínea 2 con \"\"comillas\"\"\",10,-1\r\nB-02,Segunda,,,\r\n";
         $this->preview($text)->assertOk()->assertJsonPath('data.valid_rows', 2)
             ->assertJsonPath('data.rows.0.data.description', "Línea 1, con coma\r\nLínea 2 con \"comillas\"")
             ->assertJsonPath('data.rows.1.row', 4);

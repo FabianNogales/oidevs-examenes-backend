@@ -127,7 +127,7 @@ class RoomPermissionsTest extends TestCase
     {
         $this->operator(['rooms.update']);
         $data = $this->getJson('/api/v1/admin/rooms/'.$this->room->id.'/edit')->assertOk()->json('data');
-        $this->assertEqualsCanonicalizing(['id', 'code', 'name', 'location', 'description', 'capacity', 'floor'], array_keys($data));
+        $this->assertEqualsCanonicalizing(['id', 'code', 'name', 'location', 'description', 'capacity', 'floor', 'building_id'], array_keys($data));
         $this->getJson('/api/v1/admin/rooms')->assertForbidden();
         $this->getJson('/api/v1/admin/rooms/'.$this->room->id)->assertForbidden();
         $this->putJson('/api/v1/admin/rooms/'.$this->room->id, $this->payload())->assertOk()->assertJsonPath('data.name', 'Aula nueva');

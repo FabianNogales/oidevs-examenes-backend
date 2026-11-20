@@ -1,5 +1,11 @@
 # HU38 / HU39 — Calendario institucional
 
+Actualización QA Saúl (20/11/2026): crear o reprogramar un evento requiere inicio
+desde mañana en America/La_Paz, duración máxima de cinco años y fechas dentro del
+horizonte de planificación de cinco años. Se mantiene 422 con errors.starts_at/ends_at.
+Editar textos, consultar, cancelar o conservar un evento histórico no exige reprogramarlo.
+Los límites configurables están en config/catalog_limits.php; revisión y permisos no cambian.
+
 Actualización V.2: historial administrativo `GET /admin/portal/events/{id}/history`.
 Ver `SPRINT3_BACKLOG_V2_ALIGNMENT.md` para contrato y resolución de HU38 CA12.
 

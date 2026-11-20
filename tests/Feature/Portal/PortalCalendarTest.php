@@ -18,6 +18,12 @@ class PortalCalendarTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->travelTo(CarbonImmutable::parse('2026-10-01 10:00:00', 'America/La_Paz'));
+    }
+
     private const ADMIN = '/api/v1/admin/portal/events';
 
     private const PUBLIC = '/api/v1/portal/events';

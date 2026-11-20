@@ -14,6 +14,9 @@ class UpdateRoomStatusRequest extends FormRequest
 
     public function rules(): array
     {
-        return ['status' => ['required', 'string', Rule::in(['ACTIVE', 'INACTIVE'])]];
+        return [
+            'status' => ['required', 'string', Rule::in(['ACTIVE', 'INACTIVE'])],
+            'inactive_until' => ['nullable', 'date_format:Y-m-d\TH:i:sP', 'after:now', Rule::prohibitedIf(fn () => $this->input('status') !== 'INACTIVE')],
+        ];
     }
 }

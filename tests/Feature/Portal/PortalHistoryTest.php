@@ -15,6 +15,12 @@ class PortalHistoryTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->travelTo(\Carbon\CarbonImmutable::parse('2026-10-01 10:00:00', 'America/La_Paz'));
+    }
+
     private const BASE = '/api/v1/admin/portal';
 
     private function actor(string $role = 'ADMINISTRADOR'): User

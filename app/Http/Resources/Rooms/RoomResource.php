@@ -22,9 +22,13 @@ class RoomResource extends JsonResource
             'description' => $this->description,
             'capacity' => $this->capacity,
             'floor' => $this->floor,
+            'building_id' => $this->building_id,
+            'inactive_until' => $this->inactive_until?->toIso8601String(),
             'status' => $this->status,
             'availability' => $this->availability,
             'current_exam' => $this->current_exam,
+            'availability_date' => $this->availability_date,
+            'reservation_count' => $this->reservation_count,
         ];
     }
 }
