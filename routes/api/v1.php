@@ -4,6 +4,7 @@ use App\Enums\RoleName;
 use App\Http\Controllers\Api\V1\Admin\AcademicTermController;
 use App\Http\Controllers\Api\V1\Admin\AdminProfileRecordsController;
 use App\Http\Controllers\Api\V1\Admin\AdminUserController;
+use App\Http\Controllers\Api\V1\Admin\AdminRoleController;
 use App\Http\Controllers\Api\V1\Admin\AuditLogController;
 use App\Http\Controllers\Api\V1\Admin\CareerController;
 use App\Http\Controllers\Api\V1\Admin\CourseOfferingController;
@@ -50,6 +51,8 @@ use App\Http\Middleware\EnsureActiveAcademicTermAdministrator;
 use App\Http\Middleware\EnsureActiveAdministrator;
 use App\Http\Middleware\EnsureActiveCourseOfferingAdministrator;
 use App\Http\Middleware\EnsureActiveRoomAdministrator;
+use App\Http\Middleware\EnsureRoomPermission;
+use App\Http\Middleware\EnsurePermission;
 use App\Http\Middleware\EnsureActiveSubjectAdministrator;
 use App\Http\Middleware\EnsureAttendanceExamOwner;
 use App\Http\Middleware\EnsureCourseOfferingAccess;
@@ -88,45 +91,46 @@ Route::prefix('portal')->name('portal.public.')->group(function () {
 });
 
 Route::prefix('admin/portal')->name('portal.admin.')
-    ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
     ->group(function () {
         $controller = PortalCalendarController::class;
         $services = PortalServiceController::class;
-        Route::get('/services', [$services, 'index'])->name('services.index');
-        Route::post('/services', [$services, 'store'])->name('services.store');
-        Route::get('/services/{service}', [$services, 'show'])->whereNumber('service')->name('services.show');
-        Route::get('/services/{service}/history', [PortalHistoryController::class, 'services'])->whereNumber('service')->name('services.history')->middleware(HandlePortalServiceErrors::class);
-        Route::patch('/services/{service}', [$services, 'update'])->whereNumber('service')->name('services.update');
-        Route::patch('/services/{service}/status', [$services, 'status'])->whereNumber('service')->name('services.status');
+        Route::get('/services', [$services, 'index'])->name('services.index')->middleware(EnsurePermission::class.':portal.services.update');
+        Route::post('/services', [$services, 'store'])->name('services.store')->middleware(EnsureActiveAdministrator::class);
+        Route::get('/services/{service}', [$services, 'show'])->whereNumber('service')->name('services.show')->middleware(EnsurePermission::class.':portal.services.update');
+        Route::get('/services/{service}/history', [PortalHistoryController::class, 'services'])->whereNumber('service')->name('services.history')->middleware([EnsureActiveAdministrator::class, HandlePortalServiceErrors::class]);
+        Route::patch('/services/{service}', [$services, 'update'])->whereNumber('service')->name('services.update')->middleware(EnsurePermission::class.':portal.services.update');
+        Route::patch('/services/{service}/status', [$services, 'status'])->whereNumber('service')->name('services.status')->middleware(EnsureActiveAdministrator::class);
         Route::prefix('information')->name('information.')->group(function () {
             $information = PortalInformationController::class;
             foreach (['sections', 'faqs'] as $type) {
-                Route::get('/'.$type, [$information, 'index'])->name($type.'.index');
-                Route::get('/'.$type.'/{content}', [$information, 'show'])->whereNumber('content')->name($type.'.show');
-                Route::get('/'.$type.'/{content}/history', [PortalHistoryController::class, 'information'])->whereNumber('content')->name($type.'.history');
-                Route::patch('/'.$type.'/{content}', [$information, 'update'])->whereNumber('content')->name($type.'.update');
-                Route::post('/'.$type.'/{content}/publish', [$information, 'publish'])->whereNumber('content')->name($type.'.publish');
-                Route::post('/'.$type.'/{content}/unpublish', [$information, 'unpublish'])->whereNumber('content')->name($type.'.unpublish');
+                $permission = EnsurePermission::class.':portal.information.'.$type.'.update';
+                Route::get('/'.$type, [$information, 'index'])->name($type.'.index')->middleware($permission);
+                Route::get('/'.$type.'/{content}', [$information, 'show'])->whereNumber('content')->name($type.'.show')->middleware($permission);
+                Route::get('/'.$type.'/{content}/history', [PortalHistoryController::class, 'information'])->whereNumber('content')->name($type.'.history')->middleware(EnsureActiveAdministrator::class);
+                Route::patch('/'.$type.'/{content}', [$information, 'update'])->whereNumber('content')->name($type.'.update')->middleware($permission);
+                Route::post('/'.$type.'/{content}/publish', [$information, 'publish'])->whereNumber('content')->name($type.'.publish')->middleware(EnsureActiveAdministrator::class);
+                Route::post('/'.$type.'/{content}/unpublish', [$information, 'unpublish'])->whereNumber('content')->name($type.'.unpublish')->middleware(EnsureActiveAdministrator::class);
             }
-            Route::post('/faqs', [$information, 'store'])->name('faqs.store');
+            Route::post('/faqs', [$information, 'store'])->name('faqs.store')->middleware(EnsureActiveAdministrator::class);
         });
         $news = PortalNewsController::class;
-        Route::get('/news', [$news, 'index'])->name('news.index');
-        Route::post('/news', [$news, 'store'])->name('news.store');
-        Route::get('/news/{news}', [$news, 'show'])->whereNumber('news')->name('news.show');
-        Route::get('/news/{news}/history', [PortalHistoryController::class, 'news'])->whereNumber('news')->name('news.history');
-        Route::patch('/news/{news}', [$news, 'update'])->whereNumber('news')->name('news.update');
-        Route::patch('/news/{news}/status', [$news, 'status'])->whereNumber('news')->name('news.status');
-        Route::get('/news/{news}/image', [$news, 'image'])->whereNumber('news')->name('news.image');
-        Route::post('/news/{news}/image', [$news, 'changeImage'])->whereNumber('news')->name('news.image.store');
-        Route::delete('/news/{news}/image', [$news, 'changeImage'])->whereNumber('news')->name('news.image.destroy');
-        Route::get('/event-categories', [$controller, 'categories'])->name('event-categories');
-        Route::get('/events', [$controller, 'index'])->name('events.index');
-        Route::post('/events', [$controller, 'store'])->name('events.store');
-        Route::get('/events/{event}', [$controller, 'show'])->whereNumber('event')->name('events.show');
-        Route::get('/events/{event}/history', [PortalHistoryController::class, 'events'])->whereNumber('event')->name('events.history');
-        Route::patch('/events/{event}', [$controller, 'update'])->whereNumber('event')->name('events.update');
-        Route::patch('/events/{event}/status', [$controller, 'status'])->whereNumber('event')->name('events.status');
+        Route::get('/news', [$news, 'index'])->name('news.index')->middleware(EnsurePermission::class.':portal.news.update');
+        Route::post('/news', [$news, 'store'])->name('news.store')->middleware(EnsureActiveAdministrator::class);
+        Route::get('/news/{news}', [$news, 'show'])->whereNumber('news')->name('news.show')->middleware(EnsurePermission::class.':portal.news.update');
+        Route::get('/news/{news}/history', [PortalHistoryController::class, 'news'])->whereNumber('news')->name('news.history')->middleware(EnsureActiveAdministrator::class);
+        Route::patch('/news/{news}', [$news, 'update'])->whereNumber('news')->name('news.update')->middleware(EnsurePermission::class.':portal.news.update');
+        Route::patch('/news/{news}/status', [$news, 'status'])->whereNumber('news')->name('news.status')->middleware(EnsureActiveAdministrator::class);
+        Route::get('/news/{news}/image', [$news, 'image'])->whereNumber('news')->name('news.image')->middleware(EnsurePermission::class.':portal.news.update');
+        Route::post('/news/{news}/image', [$news, 'changeImage'])->whereNumber('news')->name('news.image.store')->middleware(EnsureActiveAdministrator::class);
+        Route::delete('/news/{news}/image', [$news, 'changeImage'])->whereNumber('news')->name('news.image.destroy')->middleware(EnsureActiveAdministrator::class);
+        Route::get('/event-categories', [$controller, 'categories'])->name('event-categories')->middleware(EnsurePermission::class.':portal.events.update');
+        Route::get('/events', [$controller, 'index'])->name('events.index')->middleware(EnsurePermission::class.':portal.events.update');
+        Route::post('/events', [$controller, 'store'])->name('events.store')->middleware(EnsureActiveAdministrator::class);
+        Route::get('/events/{event}', [$controller, 'show'])->whereNumber('event')->name('events.show')->middleware(EnsurePermission::class.':portal.events.update');
+        Route::get('/events/{event}/history', [PortalHistoryController::class, 'events'])->whereNumber('event')->name('events.history')->middleware(EnsureActiveAdministrator::class);
+        Route::patch('/events/{event}', [$controller, 'update'])->whereNumber('event')->name('events.update')->middleware(EnsurePermission::class.':portal.events.update');
+        Route::patch('/events/{event}/status', [$controller, 'status'])->whereNumber('event')->name('events.status')->middleware(EnsureActiveAdministrator::class);
     });
 
 Route::prefix('admin')->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])
@@ -136,6 +140,11 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'session.current', 'password
         Route::get('/profiles/{profileType}/{profileId}/records', [AdminProfileRecordsController::class, 'index'])
             ->where('profileType', 'students|teachers')->whereNumber('profileId');
         Route::get('/roles', [AdminUserController::class, 'roles']);
+        Route::get('/permissions', [AdminRoleController::class, 'permissions']);
+        Route::post('/roles', [AdminRoleController::class, 'store']);
+        Route::get('/roles/{role}', [AdminRoleController::class, 'show'])->whereNumber('role');
+        Route::patch('/roles/{role}', [AdminRoleController::class, 'update'])->whereNumber('role');
+        Route::post('/users/staff', [AdminUserController::class, 'storeStaff']);
         Route::get('/users', [AdminUserController::class, 'index']);
         Route::get('/users/{user}', [AdminUserController::class, 'show'])->whereNumber('user');
         Route::patch('/users/{user}/status', [AdminUserController::class, 'status'])->whereNumber('user');
@@ -145,8 +154,13 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'session.current', 'password
         Route::delete('/users/{user}/roles/{role}', [AdminUserController::class, 'revoke'])->whereNumber('user')->whereNumber('role');
         Route::get('/audit-logs', [AuditLogController::class, 'index']);
         Route::get('/audit-logs/{auditLog}', [AuditLogController::class, 'show'])->whereNumber('auditLog');
-        Route::get('/careers', [CareerController::class, 'index']);
-        Route::get('/careers/{career}', [CareerController::class, 'show'])->whereNumber('career');
+    });
+
+Route::prefix('admin/careers')
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsurePermission::class.':careers.view'])
+    ->group(function () {
+        Route::get('/', [CareerController::class, 'index']);
+        Route::get('/{career}', [CareerController::class, 'show'])->whereNumber('career');
     });
 
 Route::prefix('exams/{exam}/eligibilities')
@@ -160,51 +174,57 @@ Route::prefix('exams/{exam}/eligibilities')
     });
 
 Route::prefix('admin/course-offerings')
-    ->middleware(['auth:sanctum', EnsureActiveCourseOfferingAdministrator::class, 'session.current', 'password.changed'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
     ->group(function () {
-        Route::post('/bulk', [CourseOfferingController::class, 'bulk']);
-        Route::post('/import/preview', [CourseOfferingImportController::class, 'preview']);
-        Route::post('/import/confirm', [CourseOfferingImportController::class, 'confirm']);
-        Route::put('/{courseOffering}', [CourseOfferingController::class, 'update'])->where('courseOffering', '[1-9][0-9]*');
-        Route::patch('/{courseOffering}/status', [CourseOfferingController::class, 'updateStatus'])->where('courseOffering', '[1-9][0-9]*');
-        Route::get('/', [CourseOfferingController::class, 'index']);
-        Route::get('/{courseOffering}', [CourseOfferingController::class, 'show'])->where('courseOffering', '[1-9][0-9]*');
+        Route::post('/bulk', [CourseOfferingController::class, 'bulk'])->middleware(EnsureActiveCourseOfferingAdministrator::class);
+        Route::post('/import/preview', [CourseOfferingImportController::class, 'preview'])->middleware(EnsureActiveCourseOfferingAdministrator::class);
+        Route::post('/import/confirm', [CourseOfferingImportController::class, 'confirm'])->middleware(EnsureActiveCourseOfferingAdministrator::class);
+        Route::put('/{courseOffering}', [CourseOfferingController::class, 'update'])->where('courseOffering', '[1-9][0-9]*')->middleware(EnsureActiveCourseOfferingAdministrator::class);
+        Route::patch('/{courseOffering}/status', [CourseOfferingController::class, 'updateStatus'])->where('courseOffering', '[1-9][0-9]*')->middleware(EnsureActiveCourseOfferingAdministrator::class);
+        Route::get('/periods', [CourseOfferingController::class, 'periods'])->middleware(EnsurePermission::class.':course_offerings.view');
+        Route::get('/', [CourseOfferingController::class, 'index'])->middleware(EnsurePermission::class.':course_offerings.view');
+        Route::get('/{courseOffering}', [CourseOfferingController::class, 'show'])->where('courseOffering', '[1-9][0-9]*')->middleware(EnsurePermission::class.':course_offerings.view');
     });
 
 Route::prefix('admin/academic-terms')
-    ->middleware(['auth:sanctum', EnsureActiveAcademicTermAdministrator::class, 'session.current', 'password.changed'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
     ->group(function () {
-        Route::get('/active', [AcademicTermController::class, 'active']);
-        Route::post('/', [AcademicTermController::class, 'store']);
-        Route::put('/{academicTerm}', [AcademicTermController::class, 'update'])->where('academicTerm', '[1-9][0-9]*');
-        Route::patch('/{academicTerm}/status', [AcademicTermController::class, 'updateStatus'])->where('academicTerm', '[1-9][0-9]*');
-        Route::get('/', [AcademicTermController::class, 'index']);
-        Route::get('/{academicTerm}', [AcademicTermController::class, 'show'])->where('academicTerm', '[1-9][0-9]*');
+        Route::get('/active', [AcademicTermController::class, 'active'])->middleware(EnsurePermission::class.':academic_terms.view');
+        Route::post('/', [AcademicTermController::class, 'store'])->middleware(EnsurePermission::class.':academic_terms.create');
+        Route::get('/{academicTerm}/edit', [AcademicTermController::class, 'edit'])->where('academicTerm', '[1-9][0-9]*')->middleware(EnsurePermission::class.':academic_terms.update');
+        Route::put('/{academicTerm}', [AcademicTermController::class, 'update'])->where('academicTerm', '[1-9][0-9]*')->middleware(EnsurePermission::class.':academic_terms.update');
+        Route::patch('/{academicTerm}/status', [AcademicTermController::class, 'updateStatus'])->where('academicTerm', '[1-9][0-9]*')->middleware(EnsureActiveAcademicTermAdministrator::class);
+        Route::get('/', [AcademicTermController::class, 'index'])->middleware(EnsurePermission::class.':academic_terms.view');
+        Route::get('/{academicTerm}', [AcademicTermController::class, 'show'])->where('academicTerm', '[1-9][0-9]*')->middleware(EnsurePermission::class.':academic_terms.view');
     });
 
 Route::prefix('admin/subjects')
-    ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveSubjectAdministrator::class])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
     ->group(function () {
-        Route::get('/careers', [SubjectController::class, 'careers']);
-        Route::post('/import/preview', [SubjectImportController::class, 'preview']);
-        Route::post('/import/confirm', [SubjectImportController::class, 'confirm']);
-        Route::post('/', [SubjectController::class, 'store']);
-        Route::put('/{subject}', [SubjectController::class, 'update'])->whereNumber('subject');
-        Route::patch('/{subject}/status', [SubjectController::class, 'updateStatus'])->whereNumber('subject');
-        Route::get('/', [SubjectController::class, 'index']);
-        Route::get('/{subject}', [SubjectController::class, 'show'])->whereNumber('subject');
+        Route::get('/careers', [SubjectController::class, 'careers'])->middleware(EnsurePermission::class.':subjects.view');
+        Route::get('/form-careers', [SubjectController::class, 'formCareers'])->middleware(EnsurePermission::class.':subjects.create,subjects.update');
+        Route::post('/import/preview', [SubjectImportController::class, 'preview'])->middleware(EnsureActiveSubjectAdministrator::class);
+        Route::post('/import/confirm', [SubjectImportController::class, 'confirm'])->middleware(EnsureActiveSubjectAdministrator::class);
+        Route::post('/', [SubjectController::class, 'store'])->middleware(EnsurePermission::class.':subjects.create');
+        Route::get('/{subject}/edit', [SubjectController::class, 'edit'])->whereNumber('subject')->middleware(EnsurePermission::class.':subjects.update');
+        Route::put('/{subject}', [SubjectController::class, 'update'])->whereNumber('subject')->middleware(EnsurePermission::class.':subjects.update');
+        Route::patch('/{subject}/status', [SubjectController::class, 'updateStatus'])->whereNumber('subject')->middleware(EnsureActiveSubjectAdministrator::class);
+        Route::get('/', [SubjectController::class, 'index'])->middleware(EnsurePermission::class.':subjects.view');
+        Route::get('/{subject}', [SubjectController::class, 'show'])->whereNumber('subject')->middleware(EnsurePermission::class.':subjects.view');
     });
 
 Route::prefix('admin/rooms')
-    ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveRoomAdministrator::class])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
     ->group(function () {
-        Route::post('/import/preview', [RoomImportController::class, 'preview']);
-        Route::post('/import/confirm', [RoomImportController::class, 'confirm']);
-        Route::get('/', [App\Http\Controllers\Api\V1\Admin\RoomController::class, 'index']);
-        Route::post('/', [App\Http\Controllers\Api\V1\Admin\RoomController::class, 'store']);
-        Route::put('/{room}', [App\Http\Controllers\Api\V1\Admin\RoomController::class, 'update'])->whereNumber('room');
-        Route::patch('/{room}/status', [App\Http\Controllers\Api\V1\Admin\RoomController::class, 'updateStatus'])->whereNumber('room');
-        Route::get('/{room}', [App\Http\Controllers\Api\V1\Admin\RoomController::class, 'show'])->whereNumber('room');
+        Route::post('/import/preview', [RoomImportController::class, 'preview'])->middleware(EnsureActiveRoomAdministrator::class);
+        Route::post('/import/confirm', [RoomImportController::class, 'confirm'])->middleware(EnsureActiveRoomAdministrator::class);
+        $rooms = App\Http\Controllers\Api\V1\Admin\RoomController::class;
+        Route::get('/', [$rooms, 'index'])->middleware(EnsureRoomPermission::class.':rooms.view');
+        Route::post('/', [$rooms, 'store'])->middleware(EnsureRoomPermission::class.':rooms.create');
+        Route::get('/{room}/edit', [$rooms, 'edit'])->whereNumber('room')->middleware(EnsureRoomPermission::class.':rooms.update');
+        Route::put('/{room}', [$rooms, 'update'])->whereNumber('room')->middleware(EnsureRoomPermission::class.':rooms.update');
+        Route::patch('/{room}/status', [$rooms, 'updateStatus'])->whereNumber('room')->middleware(EnsureActiveRoomAdministrator::class);
+        Route::get('/{room}', [$rooms, 'show'])->whereNumber('room')->middleware(EnsureRoomPermission::class.':rooms.view');
     });
 
 Route::middleware(['auth:sanctum', 'session.current'])->group(function () {
@@ -440,4 +460,16 @@ Route::prefix('exams/{exam_id}/entry-control')
             ->where('entry_id', '[1-9][0-9]*');
         Route::get('/students/{student_id}', [EntryControlController::class, 'show'])
             ->whereNumber('student_id');
+    });
+
+Route::prefix('exams/{exam_id}/discipline-cases')->where(['exam_id' => '[1-9][0-9]*'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
+    ->group(function () {
+        $controller = \App\Http\Controllers\Api\V1\DisciplineCaseController::class;
+        Route::get('/', [$controller, 'index']);
+        Route::post('/', [$controller, 'store']);
+        Route::get('/resolve', [$controller, 'resolve']);
+        Route::get('/export', [$controller, 'export']);
+        Route::get('/{case_id}', [$controller, 'show'])->whereNumber('case_id');
+        Route::post('/{case_id}/expulsion', [$controller, 'expel'])->whereNumber('case_id');
     });

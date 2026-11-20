@@ -58,7 +58,7 @@ class ExamSchedulingTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        DB::table('academic_terms')->insert(['id' => 1, 'name' => '2026-I', 'start_date' => '2026-02-01', 'end_date' => '2026-07-01', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('academic_terms')->insert(['id' => 1, 'name' => '2026-I', 'start_date' => '2026-02-01', 'end_date' => '2027-07-01', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()]);
         DB::table('subjects')->insert(['id' => 1, 'code' => 'CS101', 'name' => 'Software Engineering', 'status' => 'ACTIVE', 'created_at' => now(), 'updated_at' => now()]);
 
         $this->courseOfferingId = DB::table('course_offerings')->insertGetId([
@@ -101,7 +101,7 @@ class ExamSchedulingTest extends TestCase
         $response = $this->postJson("/api/v1/course-offerings/{$this->courseOfferingId}/exams", [
             'name' => 'First Midterm',
             'exam_date' => now()->addDays(5)->format('Y-m-d'),
-            'start_time' => '10:00:00',
+            'start_time' => '09:45:00',
             'duration_minutes' => 90,
             'room_id' => $this->roomId,
             'evaluation_type' => 'partial',
@@ -122,7 +122,7 @@ class ExamSchedulingTest extends TestCase
         $response = $this->postJson("/api/v1/course-offerings/{$this->courseOfferingId}/exams", [
             'name' => 'First Midterm',
             'exam_date' => $futureDate,
-            'start_time' => '10:00:00',
+            'start_time' => '09:45:00',
             'duration_minutes' => 90,
             'room_id' => $this->roomId,
             'evaluation_type' => 'partial',
@@ -251,7 +251,7 @@ class ExamSchedulingTest extends TestCase
         return [
             'name' => $name,
             'exam_date' => now()->addDays(5)->format('Y-m-d'),
-            'start_time' => '10:00:00',
+            'start_time' => '09:45:00',
             'duration_minutes' => 90,
             'room_id' => $this->roomId,
             'evaluation_type' => 'partial',

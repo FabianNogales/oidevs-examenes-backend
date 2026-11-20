@@ -48,6 +48,7 @@ class PortalNewsService
     public function save(array $data, Request $request, ?int $id = null): PortalNews
     {
         return DB::transaction(function () use ($data, $request, $id) {
+            app(PortalEditing::class)->authorizeSave('news', $data, $request, $id);
             if (isset($data['category_id'])) {
                 $category = DB::table('portal_news_categories')->where('id', $data['category_id'])->lockForUpdate()->first();
                 if (! $category || ! $category->is_active) {

@@ -35,12 +35,17 @@ class OfflineSyncService
             ->join('exam_offline_distributions as d', 'd.id', '=', 'l.distribution_id')
             ->where('d.exam_id', $examId)->where('p.downloaded_by', $actor->id)->exists();
         abort_unless($actor->isActive() && ($historical || $this->access->authorizationHash($exam, $actor)), 403);
-        if (! Schema::hasColumns('exam_offline_sync_events', ['evidence_ciphertext', 'evidence_schema_version', 'review_required'])) {
+        if (! self::hasEvidenceSchema()) {
             $this->access->fail('SYNC_MIGRATION_REQUIRED', 'La extensión HU37 requiere aplicar su migración antes de recibir evidencia.', 503);
         }
         return ['protocol_versions' => [1, 2], 'max_events' => 100,
             'qr_versions' => $this->evidence->supportsV3() ? [2, 3] : [2],
             'late_evidence' => true, 'late_policy' => 'REVIEW_ONLY', 'time_evidence' => 'DEVICE_DECLARED_NOT_ATTESTED'];
+    }
+
+    public static function hasEvidenceSchema(): bool
+    {
+        return Schema::hasColumns('exam_offline_sync_events', ['evidence_ciphertext', 'evidence_schema_version', 'review_required']);
     }
 
     public function sync(int $examId, array $batch, Request $request): array

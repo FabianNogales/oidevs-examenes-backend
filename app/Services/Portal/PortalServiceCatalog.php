@@ -2,6 +2,7 @@
 
 namespace App\Services\Portal;
 
+use App\Enums\RoleName;
 use App\Models\PortalService;
 use App\Rules\InstitutionalServiceUrl;
 use App\Rules\PortalServicePlainText;
@@ -53,6 +54,7 @@ class PortalServiceCatalog
     public function save(array $data, Request $request, ?int $id = null): PortalService
     {
         return DB::transaction(function () use ($data, $request, $id) {
+            $actor = app(PortalEditing::class)->authorizeSave('services', $data, $request, $id);
             $item = $id === null ? new PortalService : PortalService::whereKey($id)->lockForUpdate()->firstOrFail();
             if ($id !== null) {
                 $this->checkRevision($item, $data['revision']);
@@ -68,7 +70,10 @@ class PortalServiceCatalog
             if ($id === null) {
                 $mapped += ['sort_order' => 0, 'category_id' => null];
             }
-            $item->fill($mapped + ['destination_type' => 'EXTERNAL', 'requires_auth' => false]);
+            $item->fill($mapped);
+            if ($id === null || $actor->hasRole(RoleName::ADMINISTRADOR)) {
+                $item->fill(['destination_type' => 'EXTERNAL', 'requires_auth' => false]);
+            }
             $this->validate($item);
             if ($id === null) {
                 $item->status = 'INACTIVE';

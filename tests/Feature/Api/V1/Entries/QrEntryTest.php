@@ -13,6 +13,7 @@ use App\Models\Student;
 use App\Models\StudentQrToken;
 use App\Models\Teacher;
 use App\Models\User;
+use App\Services\QrV3\QrV3Factory;
 use App\Services\Students\StudentQrService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
@@ -21,11 +22,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\ConfiguresQrV3Issuer;
 use Tests\TestCase;
 
 class QrEntryTest extends TestCase
 {
-    use RefreshDatabase;
+    use ConfiguresQrV3Issuer, RefreshDatabase;
 
     private User $teacherUser;
 
@@ -205,6 +207,72 @@ class QrEntryTest extends TestCase
         $this->assertSame($enrollments, DB::table('enrollments')->get()->toJson());
         $this->getJson($this->endpoint().'/students')->assertOk()->assertJsonPath('summary.registered', 1)
             ->assertJsonPath('summary.pending', 0)->assertJsonPath('data.0.entry_status', 'REGISTERED');
+    }
+
+    public function test_registers_an_issued_v3_with_only_the_public_key_and_rejects_duplicates_across_versions(): void
+    {
+        $this->configureQrV3Issuer();
+        $issuer = app(StudentQrService::class);
+        $v3 = $issuer->getOrGenerateForExam($this->student->id, $this->exam->id, 3)['token'];
+        $v2 = $issuer->getOrGenerateForExam($this->student->id, $this->exam->id)['token'];
+        $this->setQrKeyEnvironment('EIDA_QR_V3_PRIVATE_KEY', '');
+        config(['mobile_offline.qr_v3_issued' => false, 'offline_sync.qr_v3_verify_enabled' => false]);
+        $this->actingAs($this->teacherUser);
+
+        $registered = $this->scan($v3)->assertCreated()->assertJsonPath('result', 'AUTHORIZED')
+            ->assertJsonPath('data.entry.student_id', $this->student->id)
+            ->assertJsonPath('data.entry.verification_method', 'QR');
+        foreach ([$v3, $v2] as $token) {
+            $this->scan($token)->assertConflict()->assertJsonPath('result', 'ALREADY_REGISTERED')
+                ->assertJsonPath('data.entry.id', $registered->json('data.entry.id'));
+        }
+        $this->assertDatabaseCount('exam_entries', 1);
+    }
+
+    public function test_invalid_v3_does_not_register_or_create_a_wrong_exam_incident(): void
+    {
+        $this->configureQrV3Issuer();
+        $v3 = app(StudentQrService::class)->getOrGenerateForExam($this->student->id, $this->exam->id, 3)['token'];
+        $record = StudentQrToken::firstOrFail();
+        $signer = app(QrV3Factory::class)->make();
+        $now = now()->timestamp;
+        [$header, $payload, $signature] = explode('.', $v3);
+        $changedSignature = ($signature[0] === 'A' ? 'B' : 'A').substr($signature, 1);
+        $other = $this->exam->replicate();
+        $other->save();
+        $this->actingAs($this->teacherUser);
+
+        foreach ([
+            $header.'.'.$payload.'.'.$changedSignature,
+            $signer->issue($record->token, $this->student->id, $this->exam->id, $now - 60, $now - 60, $now),
+            $signer->issue($record->token, $this->student->id, $this->exam->id, $now, $now + 1, $now + 60),
+            $signer->issue($record->token, $this->student->id + 1, $this->exam->id, $now, $now, $now + 60),
+            $signer->issue($record->token, $this->student->id, $other->id, $now, $now, $now + 60),
+        ] as $invalid) {
+            $this->scan($invalid)->assertUnprocessable()->assertJsonPath('result', 'INVALID_QR')
+                ->assertJsonPath('data', null)->assertJsonMissingPath('incident');
+        }
+
+        $record->update(['revoked_at' => now()]);
+        $this->scan($v3)->assertUnprocessable()->assertJsonPath('result', 'INVALID_QR');
+        $this->assertDatabaseCount('exam_entries', 0);
+        $this->assertDatabaseMissing('audit_logs', ['action' => 'ENTRY_QR_WRONG_EXAM']);
+    }
+
+    public function test_valid_v3_for_another_exam_keeps_the_wrong_exam_response(): void
+    {
+        $this->configureQrV3Issuer();
+        $v3 = app(StudentQrService::class)->getOrGenerateForExam($this->student->id, $this->exam->id, 3)['token'];
+        $other = $this->exam->replicate();
+        $other->save();
+        $this->actingAs($this->teacherUser);
+
+        $this->postJson('/api/v1/exams/'.$other->id.'/entry-control/qr', [
+            'qr_token' => $v3,
+            'room_id' => $other->room_id,
+        ])->assertUnprocessable()->assertJsonPath('result', 'WRONG_EXAM')
+            ->assertJsonPath('data', null)->assertJsonStructure(['incident' => ['id', 'exam_id']]);
+        $this->assertDatabaseCount('exam_entries', 0);
     }
 
     public function test_rejects_invalid_expired_revoked_and_mismatched_claims(): void

@@ -55,7 +55,7 @@ class PortalInformationTest extends TestCase
         $this->assertSame(['about', 'objectives', 'student_guide', 'teacher_guide', 'collaborator_guide', 'contact'], PortalInformationContent::orderBy('id')->pluck('key')->all());
     }
 
-    public function test_administrative_routes_require_authentication_and_admin_for_every_operation(): void
+    public function test_administrative_operations_reject_guests_and_base_roles_without_delegated_permissions(): void
     {
         $routes = [['GET', '/sections'], ['GET', '/faqs'], ['POST', '/faqs']];
         foreach (['sections', 'faqs'] as $type) {
@@ -89,7 +89,7 @@ class PortalInformationTest extends TestCase
         $this->actingAs($admin)->getJson(self::ADMIN.'/sections')->assertForbidden()->assertJsonPath('code', 'PASSWORD_CHANGE_REQUIRED');
     }
 
-    public function test_section_edit_requires_publication_and_leaves_previous_public_version_unchanged(): void
+    public function test_section_draft_requires_publication_and_live_edits_update_public_content(): void
     {
         $this->actingAs($this->actor());
         $section = $this->section();
@@ -100,14 +100,11 @@ class PortalInformationTest extends TestCase
         $this->publish($section);
         $this->getJson(self::PUBLIC)->assertJsonPath('data.sections.0.description', 'Texto inicial aprobado.')
             ->assertJsonMissingPath('data.sections.0.draft')->assertJsonMissingPath('data.sections.0.revision')->assertJsonMissingPath('data.sections.0.updated_by');
-        $this->patchJson($path, ['description' => 'Texto nuevo sin publicar.', 'revision' => $section->revision])->assertOk()
-            ->assertJsonPath('data.has_unpublished_changes', true)->assertJsonPath('data.published.description', 'Texto inicial aprobado.')
-            ->assertJsonPath('data.draft.description', 'Texto nuevo sin publicar.');
-        $this->getJson(self::PUBLIC)->assertJsonPath('data.sections.0.description', 'Texto inicial aprobado.');
-        $section->refresh();
-        $this->publish($section);
+        $this->patchJson($path, ['description' => 'Texto público corregido.', 'revision' => $section->revision])->assertOk()
+            ->assertJsonPath('data.has_unpublished_changes', false)->assertJsonPath('data.published.description', 'Texto público corregido.')
+            ->assertJsonPath('data.draft.description', 'Texto público corregido.');
         $this->getJson($path)->assertJsonPath('data.has_unpublished_changes', false);
-        $this->getJson(self::PUBLIC)->assertJsonPath('data.sections.0.description', 'Texto nuevo sin publicar.');
+        $this->getJson(self::PUBLIC)->assertJsonPath('data.sections.0.description', 'Texto público corregido.');
     }
 
     public function test_blank_initial_sections_cannot_be_published(): void
@@ -120,7 +117,7 @@ class PortalInformationTest extends TestCase
         $this->assertDatabaseCount('audit_logs', 0);
     }
 
-    public function test_faq_is_draft_until_published_and_edited_answer_stays_private(): void
+    public function test_faq_is_draft_until_published_and_live_answer_edits_are_public(): void
     {
         $this->actingAs($this->actor());
         $faq = $this->faq();
@@ -128,11 +125,8 @@ class PortalInformationTest extends TestCase
         $this->getJson($path)->assertJsonPath('data.published', null)->assertJsonPath('data.has_unpublished_changes', true)->assertJsonMissingPath('data.key');
         $this->getJson(self::PUBLIC)->assertJsonCount(0, 'data.faqs');
         $this->publish($faq);
-        $this->patchJson($path, ['answer' => 'Respuesta nueva pendiente.', 'revision' => $faq->revision])->assertOk();
-        $this->getJson(self::PUBLIC)->assertJsonPath('data.faqs.0.answer', 'Respuesta autorizada.');
-        $faq->refresh();
-        $this->publish($faq);
-        $this->getJson(self::PUBLIC)->assertJsonPath('data.faqs.0.answer', 'Respuesta nueva pendiente.');
+        $this->patchJson($path, ['answer' => 'Respuesta corregida.', 'revision' => $faq->revision])->assertOk();
+        $this->getJson(self::PUBLIC)->assertJsonPath('data.faqs.0.answer', 'Respuesta corregida.');
     }
 
     public function test_unpublish_deactivates_without_deleting_last_publication_or_draft(): void
@@ -217,7 +211,7 @@ class PortalInformationTest extends TestCase
         $this->publish($section);
         $this->getJson(self::PUBLIC)->assertJsonPath('data.sections.0.links', $links);
         $this->patchJson(self::ADMIN."/sections/{$section->id}", ['links' => [], 'revision' => $section->revision])->assertOk();
-        $this->getJson(self::PUBLIC)->assertJsonPath('data.sections.0.links', $links);
+        $this->getJson(self::PUBLIC)->assertJsonPath('data.sections.0.links', []);
     }
 
     public function test_unsafe_or_malformed_links_are_rejected_without_changes(): void
@@ -245,7 +239,7 @@ class PortalInformationTest extends TestCase
         }
         $this->getJson(self::PUBLIC)->assertJsonPath('data.faqs.0.id', $earlier->id)->assertJsonPath('data.faqs.1.id', $sameOrder->id);
         $this->patchJson(self::ADMIN."/faqs/{$later->id}", ['sort_order' => '0', 'revision' => $later->revision])->assertOk();
-        $this->getJson(self::PUBLIC)->assertJsonPath('data.faqs.0.id', $earlier->id);
+        $this->getJson(self::PUBLIC)->assertJsonPath('data.faqs.0.id', $later->id);
         $this->getJson(self::ADMIN.'/faqs')->assertJsonPath('data.0.id', $later->id);
         $later->refresh();
         $this->publish($later);
@@ -284,19 +278,17 @@ class PortalInformationTest extends TestCase
         }
     }
 
-    public function test_audit_failure_rolls_back_publication_and_preserves_previous_public_content(): void
+    public function test_audit_failure_rolls_back_live_edit_and_preserves_previous_public_content(): void
     {
         $this->actingAs($this->actor());
         $faq = $this->faq();
         $this->publish($faq);
-        $this->patchJson(self::ADMIN."/faqs/{$faq->id}", ['answer' => 'Nueva sin publicar.', 'revision' => $faq->revision])->assertOk();
-        $faq->refresh();
         $revision = $faq->revision;
         $this->mock(AuditLogService::class)->shouldReceive('log')->once()->andThrow(new RuntimeException('Audit unavailable'));
-        $this->postJson(self::ADMIN."/faqs/{$faq->id}/publish", ['revision' => $revision])->assertStatus(500);
+        $this->patchJson(self::ADMIN."/faqs/{$faq->id}", ['answer' => 'Edición que debe revertirse.', 'revision' => $revision])->assertStatus(500);
         $this->assertSame($revision, $faq->refresh()->revision);
-        $this->assertSame('Nueva sin publicar.', $faq->draft['answer']);
+        $this->assertSame('Respuesta autorizada.', $faq->draft['answer']);
         $this->getJson(self::PUBLIC)->assertJsonPath('data.faqs.0.answer', 'Respuesta autorizada.');
-        $this->assertDatabaseCount('audit_logs', 3);
+        $this->assertDatabaseCount('audit_logs', 2);
     }
 }

@@ -3,6 +3,8 @@
 namespace App\Services\AcademicTerms;
 
 use App\Models\AcademicTerm;
+use App\Enums\RoleName;
+use App\Services\Admin\PermissionAuthorization;
 use App\Services\Audit\AuditLogService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\QueryException;
@@ -11,12 +13,16 @@ use Illuminate\Http\Exceptions\HttpResponseException;
 
 class AcademicTermService
 {
-    public function __construct(private readonly AcademicTermIntegrity $integrity, private readonly AuditLogService $audit) {}
+    public function __construct(private readonly AcademicTermIntegrity $integrity, private readonly AuditLogService $audit,
+        private readonly PermissionAuthorization $access) {}
 
     public function save(array $data, Request $request, ?int $id = null): AcademicTerm
     {
         try {
             return $this->integrity->transaction(function () use ($data, $request, $id) {
+                $actor = $this->access->authorizeWrite($request, $id === null ? 'academic_terms.create' : 'academic_terms.update');
+                abort_if($id === null && ($data['status'] ?? null) !== 'INACTIVE'
+                    && ! $actor->hasRole(RoleName::ADMINISTRADOR), 403, 'Solo el administrador puede crear un periodo activo.');
                 if ($id !== null) {
                     $this->find($id);
                 }
@@ -37,6 +43,8 @@ class AcademicTermService
                 return $term;
             });
         } catch (HttpResponseException $exception) {
+            throw $exception;
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $exception) {
             throw $exception;
         } catch (QueryException $exception) {
             $message = $exception->getMessage();
