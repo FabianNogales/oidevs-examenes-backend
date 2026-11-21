@@ -1,0 +1,17 @@
+{
+    "name": "eida-backup-download-worker",
+    "private": true,
+    "type": "module",
+    "engines": {
+        "node": ">=22.13.0"
+    },
+    "scripts": {
+        "typecheck": "tsc --noEmit",
+        "test": "node --test tests/worker.test.mjs",
+        "deploy": "wrangler deploy"
+    },
+    "devDependencies": {
+        "typescript": "~6.0.2",
+        "wrangler": "^4.0.0"
+    }
+}

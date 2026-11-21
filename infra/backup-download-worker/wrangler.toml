@@ -1,0 +1,27 @@
+name = "eida-backup-download"
+main = "src/index.ts"
+compatibility_date = "2026-11-21"
+workers_dev = false
+preview_urls = false
+
+[observability]
+enabled = false
+
+[vars]
+ENABLED = "false"
+TICKET_AUDIENCE = "eida-backup-download"
+TICKET_ISSUER = ""
+TICKET_KEY_ID = ""
+DRIVE_FOLDER_ID = ""
+APP_ORIGIN = ""
+
+[[d1_databases]]
+binding = "TICKETS"
+database_name = "eida-backup-download-tickets"
+# Replace only after an authorized D1 creation. Empty intentionally prevents deployment.
+database_id = ""
+migrations_dir = "migrations"
+
+# No routes/domain are invented. Configure the authorized HTTPS hostname later.
+# Secrets: DOWNLOAD_SIGNING_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+# GOOGLE_REFRESH_TOKEN. Never put their values here or in .dev.vars committed to Git.

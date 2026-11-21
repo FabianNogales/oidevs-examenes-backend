@@ -1,0 +1,70 @@
+name: EIDA independent backup download Worker
+
+# No push/PR/build/deployment hook from the institutional frontend or backend.
+on:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy the independent Worker after validation (requires protected environment and opt-in)
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eida-backup-download-worker
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: infra/backup-download-worker
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - name: Require the Worker's own reviewed dependency lock
+        run: |
+          if [ ! -f package-lock.json ]; then
+            echo '::error::Prepare and review infra/backup-download-worker/package-lock.json separately before enabling CI. Do not use the root EIDA lock.'
+            exit 1
+          fi
+      - name: Install only Worker development tools
+        run: npm ci
+      - name: Validate Worker types
+        run: npm run typecheck
+      - name: Run Worker tests with mocked Google and in-memory SQLite
+        run: npm test
+
+  deploy:
+    needs: validate
+    if: inputs.deploy && github.ref == 'refs/heads/backup-execution' && vars.EIDA_BACKUP_WORKER_DEPLOY_ENABLED == 'true'
+    environment: eida-backup-download
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - name: Install only the Worker's reviewed dependencies
+        run: npm ci
+      - name: Deploy only the external Worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npm run deploy
+
+# D1 creation/migrations and Worker runtime secrets are separate authorized steps.
+# No production dump, backup generation or EIDA institutional build is run here.

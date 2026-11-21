@@ -5,6 +5,10 @@
         <testsuite name="Offline backend">
             <directory>tests/Feature/Offline</directory>
         </testsuite>
+        <testsuite name="Backups">
+            <directory suffix="Test.php">tests/Feature/Backups</directory>
+            <directory suffix="Test.php">tests/Unit/Backups</directory>
+        </testsuite>
     </testsuites>
     <php>
         <env name="APP_ENV" value="testing" force="true"/>
