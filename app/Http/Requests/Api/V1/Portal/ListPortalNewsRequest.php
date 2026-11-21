@@ -16,6 +16,7 @@ class ListPortalNewsRequest extends FormRequest
     {
         return [
             'search' => ['sometimes', 'nullable', 'string', 'max:200'],
+            'category_id' => ['sometimes', 'integer', 'min:1'],
             'status' => ['sometimes', Rule::in(['DRAFT', 'PUBLISHED', 'ARCHIVED'])],
             'page' => ['sometimes', 'integer', 'min:1'],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],

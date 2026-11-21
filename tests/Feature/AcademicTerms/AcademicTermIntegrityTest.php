@@ -12,11 +12,12 @@ class AcademicTermIntegrityTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_payload_validation_normalizes_names_and_accepts_real_leap_and_single_day_dates(): void
+    public function test_payload_validation_normalizes_names_and_accepts_real_leap_dates_with_valid_duration(): void
     {
-        $data = $this->rules()->validatePayload($this->payload(['name' => '  Gestión 2024  ', 'start_date' => '2024-02-29', 'end_date' => '2024-02-29']), true);
-        $this->assertSame('Gestión 2024', $data['name']);
-        $this->assertSame('2024-02-29', $data['end_date']);
+        $this->travelTo(\Carbon\CarbonImmutable::parse('2028-01-01'));
+        $data = $this->rules()->validatePayload($this->payload(['name' => '  Gestión 2028  ', 'start_date' => '2028-02-29', 'end_date' => '2028-06-30']), true);
+        $this->assertSame('Gestión 2028', $data['name']);
+        $this->assertSame('2028-06-30', $data['end_date']);
     }
 
     public function test_invalid_dates_names_and_protected_fields_are_rejected_without_writes(): void

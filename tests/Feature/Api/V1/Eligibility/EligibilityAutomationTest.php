@@ -73,6 +73,184 @@ class EligibilityAutomationTest extends TestCase
         return $this->postJson($this->academic.'/imports/'.$id.'/confirm')->assertOk()->json('data.record_ids.0');
     }
 
+    private function mergeCsv(string $csv, ?string $reason = null)
+    {
+        return $this->postJson($this->academic.'/imports/preview', ['mode' => 'MERGE', 'reason' => $reason,
+            'file' => UploadedFile::fake()->createWithContent('parcial.csv', $csv)]);
+    }
+
+    public function test_removing_criteria_restores_automatic_decisions_only_after_confirmation(): void
+    {
+        $this->configure([$this->criterion('MIN_ATTENDANCE_PERCENTAGE', ['minimum_percentage' => 95])])->assertOk();
+        $this->import();
+        $payload = ['configuration_revision' => 1, 'catalog_revision' => $this->globalRevision()];
+        $preview = $this->postJson($this->base.'/evaluations/preview', $payload)->assertOk()->json('data.preview_id');
+        $this->postJson($this->base.'/evaluations/'.$preview.'/confirm')->assertOk();
+        $this->assertSame('INELIGIBLE', ExamEligibility::first()->status);
+        $this->configure([], 1)->assertOk();
+        $this->assertSame('INELIGIBLE', ExamEligibility::first()->status);
+        $payload['configuration_revision'] = 2;
+        $preview = $this->postJson($this->base.'/evaluations/preview?filter=CHANGES', $payload)->assertOk()
+            ->assertJsonPath('data.results.data.0.computed_status', 'ELIGIBLE')
+            ->assertJsonPath('data.results.data.0.state_will_change', true)
+            ->assertJsonPath('data.results.data.0.traceability_only', false)->json('data.preview_id');
+        $this->assertSame('INELIGIBLE', ExamEligibility::first()->status);
+        $this->postJson($this->base.'/evaluations/'.$preview.'/confirm')->assertOk()->assertJsonPath('data.updated', 1);
+        $this->assertSame('ELIGIBLE', ExamEligibility::first()->status);
+    }
+
+    public function test_filters_precede_pagination_summary_is_global_and_confirm_applies_every_result(): void
+    {
+        $this->configure()->assertOk();
+        $student = (array) DB::table('students')->where('id', $this->fixture['studentId'])->first();
+        unset($student['id']);
+        foreach (['MANUAL', 'LEGACY', 'INITIALIZED'] as $index => $source) {
+            $student['user_id'] = User::factory()->create()->id;
+            $student['sis_code'] = '20260000'.($index + 2);
+            $student['identity_number'] = '7000000'.($index + 2);
+            $student['first_names'] = 'Protegido '.$index;
+            $id = DB::table('students')->insertGetId($student);
+            DB::table('enrollments')->insert(['course_offering_id' => $this->fixture['offering']->id, 'student_id' => $id,
+                'status' => 'ACTIVE', 'registered_by' => $this->fixture['user']->id]);
+            (new ExamEligibility)->forceFill(['exam_id' => $this->exam->id, 'student_id' => $id,
+                'status' => $source === 'INITIALIZED' ? 'ELIGIBLE' : 'INELIGIBLE', 'decision_source' => $source])->save();
+        }
+        $preview = $this->postJson($this->base.'/evaluations/preview?filter=PROTECTED&per_page=1&page=2',
+            ['configuration_revision' => 1, 'catalog_revision' => $this->globalRevision()])->assertOk()
+            ->assertJsonPath('data.results.meta.total', 2)->assertJsonCount(1, 'data.results.data')
+            ->assertJsonPath('data.results.data.0.protected_source', 'LEGACY')
+            ->assertJsonPath('data.summary.total', 4)->assertJsonPath('data.summary.state_changes', 1)
+            ->assertJsonPath('data.summary.traceability_only', 1)->assertJsonPath('data.summary.protected', 2)
+            ->assertJsonPath('data.summary.effective_eligible', 2)->assertJsonPath('data.summary.effective_ineligible', 2)->json('data');
+        foreach (['ALL' => 4, 'CHANGES' => 1, 'ELIGIBLE' => 2, 'INELIGIBLE' => 2, 'PENDING' => 0, 'PROTECTED' => 2] as $filter => $total) {
+            $this->getJson($this->base.'/evaluations/'.$preview['id'].'?filter='.$filter.'&per_page=1')->assertOk()
+                ->assertJsonPath('data.results.meta.total', $total)->assertJsonPath('data.summary', $preview['summary']);
+        }
+        $this->getJson($this->base.'/evaluations/'.$preview['id'].'?search=202600003&filter=PROTECTED')->assertOk()
+            ->assertJsonPath('data.results.meta.total', 1)->assertJsonPath('data.results.data.0.protected_source', 'LEGACY');
+        $this->getJson($this->base.'/evaluations/'.$preview['id'].'?search=PROTEGIDO%201')->assertOk()->assertJsonPath('data.results.meta.total', 1);
+        $this->getJson($this->base.'/evaluations/'.$preview['id'].'?search[]=x')->assertUnprocessable();
+        $this->postJson($this->base.'/evaluations/preview?filter=BAD', ['configuration_revision' => 1, 'catalog_revision' => $this->globalRevision()])->assertUnprocessable();
+        $this->postJson($this->base.'/evaluations/'.$preview['preview_id'].'/confirm?filter=PROTECTED&page=2')->assertOk()
+            ->assertJsonPath('data.updated', 2)->assertJsonPath('data.manual_preserved', 2);
+        $this->assertDatabaseCount('exam_eligibilities', 4);
+        $this->assertDatabaseHas('exam_eligibilities', ['student_id' => $this->fixture['studentId'], 'status' => 'ELIGIBLE']);
+    }
+
+    public function test_merge_can_create_attendance_only_then_add_a_score_without_losing_attendance(): void
+    {
+        $schema = $this->getJson($this->academic.'/import-schema')->assertOk()->assertJsonPath('data.default_mode', 'CREATE_ONLY');
+        $this->assertContains('MERGE', $schema->json('data.modes'));
+        $preview = $this->mergeCsv("sis,attended_classes,total_classes\n202600001,18,20\n")->assertOk()
+            ->assertJsonPath('data.can_confirm', true)->assertJsonPath('data.summary.created_records', 1)->json('data.preview_id');
+        $this->assertDatabaseCount('academic_records', 0);
+        $this->postJson($this->academic.'/imports/'.$preview.'/confirm')->assertOk()->assertJsonPath('data.created_records', 1);
+        $row = AcademicRecord::first();
+        $this->assertSame([], $row->assessments);
+        $listing = $this->getJson($this->academic)->assertOk();
+        $this->assertInstanceOf(\stdClass::class, json_decode($listing->getContent())->data[0]->assessments);
+        $this->configure([$this->criterion()])->assertOk();
+        $this->postJson($this->base.'/evaluations/preview', ['configuration_revision' => 1, 'catalog_revision' => $this->globalRevision()])->assertOk()
+            ->assertJsonPath('data.results.data.0.computed_status', 'ELIGIBLE');
+        $this->mergeCsv("sis,assessment_key,was_taken,score\n202600001,FIRST_PARTIAL,true,60\n")->assertUnprocessable()->assertJsonValidationErrors('reason');
+        $preview = $this->mergeCsv("sis,assessment_key,was_taken,score\n202600001,FIRST_PARTIAL,true,60\n", 'Agregar nota')
+            ->assertOk()->assertJsonPath('data.valid_records.0.proposed.attended_classes', 18)
+            ->assertJsonPath('data.summary.updated_records', 1)->json('data.preview_id');
+        $result = $this->postJson($this->academic.'/imports/'.$preview.'/confirm')->assertOk()->assertJsonPath('data.updated_records', 1)->json('data');
+        $this->postJson($this->academic.'/imports/'.$preview.'/confirm')->assertExactJson(['data' => $result]);
+        $row->refresh();
+        $this->assertSame(2, $row->revision);
+        $this->assertSame(18, $row->attended_classes);
+        $this->assertEquals(60, $row->assessments['FIRST_PARTIAL']['score']);
+        $this->getJson($this->academic.'/history')->assertOk()->assertJsonPath('data.0.action', 'ACADEMIC_IMPORT_CONFIRMED');
+    }
+
+    public function test_merge_preserves_hidden_notes_and_blanks_and_noop_preserves_revision(): void
+    {
+        $id = $this->import();
+        $preview = $this->mergeCsv("sis,assessment_key,score\n202600001,FIRST_PARTIAL,80\n", 'Corregir parcial')->assertOk()
+            ->assertJsonPath('data.valid_records.0.proposed.assessments.SECOND_PARTIAL.score', 25)
+            ->assertJsonPath('data.valid_records.0.proposed.attended_classes', 18)->json('data.preview_id');
+        $this->postJson($this->academic.'/imports/'.$preview.'/confirm')->assertOk();
+        $row = AcademicRecord::find($id);
+        $this->assertEquals(80, $row->assessments['FIRST_PARTIAL']['score']);
+        $this->assertEquals(25, $row->assessments['SECOND_PARTIAL']['score']);
+        $preview = $this->mergeCsv("sis,assessment_key,was_taken,score,attended_classes,total_classes\n202600001,FIRST_PARTIAL,true,,,\n")
+            ->assertOk()->assertJsonPath('data.summary.unchanged_records', 1)->json('data.preview_id');
+        $this->postJson($this->academic.'/imports/'.$preview.'/confirm')->assertOk()->assertJsonPath('data.unchanged_records', 1);
+        $this->assertSame(2, $row->fresh()->revision);
+        $this->assertEquals(80, $row->fresh()->assessments['FIRST_PARTIAL']['score']);
+    }
+
+    public function test_merge_rejects_duplicate_targets_invalid_rows_and_destructive_taken_change(): void
+    {
+        $this->import();
+        foreach ([
+            "sis,was_taken,score\n202600001,true,50\n",
+            "sis,assessment_key,score\n202600001,FINAL,50\n",
+            "sis,attended_classes,total_classes\n202600001,,20\n",
+            "sis,attended_classes,total_classes\n202600001,21,20\n",
+            "sis,attended_classes,total_classes\n999999,18,20\n",
+            "sis,assessment_key,was_taken\n202600001,FIRST_PARTIAL,false\n",
+            "sis,assessment_key,score\n202600001,FIRST_PARTIAL,50\n202600001,FIRST_PARTIAL,60\n",
+            "sis,attended_classes,total_classes\n202600001,18,20\n202600001,18,20\n",
+        ] as $csv) {
+            $preview = $this->mergeCsv($csv, 'Prueba')->assertOk()->assertJsonPath('data.can_confirm', false)->json('data.preview_id');
+            $this->postJson($this->academic.'/imports/'.$preview.'/confirm')->assertUnprocessable();
+        }
+        $this->assertSame(1, AcademicRecord::first()->revision);
+        $this->mergeCsv("sis,sis\n202600001,202600001\n")->assertUnprocessable();
+        $this->mergeCsv("sis,nombre_completo\n202600001,Nombre\n")->assertUnprocessable();
+        $this->mergeCsv("sis,assessment_key,score\n202600001,FIRST_PARTIAL,40\n", str_repeat('x', 501))->assertUnprocessable();
+    }
+
+    public function test_merge_snapshot_conflicts_rollback_retry_and_no_eligibility_side_effects(): void
+    {
+        $record = $this->import();
+        $preview = $this->mergeCsv("sis,attended_classes,total_classes\n202600001,19,20\n", 'Actualizar asistencia')->assertOk()->json('data.preview_id');
+        AcademicRecord::find($record)->update(['revision' => 2]);
+        $this->postJson($this->academic.'/imports/'.$preview.'/confirm')->assertConflict()->assertJsonPath('code', 'AUTOMATION_CONFLICT');
+        $this->assertSame(18, AcademicRecord::find($record)->attended_classes);
+        $preview = $this->mergeCsv("sis,attended_classes,total_classes\n202600001,19,20\n", 'Actualizar asistencia')->assertOk()->json('data.preview_id');
+        $this->mock(AuditLogService::class, fn ($mock) => $mock->shouldReceive('log')->andThrow(new \RuntimeException('audit unavailable')));
+        $this->postJson($this->academic.'/imports/'.$preview.'/confirm')->assertServerError();
+        $this->assertSame(18, AcademicRecord::find($record)->attended_classes);
+        $this->assertNull(AcademicImport::find($preview)->confirmed_at);
+        $this->assertDatabaseCount('exam_eligibilities', 0);
+    }
+
+    public function test_pending_filter_preserves_manual_state_and_its_final_reason(): void
+    {
+        $this->configure([$this->criterion()])->assertOk();
+        (new ExamEligibility)->forceFill(['exam_id' => $this->exam->id, 'student_id' => $this->fixture['studentId'],
+            'status' => 'INELIGIBLE', 'reason' => 'Proyecto pendiente', 'decision_source' => 'MANUAL'])->save();
+        $preview = $this->postJson($this->base.'/evaluations/preview?filter=PENDING',
+            ['configuration_revision' => 1, 'catalog_revision' => $this->globalRevision()])->assertOk()
+            ->assertJsonPath('data.results.meta.total', 1)->assertJsonPath('data.results.data.0.effective_status', 'INELIGIBLE')
+            ->assertJsonPath('data.results.data.0.protected_source', 'MANUAL')
+            ->assertJsonPath('data.results.data.0.effective_reason', 'Proyecto pendiente')
+            ->assertJsonPath('data.results.data.0.state_will_change', false)
+            ->assertJsonPath('data.results.data.0.traceability_only', false)
+            ->assertJsonPath('data.summary.pending', 1)->assertJsonPath('data.summary.protected', 1)
+            ->assertJsonPath('data.summary.effective_ineligible', 1)->json('data');
+        $this->getJson($this->base.'/evaluations/'.$preview['id'].'?filter=CHANGES')->assertOk()->assertJsonPath('data.results.meta.total', 0);
+        $this->getJson($this->base.'/evaluations/'.$preview['id'].'?filter=INELIGIBLE')->assertOk()->assertJsonPath('data.results.meta.total', 1);
+    }
+
+    public function test_merge_revalidates_new_record_identity_and_enrollment(): void
+    {
+        $csv = "sis,attended_classes,total_classes\n202600001,18,20\n";
+        $first = $this->mergeCsv($csv)->assertOk()->json('data.preview_id');
+        $second = $this->mergeCsv($csv)->assertOk()->json('data.preview_id');
+        $this->postJson($this->academic.'/imports/'.$first.'/confirm')->assertOk();
+        $this->postJson($this->academic.'/imports/'.$second.'/confirm')->assertConflict();
+        $preview = $this->mergeCsv("sis,attended_classes,total_classes\n202600001,19,20\n", 'Actualizar')->assertOk()->json('data.preview_id');
+        DB::table('enrollments')->where('student_id', $this->fixture['studentId'])->update(['status' => 'INACTIVE']);
+        $this->postJson($this->academic.'/imports/'.$preview.'/confirm')->assertConflict();
+        $this->assertSame(18, AcademicRecord::first()->attended_classes);
+        $this->assertSame(1, AcademicRecord::first()->revision);
+    }
+
     public function test_empty_search_is_an_unfiltered_paginated_list_and_invalid_types_remain_rejected(): void
     {
         foreach (['', '?search=', '?search=%20%20'] as $suffix) {
@@ -416,9 +594,9 @@ class EligibilityAutomationTest extends TestCase
         $this->getJson($this->base.'/configuration')->assertOk()->assertJsonCount(0, 'data.selected_criteria')->assertJsonPath('data.inactive_criteria.0.code', $code)->assertJsonPath('data.revision', 1);
         $this->getJson($this->base.'/options')->assertOk()->assertJsonCount(4, 'data.criteria');
         $this->configure([$this->criterion()], 1)->assertUnprocessable();
-        $preview = $this->postJson($this->base.'/evaluations/preview', ['configuration_revision' => 1, 'catalog_revision' => $this->globalRevision()])->assertOk()->assertJsonPath('data.results.data.0.computed_status', 'PENDING')->json('data.preview_id');
-        $this->postJson($this->base.'/evaluations/'.$preview.'/confirm')->assertOk()->assertJsonPath('data.updated', 0);
-        $this->assertDatabaseCount('exam_eligibilities', 0);
+        $preview = $this->postJson($this->base.'/evaluations/preview', ['configuration_revision' => 1, 'catalog_revision' => $this->globalRevision()])->assertOk()->assertJsonPath('data.results.data.0.computed_status', 'ELIGIBLE')->json('data.preview_id');
+        $this->postJson($this->base.'/evaluations/'.$preview.'/confirm')->assertOk()->assertJsonPath('data.updated', 1);
+        $this->assertDatabaseHas('exam_eligibilities', ['status' => 'ELIGIBLE']);
         $this->globalStatus($code, 'ACTIVE')->assertOk();
         $this->getJson($this->base.'/configuration')->assertJsonPath('data.selected_criteria.0.parameters.minimum_percentage', 90);
         $this->globalStatus($code, 'INACTIVE')->assertOk();
@@ -439,9 +617,9 @@ class EligibilityAutomationTest extends TestCase
         $this->getJson($this->base.'/configuration')->assertJsonCount(0, 'data.mandatory_criteria');
         $this->assertSame('INELIGIBLE', ExamEligibility::first()->status);
         $this->assertSame($stored, EligibilityEvaluation::find($preview['id'])->toArray());
-        $pending = $this->postJson($this->base.'/evaluations/preview', ['configuration_revision' => 1, 'catalog_revision' => $this->globalRevision()])->assertOk()->assertJsonPath('data.results.data.0.computed_status', 'PENDING')->json('data.preview_id');
-        $this->postJson($this->base.'/evaluations/'.$pending.'/confirm')->assertOk()->assertJsonPath('data.updated', 0);
-        $this->assertSame('INELIGIBLE', ExamEligibility::first()->status);
+        $pending = $this->postJson($this->base.'/evaluations/preview', ['configuration_revision' => 1, 'catalog_revision' => $this->globalRevision()])->assertOk()->assertJsonPath('data.results.data.0.computed_status', 'ELIGIBLE')->json('data.preview_id');
+        $this->postJson($this->base.'/evaluations/'.$pending.'/confirm')->assertOk()->assertJsonPath('data.updated', 1);
+        $this->assertSame('ELIGIBLE', ExamEligibility::first()->status);
         $this->configure([$this->criterion('MIN_ASSESSMENT_AVERAGE', ['assessment_keys' => CriteriaCatalog::ASSESSMENTS, 'minimum_average' => 20])], 1)->assertOk();
         $this->globalStatus(CriteriaCatalog::SECOND, 'ACTIVE')->assertOk();
         $this->postJson($this->base.'/evaluations/preview', ['configuration_revision' => 2, 'catalog_revision' => $this->globalRevision()])->assertUnprocessable()->assertJsonPath('code', 'CRITERIA_CONFLICT');
@@ -476,9 +654,9 @@ class EligibilityAutomationTest extends TestCase
         $this->putJson($this->base.'/configuration', $payload + ['manual_review_conditions' => $text])->assertOk()->assertJsonPath('data.manual_review_conditions', $text);
         $this->getJson('/api/v1/exams/'.$this->exam->id.'/eligibilities')->assertOk()->assertJsonPath('exam.manual_review_conditions', $text)->assertJsonPath('data', []);
         $this->configure([], 1)->assertOk()->assertJsonPath('data.manual_review_conditions', $text);
-        $preview = $this->postJson($this->base.'/evaluations/preview', ['configuration_revision' => 2, 'catalog_revision' => $this->globalRevision()])->assertOk()->assertJsonPath('data.configuration.manual_review_conditions', $text)->assertJsonPath('data.results.data.0.computed_status', 'PENDING')->assertJsonPath('data.results.data.0.criteria_results', [])->json('data.preview_id');
-        $this->postJson($this->base.'/evaluations/'.$preview.'/confirm')->assertOk()->assertJsonPath('data.updated', 0);
-        $this->assertDatabaseCount('exam_eligibilities', 0);
+        $preview = $this->postJson($this->base.'/evaluations/preview', ['configuration_revision' => 2, 'catalog_revision' => $this->globalRevision()])->assertOk()->assertJsonPath('data.configuration.manual_review_conditions', $text)->assertJsonPath('data.results.data.0.computed_status', 'ELIGIBLE')->assertJsonPath('data.results.data.0.criteria_results', [])->json('data.preview_id');
+        $this->postJson($this->base.'/evaluations/'.$preview.'/confirm')->assertOk()->assertJsonPath('data.updated', 1);
+        $this->assertDatabaseHas('exam_eligibilities', ['status' => 'ELIGIBLE']);
         foreach (['0', null, '', 'Recordatorio'] as $value) {
             $revision = DB::table('exam_eligibility_configurations')->where('exam_id', $this->exam->id)->value('revision');
             $this->putJson($this->base.'/configuration', ['revision' => $revision, 'catalog_revision' => $this->globalRevision(),                'criteria' => [], 'manual_review_conditions' => $value])->assertOk()->assertJsonPath('data.manual_review_conditions', $value === '' ? null : $value);

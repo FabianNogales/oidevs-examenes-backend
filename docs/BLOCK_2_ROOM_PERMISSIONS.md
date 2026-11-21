@@ -1,5 +1,32 @@
 # Bloque 2: autorización por permisos en Aulas
 
+## Ampliación QA Saúl (20/11/2026)
+
+- Aplicar `2026_11_20_000001_add_room_buildings_and_temporary_inactivity`.
+  Conserva aulas, identificadores y textos anteriores; agrega edificios y `inactive_until`.
+- POST/PUT de aulas: nombre único sin distinguir mayúsculas; capacidad informada mínima 10;
+  piso entero entre -5 y 200, planta baja `0` (`PB` anterior se normaliza a `0`).
+  `is_ground_floor: true` establece piso 0. POST sin `code` genera un código interno;
+  PUT omitiéndolo conserva el código. Ubicación/descripción siguen opcionales por compatibilidad.
+- `building_id` opcional debe identificar un edificio activo. GET `/api/v1/admin/rooms/buildings`
+  entrega `data: [{id, name}]` y permite los permisos rooms.view/create/update.
+  POST a esa ruta, solo ADMIN, recibe `{name}` y devuelve 201 con `{data: {id, name}}`.
+  La migración deja `Edificio principal`; no deduce edificios desde ubicaciones antiguas.
+- PATCH `/api/v1/admin/rooms/{id}/status` conserva `{status}` y admite, solo al desactivar,
+  `inactive_until` opcional ISO 8601 con zona y posterior al momento actual. Activar cancela el plazo.
+- PATCH `/api/v1/admin/rooms/bulk-activate`, solo ADMIN: `{room_ids: [1,2]}`, máximo 500,
+  devuelve `data` con los recursos. Es atómico y audita cada cambio; un ID inválido devuelve 422.
+- GET del catálogo admite `date=YYYY-MM-DD`, desde hoy y dentro del período activo.
+  Sin fecha se mantiene la disponibilidad del instante actual. Con fecha se consulta todo ese día.
+  Incluye aulas adicionales, ignora exámenes cancelados y agrega `availability_date`,
+  `reservation_count` y fechas ISO del `current_exam`, sin quitar los campos existentes.
+- `catalogs:refresh-statuses` vence períodos y reactiva aulas; programado cada minuto.
+  Configurar el scheduler Laravel en despliegue. Las consultas administrativas y la consulta/reserva
+  de aulas también actualizan estados vencidos, sin depender exclusivamente del scheduler.
+- Frontend aún debe integrar los controles de edificio, fecha, plazo y selección masiva;
+  sus errores de formato/validación continúan siendo 422 y los permisos conservan 401/403.
+
+
 Este documento conserva el alcance del Bloque 2. La reutilización del evaluador y los
 catálogos añadidos después se documentan en [Bloque 3](BLOCK_3_ACADEMIC_CATALOG_PERMISSIONS.md).
 

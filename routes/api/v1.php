@@ -63,6 +63,7 @@ use Illuminate\Support\Facades\Route;
 use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 
 require __DIR__.'/eligibility-automation.php';
+require __DIR__.'/portal-categories.php';
 
 Route::prefix('admin/students/{student}')->whereNumber('student')
     ->middleware(['auth:sanctum', 'session.current', 'password.changed', EnsureActiveAdministrator::class])
@@ -186,7 +187,7 @@ Route::prefix('admin/course-offerings')
     });
 
 Route::prefix('admin/academic-terms')
-    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\RefreshCatalogLifecycle::class])
     ->group(function () {
         Route::get('/active', [AcademicTermController::class, 'active'])->middleware(EnsurePermission::class.':academic_terms.view');
         Route::post('/', [AcademicTermController::class, 'store'])->middleware(EnsurePermission::class.':academic_terms.create');
@@ -213,11 +214,14 @@ Route::prefix('admin/subjects')
     });
 
 Route::prefix('admin/rooms')
-    ->middleware(['auth:sanctum', 'session.current', 'password.changed'])
+    ->middleware(['auth:sanctum', 'session.current', 'password.changed', \App\Http\Middleware\RefreshCatalogLifecycle::class])
     ->group(function () {
         Route::post('/import/preview', [RoomImportController::class, 'preview'])->middleware(EnsureActiveRoomAdministrator::class);
         Route::post('/import/confirm', [RoomImportController::class, 'confirm'])->middleware(EnsureActiveRoomAdministrator::class);
         $rooms = App\Http\Controllers\Api\V1\Admin\RoomController::class;
+        Route::get('/buildings', [$rooms, 'buildings'])->middleware(EnsurePermission::class.':rooms.create,rooms.update,rooms.view');
+        Route::post('/buildings', [$rooms, 'storeBuilding'])->middleware(EnsureActiveRoomAdministrator::class);
+        Route::patch('/bulk-activate', [$rooms, 'bulkActivate'])->middleware(EnsureActiveRoomAdministrator::class);
         Route::get('/', [$rooms, 'index'])->middleware(EnsureRoomPermission::class.':rooms.view');
         Route::post('/', [$rooms, 'store'])->middleware(EnsureRoomPermission::class.':rooms.create');
         Route::get('/{room}/edit', [$rooms, 'edit'])->whereNumber('room')->middleware(EnsureRoomPermission::class.':rooms.update');

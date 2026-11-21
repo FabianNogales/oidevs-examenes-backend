@@ -124,6 +124,7 @@ class SubjectImportService
         $creating = $subject === null;
         $old = $creating ? null : $this->snapshot($subject);
         if ($creating) {
+            app(\App\Services\CatalogNameGuard::class)->check('subjects', $name);
             $subject = Subject::create(['code' => $code, 'name' => $name, 'status' => 'ACTIVE']);
         }
         $subject->careers()->syncWithoutDetaching(array_values($valid));

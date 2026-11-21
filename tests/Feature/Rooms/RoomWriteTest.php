@@ -40,7 +40,7 @@ class RoomWriteTest extends TestCase
             ->assertCreated()->assertJsonPath('data.code', 'A-01')->assertJsonPath('data.status', 'ACTIVE')
             ->assertJsonPath('data.capacity', 50);
         $id = $response->json('data.id');
-        $this->getJson('/api/v1/admin/rooms/'.$id)->assertOk()->assertJsonPath('data.floor', 'PB');
+        $this->getJson('/api/v1/admin/rooms/'.$id)->assertOk()->assertJsonPath('data.floor', '0');
         $this->assertDatabaseHas('audit_logs', ['action' => 'ROOM_CREATED', 'entity_id' => $id, 'user_id' => $this->admin->id]);
     }
 
@@ -72,7 +72,7 @@ class RoomWriteTest extends TestCase
             $this->postJson('/api/v1/admin/rooms', $this->payload(['capacity' => $capacity]))
                 ->assertUnprocessable()->assertJsonValidationErrors('capacity');
         }
-        $this->postJson('/api/v1/admin/rooms', [])->assertUnprocessable()->assertJsonValidationErrors(['code', 'name']);
+        $this->postJson('/api/v1/admin/rooms', [])->assertUnprocessable()->assertJsonValidationErrors(['name']);
         $this->postJson('/api/v1/admin/rooms', $this->payload(['code' => "A\t01", 'name' => "Aula\n01", 'floor' => str_repeat('x', 51), 'description' => str_repeat('x', 1001)]))
             ->assertUnprocessable()->assertJsonValidationErrors(['code', 'name', 'floor', 'description']);
         $this->postJson('/api/v1/admin/rooms', $this->payload() + ['status' => 'INACTIVE', 'availability' => 'AVAILABLE', 'current_exam' => ['id' => 2]])
