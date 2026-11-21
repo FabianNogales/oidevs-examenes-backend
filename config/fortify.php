@@ -3,6 +3,7 @@
 use App\Http\Middleware\ClearActiveSessionOnLogout;
 use App\Http\Middleware\EnsureCurrentSession;
 use App\Http\Middleware\NormalizeLoginIdentifier;
+use App\Http\Middleware\EnsurePasswordResetDelivery;
 use Laravel\Fortify\Features;
 
 return [
@@ -107,6 +108,7 @@ return [
     'middleware' => [
         'web',
         NormalizeLoginIdentifier::class,
+        EnsurePasswordResetDelivery::class,
         EnsureCurrentSession::class,
         ClearActiveSessionOnLogout::class,
     ],

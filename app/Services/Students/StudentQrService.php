@@ -109,7 +109,11 @@ class StudentQrService
                         $sQuery->where('status', 'ACTIVE');
                     });
             })
-            ->lockForUpdate()->findOrFail($examId);
+            ->lockForUpdate()->find($examId);
+
+        if (! $exam) {
+            throw new StudentQrAccessException('EXAM_UNAVAILABLE');
+        }
 
         $this->ensureStudentIsEligible($studentId, $examId);
 
@@ -120,11 +124,11 @@ class StudentQrService
         $availableFrom = $examStart->copy()->subHours(24);
 
         if ($now->lt($availableFrom)) {
-            throw new Exception("El código QR aún no está disponible. Se habilitará 24 horas antes del examen.");
+            throw new StudentQrAccessException('QR_NOT_YET_AVAILABLE');
         }
 
         if ($now->gte($examEnd)) {
-            throw new Exception("El examen ya ha finalizado.");
+            throw new StudentQrAccessException('EXAM_FINISHED');
         }
 
         // 3. Buscar o crear token en BD
@@ -211,7 +215,7 @@ class StudentQrService
             ->first();
 
         if (! $eligibility || $eligibility->status !== self::ELIGIBLE_STATUS) {
-            throw new Exception('El estudiante no se encuentra habilitado para este examen.');
+            throw new StudentQrAccessException('STUDENT_NOT_ELIGIBLE');
         }
     }
 

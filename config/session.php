@@ -47,6 +47,8 @@ return [
     |
     */
 
+    // Enabling storage encryption changes the session serialization contract.
+    // Coordinate retirement of existing sessions before opting in on a deployed store.
     'encrypt' => env('SESSION_ENCRYPT', false),
 
     /*
@@ -170,7 +172,7 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    'secure' => env('SESSION_SECURE_COOKIE', env('APP_ENV') === 'production'),
 
     /*
     |--------------------------------------------------------------------------

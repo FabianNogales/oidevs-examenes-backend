@@ -6,9 +6,11 @@ use App\Http\Middleware\EnforceMobileTokenAccess;
 use App\Http\Middleware\EnsureCurrentSession;
 use App\Http\Middleware\EnsurePasswordHasBeenChanged;
 use App\Http\Middleware\EnsureUserHasRole;
+use App\Http\Middleware\HandleExplicitCors;
 use App\Http\Middleware\VerifyAdminRole;
 use App\Http\Middleware\VerifyExamAccess;
 use App\Http\Middleware\VerifyTeacherRole;
+use App\Http\Middleware\TrustDeploymentProxies;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -23,13 +25,8 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        // Render terminates HTTPS before forwarding requests to this container.
-        $middleware->trustProxies(at: '*', headers: Request::HEADER_X_FORWARDED_FOR |
-            Request::HEADER_X_FORWARDED_HOST |
-            Request::HEADER_X_FORWARDED_PORT |
-            Request::HEADER_X_FORWARDED_PROTO |
-            Request::HEADER_X_FORWARDED_PREFIX
-        );
+        $middleware->replace(\Illuminate\Http\Middleware\TrustProxies::class, TrustDeploymentProxies::class);
+        $middleware->replace(\Illuminate\Http\Middleware\HandleCors::class, HandleExplicitCors::class);
 
         $middleware->statefulApi();
         $middleware->api(prepend: [EnforceMobileTokenAccess::class]);

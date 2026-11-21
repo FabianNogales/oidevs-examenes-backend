@@ -22,16 +22,13 @@ class RoomController extends Controller
         }
 
         $validated = $request->validated();
+        $meta = isset($validated['course_offering_id'])
+            ? $context->offeringMeta($request->user(), (int) $validated['course_offering_id'])
+            : null;
         $rooms = $availability->available($validated);
         $excludeExamId = isset($validated['exclude_exam_id']) ? (int) $validated['exclude_exam_id'] : null;
-        $schedulesByRoomId = $context->schedulesByRoomId($excludeExamId);
+        $schedulesByRoomId = $context->schedulesByRoomId($request->user(), $excludeExamId);
         $requestedDate = $validated['exam_date'] ?? null;
-
-        $meta = null;
-        $courseOfferingId = $request->query('course_offering_id');
-        if ($courseOfferingId && is_numeric($courseOfferingId)) {
-            $meta = $context->offeringMeta((int) $courseOfferingId);
-        }
 
         return response()->json([
             'data' => $rooms->map(function ($room) use ($schedulesByRoomId, $requestedDate) {

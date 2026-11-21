@@ -1,5 +1,7 @@
 <?php
 
+use App\Support\BrowserOrigins;
+
 return [
 
     /*
@@ -24,11 +26,7 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => [
-        'http://127.0.0.1:5173',
-        'http://localhost:5173',
-        env('FRONTEND_URL'),
-    ],
+    'allowed_origins' => BrowserOrigins::allowed(env('CORS_ALLOWED_ORIGINS'), env('FRONTEND_URL'), env('APP_ENV') === 'local'),
 
     'allowed_origins_patterns' => [],
 

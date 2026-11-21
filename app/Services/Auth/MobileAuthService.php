@@ -20,13 +20,13 @@ class MobileAuthService
     {
         $resolved = $this->resolver->resolve($data['identifier'], $data['password']);
         if (! $resolved) {
-            throw ValidationException::withMessages(['identifier' => 'Las credenciales no son válidas.']);
+            throw ValidationException::withMessages(['identifier' => trans('auth.failed')]);
         }
 
         return DB::transaction(function () use ($resolved, $data, $request) {
             $actor = User::whereKey($resolved->id)->lockForUpdate()->firstOrFail();
             if (! $actor->isActive() || ! hash_equals($resolved->getAuthPassword(), $actor->getAuthPassword())) {
-                throw ValidationException::withMessages(['identifier' => 'Las credenciales no son válidas.']);
+                throw ValidationException::withMessages(['identifier' => trans('auth.failed')]);
             }
             if ($actor->must_change_password) {
                 $this->fail('PASSWORD_CHANGE_REQUIRED', 'Debe cambiar su contraseña en EIDA Web antes de continuar.', 403);

@@ -7,6 +7,7 @@ use App\Services\Auth\MobileDeviceService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Laravel\Fortify\Contracts\ResetsUserPasswords;
 
@@ -27,13 +28,21 @@ class ResetUserPassword implements ResetsUserPasswords
             'password' => $this->passwordRules(),
         ])->validate();
 
-        DB::transaction(function () use ($user, $input) {
-            User::whereKey($user->id)->lockForUpdate()->firstOrFail();
-            $user->forceFill([
+        $attributes = DB::transaction(function () use ($user, $input) {
+            $locked = User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $locked->forceFill([
                 'password' => Hash::make($input['password']),
                 'must_change_password' => false,
+                'active_session_id' => Str::random(40),
+                'remember_token' => Str::random(60),
             ])->save();
-            app(MobileDeviceService::class)->revokeForPassword($user, 'PASSWORD_RESET');
+            app(MobileDeviceService::class)->revokeForPassword($locked, 'PASSWORD_RESET');
+
+            return $locked->getAttributes();
         }, 3);
+
+        // Fortify completes the reset with this instance. Keep its later save
+        // from restoring stale attributes, and only update it after commit.
+        $user->setRawAttributes($attributes, true);
     }
 }

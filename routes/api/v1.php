@@ -231,7 +231,7 @@ Route::prefix('admin/rooms')
     });
 
 Route::middleware(['auth:sanctum', 'session.current'])->group(function () {
-    Route::get('/rooms', [RoomController::class, 'index']);
+    Route::get('/rooms', [RoomController::class, 'index'])->middleware('password.changed');
 });
 
 // HU35-HU37: sync checks historical package ownership itself so revocations become recorded conflicts.

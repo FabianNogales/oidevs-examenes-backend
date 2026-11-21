@@ -3,7 +3,7 @@
 namespace App\Actions\Fortify;
 
 use App\Services\Auth\LoginUserResolver;
-use App\Models\Teacher;
+use App\Services\Auth\PasswordPolicy;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -16,6 +16,7 @@ class ValidateLoginIdentifier
     {
         Validator::make($request->all(), [
             'identifier' => [
+                'bail',
                 'required',
                 'string',
                 'max:100',
@@ -23,7 +24,7 @@ class ValidateLoginIdentifier
                     $this->validateIdentifier($attribute, (string) $value, $fail);
                 },
             ],
-            'password' => ['required', 'string', 'min:8', 'max:20'],
+            'password' => PasswordPolicy::loginRules(),
         ])->validate();
 
         return $next($request);
@@ -45,18 +46,14 @@ class ValidateLoginIdentifier
             return;
         }
 
-        if (Teacher::query()->where('institutional_code', $identifier)->exists()) {
+        // Teacher creation accepts any non-empty institutional code up to 50
+        // characters, including short numeric codes. Existence is never syntax.
+        if (mb_strlen($identifier) <= 50) {
             return;
         }
 
         if (! ctype_digit($identifier)) {
-            $fail('El código institucional/SIS debe ser válido.');
-
-            return;
-        }
-
-        if (strlen($identifier) < 9) {
-            $fail('El código SIS debe tener al menos 9 dígitos.');
+            $fail('El código institucional debe tener como máximo 50 caracteres.');
         }
     }
 }

@@ -17,7 +17,7 @@ class PasswordRecoveryTest extends TestCase
 
     private const OLD_PASSWORD = 'OldPass1';
 
-    private const NEW_PASSWORD = 'NewPass1';
+    private const NEW_PASSWORD = 'NewPassword1';
 
     protected function setUp(): void
     {
@@ -143,31 +143,31 @@ class PasswordRecoveryTest extends TestCase
             'password_confirmation' => 'Passw1!',
         ])->assertUnprocessable();
 
-        $eightCharacterUser = $this->createUser('reset.boundary.8@umss.edu.bo');
+        $twelveCharacterUser = $this->createUser('reset.boundary.12@umss.edu.bo');
 
         $this->postJson('/reset-password', [
-            'email' => $eightCharacterUser->email,
-            'token' => Password::broker()->createToken($eightCharacterUser),
-            'password' => 'Passw1!A',
-            'password_confirmation' => 'Passw1!A',
+            'email' => $twelveCharacterUser->email,
+            'token' => Password::broker()->createToken($twelveCharacterUser),
+            'password' => 'NewPassword1',
+            'password_confirmation' => 'NewPassword1',
         ])->assertOk();
 
-        $twentyCharacterUser = $this->createUser('reset.boundary.20@umss.edu.bo');
+        $maximumUser = $this->createUser('reset.boundary.64@umss.edu.bo');
 
         $this->postJson('/reset-password', [
-            'email' => $twentyCharacterUser->email,
-            'token' => Password::broker()->createToken($twentyCharacterUser),
-            'password' => '12345678901234567890',
-            'password_confirmation' => '12345678901234567890',
+            'email' => $maximumUser->email,
+            'token' => Password::broker()->createToken($maximumUser),
+            'password' => str_repeat('a', 64),
+            'password_confirmation' => str_repeat('a', 64),
         ])->assertOk();
 
-        $twentyOneCharacterUser = $this->createUser('reset.boundary.21@umss.edu.bo');
+        $tooLongUser = $this->createUser('reset.boundary.65@umss.edu.bo');
 
         $this->postJson('/reset-password', [
-            'email' => $twentyOneCharacterUser->email,
-            'token' => Password::broker()->createToken($twentyOneCharacterUser),
-            'password' => '123456789012345678901',
-            'password_confirmation' => '123456789012345678901',
+            'email' => $tooLongUser->email,
+            'token' => Password::broker()->createToken($tooLongUser),
+            'password' => str_repeat('a', 65),
+            'password_confirmation' => str_repeat('a', 65),
         ])->assertUnprocessable();
     }
 

@@ -168,7 +168,7 @@ class LoginTest extends TestCase
         $this->assertGuest();
     }
 
-    public function test_password_must_have_at_least_eight_characters(): void
+    public function test_short_password_for_unknown_account_is_rejected(): void
     {
         $this->postJson('/login', [
             'identifier' => 'student@umss.edu.bo',
@@ -178,11 +178,11 @@ class LoginTest extends TestCase
         $this->assertGuest();
     }
 
-    public function test_password_must_not_exceed_twenty_characters(): void
+    public function test_password_must_not_exceed_sixty_four_characters(): void
     {
         $this->postJson('/login', [
             'identifier' => 'student@umss.edu.bo',
-            'password' => str_repeat('a', 21),
+            'password' => str_repeat('a', 65),
         ])->assertUnprocessable();
 
         $this->assertGuest();

@@ -11,6 +11,9 @@ use Illuminate\Validation\ValidationException;
 
 class LoginUserResolver
 {
+    // A valid bcrypt hash for a discarded random credential, never a user's secret.
+    private const DUMMY_HASH = '$2y$12$n809WZOxcQ61/HrxDhbC9.vNtcPaeTOy0G3Gra6AxRg69OsqqIFaC';
+
     /**
      * Resuelve el identificador de HU02 hacia un User autenticable.
      *
@@ -19,9 +22,13 @@ class LoginUserResolver
      */
     public function resolve(string $identifier, string $password): ?User
     {
+        // Prepare on BOTH paths: a different configured driver/work factor must
+        // not add hash generation only to requests for nonexistent accounts.
+        $dummyHash = Hash::needsRehash(self::DUMMY_HASH) ? Hash::make(bin2hex(random_bytes(32))) : self::DUMMY_HASH;
         $user = $this->findUser($identifier);
+        $passwordMatches = Hash::check($password, $user?->getAuthPassword() ?? $dummyHash);
 
-        if (! $user || ! Hash::check($password, $user->password)) {
+        if (! $user || ! $passwordMatches) {
             return null;
         }
 

@@ -3,7 +3,7 @@
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Laravel\Sanctum\Http\Middleware\AuthenticateSession;
-use Laravel\Sanctum\Sanctum;
+use App\Support\BrowserOrigins;
 
 return [
 
@@ -18,12 +18,9 @@ return [
     |
     */
 
-    'stateful' => explode(',', env('SANCTUM_STATEFUL_DOMAINS', sprintf(
-        '%s%s',
-        'localhost,localhost:3000,127.0.0.1,127.0.0.1:8000,127.0.0.1:5173,::1',
-        Sanctum::currentApplicationUrlWithPort(),
-        // Sanctum::currentRequestHost(),
-    ))),
+    'stateful' => BrowserOrigins::stateful(env('SANCTUM_STATEFUL_DOMAINS'), BrowserOrigins::allowed(
+        env('CORS_ALLOWED_ORIGINS'), env('FRONTEND_URL'), env('APP_ENV') === 'local',
+    )),
 
     /*
     |--------------------------------------------------------------------------
@@ -50,6 +47,9 @@ return [
     |
     */
 
+    // Mobile tokens already have a bounded expires_at and reject missing expiry.
+    // Do not introduce a global age cutoff that shortens their independent TTL.
+    // Legacy generic tokens need a separate consumer audit before imposing a cutoff.
     'expiration' => null,
 
     /*

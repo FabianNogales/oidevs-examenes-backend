@@ -13,7 +13,6 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Laravel\Fortify\Actions\AttemptToAuthenticate;
-use Laravel\Fortify\Actions\CanonicalizeUsername;
 use Laravel\Fortify\Actions\EnsureLoginIsNotThrottled;
 use Laravel\Fortify\Actions\PrepareAuthenticatedSession;
 use Laravel\Fortify\Fortify;
@@ -38,7 +37,8 @@ class FortifyServiceProvider extends ServiceProvider
 
         Fortify::authenticateThrough(fn (Request $request): array => array_filter([
             config('fortify.limiters.login') ? null : EnsureLoginIsNotThrottled::class,
-            config('fortify.lowercase_usernames') ? CanonicalizeUsername::class : null,
+            // The resolver folds email case; institutional codes retain the
+            // exact spelling accepted when created, just like mobile login.
             ValidateLoginIdentifier::class,
             AttemptToAuthenticate::class,
             PrepareAuthenticatedSession::class,
@@ -53,9 +53,14 @@ class FortifyServiceProvider extends ServiceProvider
         });
 
         RateLimiter::for('login', function (Request $request) {
-            $throttleKey = Str::transliterate(Str::lower($request->input(Fortify::username())).'|'.$request->ip());
+            $identifier = $request->input(Fortify::username(), $request->input('email'));
+            $normalized = is_string($identifier) ? Str::lower(trim($identifier)) : '';
 
-            return Limit::perMinute(5)->by($throttleKey);
+            return [
+                Limit::perMinute(5)->by('web-account:'.hash('sha256', $normalized)),
+                Limit::perMinute(5)->by('web-identity-ip:'.hash('sha256', $normalized.'|'.$request->ip())),
+                Limit::perMinute(30)->by('web-ip:'.$request->ip()),
+            ];
         });
 
         RateLimiter::for('mobile-login', function (Request $request) {
@@ -63,6 +68,7 @@ class FortifyServiceProvider extends ServiceProvider
             $normalized = is_string($identifier) ? Str::lower(trim($identifier)) : '';
 
             return [
+                Limit::perMinute(5)->by('mobile-account:'.hash('sha256', $normalized)),
                 Limit::perMinute(5)->by('mobile-identity:'.hash('sha256', $normalized.'|'.$request->ip())),
                 Limit::perMinute(30)->by('mobile-ip:'.$request->ip()),
             ];

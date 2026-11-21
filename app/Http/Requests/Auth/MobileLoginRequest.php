@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Auth;
 
 use App\Actions\Fortify\ValidateLoginIdentifier;
+use App\Services\Auth\PasswordPolicy;
 use Illuminate\Foundation\Http\FormRequest;
 
 class MobileLoginRequest extends FormRequest
@@ -29,7 +30,7 @@ class MobileLoginRequest extends FormRequest
     {
         return [
             'identifier' => ['required', 'string', 'max:100'],
-            'password' => ['required', 'string', 'min:8', 'max:20'],
+            'password' => PasswordPolicy::loginRules(),
             'installation_id' => ['required', 'uuid'],
             'device_name' => ['required', 'string', 'max:100'],
             'app_version' => ['nullable', 'string', 'max:40'],

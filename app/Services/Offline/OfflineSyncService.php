@@ -75,6 +75,13 @@ class OfflineSyncService
         abort_unless((int) $distribution->exam_id === $examId && (int) $list->responsible_id === $actor->id,
             403, 'El paquete no corresponde al examen y responsable autenticado.');
 
+        $protocol = (int) ($batch['protocol_version'] ?? 1);
+        // The trusted snapshot, not a client-selected version, determines the
+        // mobile security contract. Reject before claiming an event UUID.
+        if (isset($package->snapshot['mobile']) && $protocol !== 2) {
+            $this->access->fail('MOBILE_SYNC_PROTOCOL_REQUIRED', 'Los paquetes móviles requieren el protocolo de sincronización 2.', 422);
+        }
+
         $eventId = strtolower($event['event_id']);
         $captured = CarbonImmutable::parse($event['captured_at']);
         $hashedPayload = [
@@ -84,7 +91,6 @@ class OfflineSyncService
             'captured_at' => $captured->toISOString(), 'device_id' => $event['device_id'] ?? null,
             'qr_token' => $event['qr_token'] ?? null,
         ];
-        $protocol = (int) ($batch['protocol_version'] ?? 1);
         if ($protocol === 2) {
             $t = $event['time_evidence'];
             $hashedPayload['protocol_version'] = 2;
@@ -116,6 +122,15 @@ class OfflineSyncService
 
                 $conflict = $this->result($eventId, 'CONFLICT', 'EVENT_ID_REUSED', 'El identificador ya fue utilizado con otro contenido.');
                 return $protocol === 2 ? $conflict + ['review_required' => true, 'received_at' => now()->toISOString()] : $conflict;
+            }
+
+            // A receipt is immutable, but ownership alone does not authorize
+            // another installation or a web cookie to read a mobile receipt.
+            if ($failure = $this->mobileBindingFailure($actor, $package, $event, $request)) {
+                $this->audit->log($request, $actor->id, 'OFFLINE_EVENT_DEVICE_BINDING_REJECTED', 'ExamOfflineSyncEvent', $stored->id,
+                    null, ['exam_id' => $examId, 'event_id' => $eventId, 'package_id' => $package->id, 'code' => $failure['code']]);
+
+                return ['event_id' => $eventId] + $failure + ['review_required' => true, 'received_at' => now()->toISOString()];
             }
 
             return $this->storedReceipt($stored->result);
@@ -155,15 +170,8 @@ class OfflineSyncService
         ExamOfflineList $list, ExamOfflinePackage $package, array $batch, array $event,
         ?Student $student, CarbonImmutable $captured, Request $request, ?array $assessment): array
     {
-        if ((int) ($batch['protocol_version'] ?? 1) === 2 && isset($package->snapshot['mobile'])) {
-            $binding = json_decode($package->snapshot['mobile']['manifest_json'], true, flags: JSON_THROW_ON_ERROR)['binding'];
-            $credential = $request->user()->currentAccessToken();
-            $device = $credential instanceof PersonalAccessToken ? MobileDevice::find($credential->mobile_device_id) : null;
-            if (! $device || $device->revoked_at !== null || (int) $device->user_id !== $actor->id
-                || (string) $device->id !== $binding['device_id'] || $device->installation_id !== $binding['installation_id']
-                || ($event['device_id'] ?? null) !== $binding['installation_id']) {
-                return $this->decision('CONFLICT', 'DEVICE_BINDING_MISMATCH', 'La instalación no corresponde al paquete original. Requiere revisión.');
-            }
+        if ($failure = $this->mobileBindingFailure($actor, $package, $event, $request)) {
+            return $failure;
         }
         if ((int) $batch['list_id'] !== $list->id || (int) $batch['version'] !== $distribution->version
             || $package->snapshot['version'] !== $distribution->version) {
@@ -258,6 +266,27 @@ class OfflineSyncService
         return $inserted
             ? $this->decision('ACCEPTED', 'ENTRY_REGISTERED', 'Ingreso registrado.', (int) $entry->id)
             : $this->decision('DUPLICATE', 'ALREADY_REGISTERED', 'Ya existe un ingreso válido.', (int) $entry->id);
+    }
+
+    private function mobileBindingFailure(User $actor, ExamOfflinePackage $package, array $event, Request $request): ?array
+    {
+        if (! isset($package->snapshot['mobile'])) {
+            return null;
+        }
+
+        $binding = json_decode($package->snapshot['mobile']['manifest_json'], true, flags: JSON_THROW_ON_ERROR)['binding'];
+        $credential = $request->user()->currentAccessToken();
+        $device = $credential instanceof PersonalAccessToken
+            ? MobileDevice::whereKey($credential->mobile_device_id)->lockForUpdate()->first() : null;
+        if (! $device || $device->revoked_at !== null || (int) $device->user_id !== $actor->id
+            || ($binding['user_id'] ?? null) !== (string) $actor->id
+            || (string) $device->id !== ($binding['device_id'] ?? null)
+            || $device->installation_id !== ($binding['installation_id'] ?? null)
+            || ($event['device_id'] ?? null) !== $device->installation_id) {
+            return $this->decision('CONFLICT', 'DEVICE_BINDING_MISMATCH', 'La instalación no corresponde al paquete original. Requiere revisión.');
+        }
+
+        return null;
     }
 
     private function result(string $eventId, string $status, string $code, string $message): array
