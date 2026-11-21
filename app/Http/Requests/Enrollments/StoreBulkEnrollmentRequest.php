@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Enrollments;
 
+use App\Services\Enrollments\EnrollmentCsvFormat;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreBulkEnrollmentRequest extends FormRequest
@@ -26,11 +27,11 @@ class StoreBulkEnrollmentRequest extends FormRequest
                     }
 
                     $stream = fopen($value->getRealPath(), 'r');
-                    $headers = fgetcsv($stream);
+                    [$headers, , $sisIndex] = EnrollmentCsvFormat::header($stream);
                     fclose($stream);
 
                     // Validar que se pudieron extraer cabeceras y que contenga 'sisCode'
-                    if (!$headers || !in_array('sisCode', $headers)) {
+                    if (!$headers || $sisIndex === false) {
                         $fail('El archivo CSV debe contener la columna obligatoria sisCode.');
                     }
                 },

@@ -28,10 +28,10 @@ class StoreStaffAccountRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'first_names' => ['required', 'string', 'max:255'],
-            'last_names' => ['required', 'string', 'max:255'],
+            'first_names' => ['required', 'string', 'max:100'],
+            'last_names' => ['required', 'string', 'max:100'],
             // Same string/numeric CI and institutional email rules as manual student registration.
-            'identity_number' => ['bail', 'required', 'string', 'max:255', 'regex:/\A[0-9]+\z/',
+            'identity_number' => ['bail', 'required', 'string', 'max:20', 'regex:/\A[0-9]+\z/',
                 'unique:users,staff_identity_number', 'unique:students,identity_number', 'unique:teachers,identity_number'],
             'email' => ['bail', 'required', 'string', 'email', 'max:255',
                 function (string $attribute, mixed $value, Closure $fail): void {

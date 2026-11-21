@@ -35,7 +35,7 @@ class ExamEligibilityController extends Controller
 
     public function index(Request $request, int $examId): JsonResponse
     {
-        $this->service->responsibleExam($request, $examId);
+        $exam = $this->service->responsibleExam($request, $examId);
         $query = ExamEligibility::with(['student.user', 'evaluator'])->where('exam_id', $examId);
 
         if ($request->filled('status')) {
@@ -67,7 +67,14 @@ class ExamEligibilityController extends Controller
             ];
         });
 
-        return response()->json(['exam' => ['id' => $examId, 'manual_review_conditions' => DB::table('exam_eligibility_configurations')
+        // An enrollment added after the exam closed must remain visible without inventing a historical decision.
+        $withoutDecision = DB::table('enrollments as en')->join('students as s', 's.id', '=', 'en.student_id')
+            ->where('en.course_offering_id', $exam->course_offering_id)->where('en.status', 'ACTIVE')->where('s.status', 'ACTIVE')
+            ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('exam_eligibilities as e')
+                ->where('e.exam_id', $examId)->whereColumn('e.student_id', 's.id'))
+            ->orderBy('s.last_names')->select('s.id', 's.sis_code', 's.first_names', 's.last_names')->get();
+
+        return response()->json(['exam' => ['id' => $examId, 'students_without_decision' => $withoutDecision, 'manual_review_conditions' => DB::table('exam_eligibility_configurations')
             ->where('exam_id', $examId)->value('manual_review_conditions')], 'data' => $data]);
     }
 

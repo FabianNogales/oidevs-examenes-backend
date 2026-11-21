@@ -125,8 +125,7 @@ class StudentEnrollmentController extends Controller
         $file = $request->file('file');
         $handle = fopen($file->getRealPath(), 'r');
         
-        $header = fgetcsv($handle);
-        $sisCodeIndex = array_search('sisCode', $header);
+        [, $delimiter, $sisCodeIndex] = \App\Services\Enrollments\EnrollmentCsvFormat::header($handle);
 
         $records = []; 
         $successfulCount = 0;
@@ -141,7 +140,7 @@ class StudentEnrollmentController extends Controller
 
         DB::beginTransaction();
         try {
-            while (($row = fgetcsv($handle)) !== false) {
+            while (($row = fgetcsv($handle, 0, $delimiter, '"', '')) !== false) {
                 $rowNum++;
                 $totalProcessed++;
                 

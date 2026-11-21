@@ -88,6 +88,26 @@ class LateEnrollmentEligibilityTest extends TestCase
         }
     }
 
+    public function test_excel_csv_preview_then_confirmation_preserves_enrollment_and_eligibility_contract(): void
+    {
+        $exam = $this->exam();
+        $csv = "\xEF\xBB\xBF\"sisCode\";Nombre\r\n202600001;Ana\r\n";
+        $this->csv(true, $csv)->assertOk()->assertJsonPath('data.successfulRecords', 1);
+        $this->assertDatabaseCount('enrollments', 0);
+        $this->csv(false, $csv)->assertOk()->assertJsonPath('data.successfulRecords', 1);
+        $this->assertDatabaseHas('exam_eligibilities', ['exam_id' => $exam->id, 'student_id' => $this->fixture['studentId']]);
+    }
+
+    public function test_late_students_are_visible_without_inventing_a_historical_eligibility(): void
+    {
+        $exam = $this->exam(['status' => 'FINISHED']);
+        $this->manual()->assertCreated();
+        $this->getJson('/api/v1/exams/'.$exam->id.'/eligibilities')->assertOk()
+            ->assertJsonCount(0, 'data')->assertJsonCount(1, 'exam.students_without_decision')
+            ->assertJsonPath('exam.students_without_decision.0.id', $this->fixture['studentId']);
+        $this->assertDatabaseCount('exam_eligibilities', 0);
+    }
+
     public function test_preview_then_partial_csv_confirm_and_retry_keep_hu07_contract(): void
     {
         $exam = $this->exam();
