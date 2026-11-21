@@ -1,7 +1,7 @@
 name = "eida-backup-download"
 main = "src/index.ts"
 compatibility_date = "2026-11-21"
-workers_dev = false
+workers_dev = true
 preview_urls = false
 
 [observability]
@@ -10,16 +10,16 @@ enabled = false
 [vars]
 ENABLED = "false"
 TICKET_AUDIENCE = "eida-backup-download"
-TICKET_ISSUER = ""
-TICKET_KEY_ID = ""
-DRIVE_FOLDER_ID = ""
-APP_ORIGIN = ""
+TICKET_ISSUER = "eida-backups"
+TICKET_KEY_ID = "eida-backup-v1"
+DRIVE_FOLDER_ID = "1LUzMamIl-nX1LXBbg0FomuR5JmUQY1d7"
+APP_ORIGIN = "https://oidevs-examenes-frontend.vercel.app"
 
 [[d1_databases]]
 binding = "TICKETS"
 database_name = "eida-backup-download-tickets"
 # Replace only after an authorized D1 creation. Empty intentionally prevents deployment.
-database_id = ""
+database_id = "1689cba7-6883-43d1-8499-ea0d241f4fd9"
 migrations_dir = "migrations"
 
 # No routes/domain are invented. Configure the authorized HTTPS hostname later.
