@@ -18,6 +18,21 @@ class Role extends Model
         'status',
     ];
 
+    protected function casts(): array
+    {
+        return ['is_custom' => 'boolean', 'revision' => 'integer'];
+    }
+
+    public function permissions(): BelongsToMany
+    {
+        return $this->belongsToMany(Permission::class, 'permission_role');
+    }
+
+    public function isCustom(): bool
+    {
+        return $this->is_custom && ! \App\Services\Admin\RolePermissionCatalog::reservedName($this->name);
+    }
+
     /**
      * The users assigned to the role.
      */

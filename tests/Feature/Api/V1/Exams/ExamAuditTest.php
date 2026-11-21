@@ -35,7 +35,7 @@ class ExamAuditTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        DB::table('academic_terms')->insert(['id' => 1, 'name' => '2026-I', 'start_date' => '2026-02-01', 'end_date' => '2026-07-01', 'status' => 'ACTIVE']);
+        DB::table('academic_terms')->insert(['id' => 1, 'name' => '2026-I', 'start_date' => '2026-02-01', 'end_date' => '2027-07-01', 'status' => 'ACTIVE']);
         DB::table('subjects')->insert(['id' => 1, 'code' => 'CS101', 'name' => 'Software Engineering', 'status' => 'ACTIVE']);
 
         $courseOfferingId = DB::table('course_offerings')->insertGetId([
@@ -56,7 +56,7 @@ class ExamAuditTest extends TestCase
         $this->postJson("/api/v1/course-offerings/{$courseOfferingId}/exams", [
             'name' => 'Final Exam',
             'exam_date' => now()->addDays(10)->format('Y-m-d'),
-            'start_time' => '10:00:00',
+            'start_time' => '09:45:00',
             'duration_minutes' => 120,
             'room_id' => $roomId,
             'rules' => 'No devices allowed.',

@@ -58,6 +58,7 @@ class PortalCalendarService
     public function save(array $data, Request $request, ?int $id = null): PortalEvent
     {
         return DB::transaction(function () use ($data, $request, $id) {
+            app(PortalEditing::class)->authorizeSave('events', $data, $request, $id);
             $event = $id === null ? new PortalEvent : PortalEvent::whereKey($id)->lockForUpdate()->firstOrFail();
             if ($id !== null) {
                 $this->checkRevision($event, $data['revision']);

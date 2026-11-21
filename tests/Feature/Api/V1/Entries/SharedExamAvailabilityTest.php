@@ -208,29 +208,30 @@ class SharedExamAvailabilityTest extends TestCase
     public function test_reprogramming_revokes_old_token_and_new_qr_uses_current_end(): void
     {
         $old = $this->qr();
-        $this->edit(['exam_date' => '2026-10-18', 'start_time' => '23:30:00', 'duration_minutes' => 90])->assertOk();
+        $this->edit(['exam_date' => '2026-10-18', 'start_time' => '20:15:00', 'duration_minutes' => 90])->assertOk();
         $this->exam->refresh();
         $this->scan($old)->assertUnprocessable()->assertJsonPath('result', 'INVALID_QR');
         $this->assertSame('UPCOMING', app(StudentQrService::class)->getExamsForStudent($this->fixture['studentId'])->first()['qr_status']);
-        $this->travelTo(CarbonImmutable::parse('2026-10-17 23:30:00', 'America/La_Paz'));
+        $this->travelTo(CarbonImmutable::parse('2026-10-17 20:15:00', 'America/La_Paz'));
         $new = $this->qr();
         $claims = json_decode(base64_decode(strtr(explode('.', $new)[1], '-_', '+/')), true);
-        $this->assertSame(CarbonImmutable::parse('2026-10-19 01:00:00', 'America/La_Paz')->timestamp, $claims['exp']);
+        $this->assertSame(CarbonImmutable::parse('2026-10-18 21:45:00', 'America/La_Paz')->timestamp, $claims['exp']);
         $this->assertSame(1, StudentQrToken::where('status', 'REVOKED')->count());
         $this->assertSame(1, StudentQrToken::where('status', 'ACTIVE')->count());
         $this->scan($new)->assertUnprocessable()->assertJsonPath('result', 'DENIED');
-        $this->travelTo(CarbonImmutable::parse('2026-10-18 23:30:00', 'America/La_Paz'));
+        $this->travelTo(CarbonImmutable::parse('2026-10-18 20:15:00', 'America/La_Paz'));
         $this->scan($new)->assertCreated();
     }
 
     public function test_room_change_keeps_token_but_old_room_is_rejected(): void
     {
+        $this->exam->update(['start_time' => '09:45:00']);
         $token = $this->qr();
         $oldRoom = $this->exam->room_id;
         $room = Room::create(['code' => 'B-202', 'name' => 'Nueva aula', 'status' => 'ACTIVE']);
         $this->edit(['room_id' => $room->id])->assertOk();
         $this->exam->refresh();
-        $this->travelTo(CarbonImmutable::parse('2026-10-16 10:00:00', 'America/La_Paz'));
+        $this->travelTo(CarbonImmutable::parse('2026-10-16 09:45:00', 'America/La_Paz'));
         $this->scan($token, $oldRoom)->assertUnprocessable()->assertJsonPath('data.blockers.0.code', 'ROOM_MISMATCH');
         $this->assertSame(0, StudentQrToken::where('status', 'REVOKED')->count());
         $this->scan($token)->assertCreated()->assertJsonPath('data.entry.room_id', $room->id);

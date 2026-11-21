@@ -26,6 +26,14 @@ class RoomController extends Controller
         return RoomResource::make($room);
     }
 
+    /** Only the target's editable fields: editing does not grant catalog consultation. */
+    public function edit(Room $room): JsonResponse
+    {
+        return response()->json(['data' => ['id' => (int) $room->id] + $room->only([
+            'code', 'name', 'location', 'description', 'capacity', 'floor',
+        ])]);
+    }
+
     public function store(SaveRoomRequest $request): JsonResponse
     {
         return RoomResource::make($this->rooms->save($request->validated(), $request))

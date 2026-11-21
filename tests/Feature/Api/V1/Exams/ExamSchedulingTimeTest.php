@@ -36,23 +36,24 @@ class ExamSchedulingTimeTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->travelTo(CarbonImmutable::parse('2026-10-21 22:15:40', ExamScheduleTime::TIMEZONE));
+        $this->travelTo(CarbonImmutable::parse('2026-10-21 20:13:40', ExamScheduleTime::TIMEZONE));
         $this->fixture = $this->offeringFixture();
+        $this->fixture['term']->update(['start_date' => '2026-08-01', 'end_date' => '2026-12-31']);
         Sanctum::actingAs($this->fixture['user']);
     }
 
     public static function startTimes(): array
     {
         return [
-            'reported 80 seconds ahead' => ['2026-10-21T22:15:40-04:00', '2026-10-21', '22:17:00', true],
-            'one minute ahead' => ['2026-10-21T22:15:00-04:00', '2026-10-21', '22:16:00', true],
-            'two minutes ahead' => ['2026-10-21T22:15:00-04:00', '2026-10-21', '22:17:00', true],
-            'exactly now' => ['2026-10-21T22:17:00-04:00', '2026-10-21', '22:17:00', false],
-            'past minute' => ['2026-10-21T22:18:00-04:00', '2026-10-21', '22:17:00', false],
-            'previous date' => ['2026-10-22T00:00:00-04:00', '2026-10-21', '23:59:00', false],
-            'midnight start' => ['2026-10-21T23:59:40-04:00', '2026-10-22', '00:00:00', true],
-            'microsecond before' => ['2026-10-21T22:16:59.999999-04:00', '2026-10-21', '22:17:00', true],
-            'microsecond after' => ['2026-10-21T22:17:00.000001-04:00', '2026-10-21', '22:17:00', false],
+            'reported 80 seconds ahead' => ['2026-10-21T20:13:40-04:00', '2026-10-21', '20:15:00', true],
+            'one minute ahead' => ['2026-10-21T20:14:00-04:00', '2026-10-21', '20:15:00', true],
+            'two minutes ahead' => ['2026-10-21T20:13:00-04:00', '2026-10-21', '20:15:00', true],
+            'exactly now' => ['2026-10-21T20:15:00-04:00', '2026-10-21', '20:15:00', false],
+            'past minute' => ['2026-10-21T20:16:00-04:00', '2026-10-21', '20:15:00', false],
+            'previous date' => ['2026-10-22T00:00:00-04:00', '2026-10-21', '20:15:00', false],
+            'first morning period next day' => ['2026-10-21T23:59:40-04:00', '2026-10-22', '06:45:00', true],
+            'microsecond before' => ['2026-10-21T20:14:59.999999-04:00', '2026-10-21', '20:15:00', true],
+            'microsecond after' => ['2026-10-21T20:15:00.000001-04:00', '2026-10-21', '20:15:00', false],
         ];
     }
 
@@ -83,8 +84,8 @@ class ExamSchedulingTimeTest extends TestCase
     public static function reservationDelays(): array
     {
         return [
-            'lock released exactly at start' => ['2026-10-21T22:17:00-04:00'],
-            'lock released after start' => ['2026-10-21T22:17:01-04:00'],
+            'lock released exactly at start' => ['2026-10-21T20:15:00-04:00'],
+            'lock released after start' => ['2026-10-21T20:15:01-04:00'],
         ];
     }
 
@@ -100,7 +101,7 @@ class ExamSchedulingTimeTest extends TestCase
             });
         });
 
-        $this->postJson($this->endpoint(), $this->payload('2026-10-21', '22:17:00'))
+        $this->postJson($this->endpoint(), $this->payload('2026-10-21', '20:15:00'))
             ->assertUnprocessable()->assertJsonValidationErrors('start_time')
             ->assertJsonPath('errors.start_time.0', ExamScheduleTime::FUTURE_START_ERROR);
         $this->assertDatabaseCount('exams', 0);
@@ -110,8 +111,8 @@ class ExamSchedulingTimeTest extends TestCase
 
     public function test_invalid_temporal_formats_are_still_rejected(): void
     {
-        foreach ([['exam_date', '2026-02-30'], ['exam_date', '21/10/2026'], ['start_time', '22:17'], ['start_time', '24:00:00']] as [$field, $value]) {
-            $payload = $this->payload('2026-10-21', '22:17:00');
+        foreach ([['exam_date', '2026-02-30'], ['exam_date', '21/10/2026'], ['start_time', '20:15'], ['start_time', '24:00:00']] as [$field, $value]) {
+            $payload = $this->payload('2026-10-21', '20:15:00');
             $payload[$field] = $value;
             $this->postJson($this->endpoint(), $payload)->assertUnprocessable()->assertJsonValidationErrors($field);
         }

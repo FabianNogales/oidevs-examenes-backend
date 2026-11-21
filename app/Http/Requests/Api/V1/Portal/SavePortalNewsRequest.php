@@ -6,6 +6,8 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class SavePortalNewsRequest extends FormRequest
 {
+    use RestrictsDelegatedPortalFields;
+
     public function authorize(): bool
     {
         return true;

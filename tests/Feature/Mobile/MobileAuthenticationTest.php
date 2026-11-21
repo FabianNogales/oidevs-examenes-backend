@@ -61,6 +61,7 @@ class MobileAuthenticationTest extends TestCase
         $user->forceFill(['active_session_id' => 'existing-web-session'])->save();
         $response = $this->loginMobile()->assertOk()->assertJsonPath('data.token_type', 'Bearer');
         $data = $response->json('data');
+        $this->assertArrayNotHasKey('permissions', $data['user']);
         $token = PersonalAccessToken::findToken($data['access_token']);
         $this->assertNotNull($token);
         $this->assertSame($data['device']['id'], $token->mobile_device_id);
@@ -73,7 +74,8 @@ class MobileAuthenticationTest extends TestCase
         $audits = DB::table('audit_logs')->get()->toJson();
         $this->assertStringNotContainsString($data['access_token'], $audits);
         $this->assertStringNotContainsString(self::PASSWORD, $audits);
-        $this->mobile($data['access_token'], 'GET', '/me')->assertOk()->assertJsonPath('data.id', $user->id);
+        $this->mobile($data['access_token'], 'GET', '/me')->assertOk()->assertJsonPath('data.id', $user->id)
+            ->assertJsonMissingPath('data.permissions');
     }
 
     public function test_mobile_login_does_not_create_cookies_even_with_spa_origin(): void

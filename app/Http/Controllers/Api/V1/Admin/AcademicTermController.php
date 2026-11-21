@@ -46,4 +46,9 @@ class AcademicTermController extends Controller
 
         return $term ? AcademicTermResource::make($term) : response()->json(['data' => null]);
     }
+
+    public function edit(int $academicTerm, AcademicTermService $terms): AcademicTermResource
+    {
+        return AcademicTermResource::make($terms->find($academicTerm));
+    }
 }
