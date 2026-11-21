@@ -64,6 +64,12 @@ class PortalCalendarService
                 $this->checkRevision($event, $data['revision']);
             }
             $before = $event->exists ? $event->getAttributes() : null;
+            if (isset($data['category_id'])) {
+                $category = DB::table('portal_event_categories')->where('id', $data['category_id'])->lockForUpdate()->first();
+                if (! $category || ! $category->is_active) {
+                    throw ValidationException::withMessages(['category_id' => ['La categoría no está activa.']]);
+                }
+            }
             unset($data['revision']);
             foreach (['starts_at', 'ends_at'] as $field) {
                 if (isset($data[$field])) {
@@ -72,6 +78,18 @@ class PortalCalendarService
             }
             $event->fill($data);
             $this->validateInterval($event);
+            // Editing descriptive fields on historical events must remain possible.
+            // PostgreSQL may return +00 while the cast serializes +00:00. Compare
+            // instants, not raw strings, to avoid treating a title edit as rescheduling.
+            $scheduleChanged = $id === null;
+            foreach (['starts_at', 'ends_at'] as $field) {
+                if ($before !== null && isset($data[$field]) && ! $event->$field->equalTo(CarbonImmutable::parse($before[$field], 'UTC'))) {
+                    $scheduleChanged = true;
+                }
+            }
+            if ($scheduleChanged) {
+                $this->validateScheduling($event);
+            }
             if ($id === null) {
                 $event->created_by = $request->user()->id;
                 $event->status = 'DRAFT';
@@ -92,8 +110,11 @@ class PortalCalendarService
         return DB::transaction(function () use ($id, $data, $request) {
             $event = PortalEvent::whereKey($id)->lockForUpdate()->firstOrFail();
             $this->checkRevision($event, $data['revision']);
-            if ($data['status'] === 'PUBLISHED' && ! $event->category->is_active) {
-                throw ValidationException::withMessages(['category_id' => ['La categoría no está activa.']]);
+            if ($data['status'] === 'PUBLISHED') {
+                $category = DB::table('portal_event_categories')->where('id', $event->category_id)->lockForUpdate()->first();
+                if (! $category || ! $category->is_active) {
+                    throw ValidationException::withMessages(['category_id' => ['La categoría no está activa.']]);
+                }
             }
             $before = $event->getAttributes();
             $event->status = $data['status'];
@@ -131,6 +152,21 @@ class PortalCalendarService
                     throw ValidationException::withMessages([$field => ['Los eventos de día completo deben comenzar y finalizar a medianoche de America/La_Paz; el fin es excluido.']]);
                 }
             }
+        }
+    }
+
+    private function validateScheduling(PortalEvent $event): void
+    {
+        $start = $event->starts_at->setTimezone('America/La_Paz');
+        if ($start->lessThan(CarbonImmutable::tomorrow('America/La_Paz'))) {
+            throw ValidationException::withMessages(['starts_at' => 'El evento debe comenzar a partir de mañana, según America/La_Paz.']);
+        }
+        $years = config('catalog_limits.event_max_years');
+        if ($event->ends_at->greaterThan($event->starts_at->copy()->addYears($years))) {
+            throw ValidationException::withMessages(['ends_at' => "El evento no puede durar más de {$years} años."]);
+        }
+        if ($event->ends_at->setTimezone('America/La_Paz')->year > CarbonImmutable::now('America/La_Paz')->year + config('catalog_limits.planning_years')) {
+            throw ValidationException::withMessages(['ends_at' => 'La fecha excede el horizonte de planificación de cinco años.']);
         }
     }
 

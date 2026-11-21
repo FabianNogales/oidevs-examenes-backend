@@ -113,6 +113,7 @@ sis,assessment_key,was_taken,score,attended_classes,total_classes
 - Ambas cantidades de asistencia deben venir juntas, con total positivo y asistencias <= total. Si se repiten para el mismo SIS deben coincidir. Una fila puede omitir ambas si otra ya las proporciona.
 - SIS debe pertenecer a una inscripción ACTIVE de la oferta. Duplicar SIS + evaluación genera error.
 - Una importación inicial no reemplaza datos existentes; la corrección se hace por record_id.
+- El modo predeterminado es `CREATE_ONLY`. El modo explícito `MERGE` permite cargas parciales según el apartado siguiente.
 - Preview persiste solo un borrador temporal/auditoría; no modifica academic_records ni habilitaciones.
 
 Respuesta:
@@ -194,7 +195,7 @@ Ejemplo de una fila:
 
 - Criterios: PASSED / FAILED / PENDING.
 - Algún FAILED => INELIGIBLE; de otro modo algún dato faltante => PENDING; todos PASSED => ELIGIBLE.
-- Sin criterios: computed_status=PENDING con motivo explícito y will_update=false. No modifica nada.
+- Sin criterios aplicables: computed_status=ELIGIBLE para inscripciones ACTIVE. Guardar configuración y generar preview no cambian habilitaciones. La confirmación aplica el resultado respetando decisiones MANUAL/LEGACY protegidas.
 - PENDING no reemplaza lo persistido; effective_status conserva current_status o null si no existe.
 - Decisiones MANUAL/LEGACY mantienen effective_status=current_status, sin importar lo calculado.
 - `will_update` indica que la confirmación guardará una decisión automática y su trazabilidad. También puede actualizar revision si el estado coincide con el anterior.
@@ -215,6 +216,57 @@ GET `/exams/{exam_id}/eligibility-automation/evaluations`
 GET `/exams/{exam_id}/eligibility-automation/evaluations/{evaluation_id}?page=1&per_page=10`
 
 Listado paginado de previews/confirmaciones y detalle del snapshot original. Conserva resultados aunque cambien notas/criterios posteriormente. El detalle utiliza el mismo formato de results/meta/summary que preview.
+
+### Revisar y aplicar
+
+El POST de preview y el GET de detalle aceptan `search`, `filter`, `page` y `per_page`. `search` busca por nombre completo o SIS sin distinguir mayúsculas. Vacío equivale a consulta sin búsqueda.
+
+`filter` admite `ALL` (valor predeterminado), `CHANGES`, `ELIGIBLE`, `INELIGIBLE`, `PENDING` y `PROTECTED`.
+
+- `CHANGES` utiliza `state_will_change`. Frontend puede seleccionarlo inicialmente.
+- `ELIGIBLE` / `INELIGIBLE` utilizan el estado persistido propuesto `effective_status`.
+- `PENDING` utiliza `computed_status`; puede conservar una habilitación persistida.
+- `PROTECTED` utiliza `manual_override_preserved`.
+
+Se combinan búsqueda y filtro antes de paginar. `results.meta.total` cuenta las coincidencias. Un filtro desconocido o un parámetro mal formado produce 422.
+
+Cada resultado nuevo incorpora `state_will_change`, `traceability_only` y `protected_source` (`MANUAL`, `LEGACY` o null). `will_update` conserva su significado de actualización de decisión automática, incluida la trazabilidad sin cambio de estado. También devuelve `current_reason` y `effective_reason` para mostrar el motivo que quedará guardado; `reason` continúa explicando el cálculo automático.
+
+`summary` siempre abarca todo el snapshot. Conserva `total`, `eligible`, `ineligible` y `pending` como contadores del cálculo. Agrega `effective_eligible`, `effective_ineligible` y `effective_unset` para los estados persistidos propuestos, además de `state_changes`, `traceability_only` y `protected`. Para la tabla final, utilizar los contadores `effective_*`. Los grupos pendientes/protegidos pueden solaparse con estados efectivos.
+
+La confirmación aplica todo el snapshot, independientemente de filtros, búsqueda o página. Los previews del contrato anterior deben regenerarse para confirmar (409 AUTOMATION_CONFLICT); los confirmados conservan su resultado idempotente. Los históricos siguen consultables sin recalcular resultados; `protected_source` es null si el snapshot antiguo no registró su origen.
+
+### CSV parcial MERGE
+
+Se mantienen los endpoints de importación por oferta. Enviar multipart con `file`, `mode=MERGE` y `reason` cuando se cambien datos existentes. La justificación tiene hasta 500 caracteres y queda guardada en el preview para la confirmación sin payload.
+
+`import-schema` agrega `modes`, `default_mode` y el objeto `merge` con columnas permitidas, plantillas de asistencia/evaluación y reglas de conservación. `CREATE_ONLY` mantiene las seis columnas originales en su orden y rechaza estudiantes con datos previos.
+
+En MERGE las columnas pueden ser un subconjunto de las originales, en cualquier orden, con `sis` obligatorio. Se rechazan encabezados duplicados o desconocidos, incluido `nombre_completo`. Ejemplos:
+
+```csv
+sis,attended_classes,total_classes
+202600001,18,20
+```
+
+```csv
+sis,assessment_key,was_taken,score
+202600001,FIRST_PARTIAL,true,65
+```
+
+- Campos y evaluaciones omitidos o vacíos conservan el valor existente. En registros nuevos quedan ausentes. No se borran datos mediante MERGE.
+- Las dos cantidades de asistencia se proporcionan juntas y deben ser válidas. Se admite un registro de asistencia sin evaluación ficticia. La respuesta serializa `assessments` vacío como `{}` para conservar su tipo de mapa.
+- Una evaluación nueva exige `assessment_key` y `was_taken`. Se admite nota ausente; los criterios de nota darán PENDING.
+- Para una evaluación existente puede enviarse únicamente una nota, conservando `was_taken`. La nota exige una evaluación rendida. Cambiar a no rendida conservando una nota se rechaza y requiere corrección explícita.
+- Un CSV puede contener distintas evaluaciones y asistencia para un SIS. Se rechaza más de una fila que actualice la misma evaluación o la misma asistencia, incluso con valores iguales.
+- Toda fila debe aportar algún dato. Un error impide confirmar el archivo completo.
+- No hay cambios automáticos de habilitación por importar. Se requiere una nueva evaluación y confirmación.
+
+Preview conserva sus campos actuales y agrega `mode`, `reason`, `summary` (`created_records`, `updated_records`, `unchanged_records`). Cada `valid_records` incluye `record_id`, `revision`, `before`, `proposed` y `action` (`CREATE`, `UPDATE`, `UNCHANGED`), además de los campos de datos académicos existentes.
+
+Al confirmar se revalidan inscripción, identidad y revisión de cada registro, incluso los que no cambian. Si otro proceso creó o modificó un registro, se devuelve 409 `AUTOMATION_CONFLICT` y se debe regenerar el preview. La transacción y auditoría abarcan todo el archivo. Un registro sin cambios conserva su revisión. La respuesta incluye `created_records`, `updated_records`, `unchanged_records`, `record_ids` y `preview_id`. Los reintentos de una confirmación completada devuelven exactamente el resultado anterior.
+
+La corrección por `record_id` conserva su contrato de reemplazo completo y exige todos los datos que deban mantenerse. Se admite corregir registros exclusivos de asistencia mediante `assessments: {}` (también se acepta `[]`) y las dos cantidades.
 
 ## Revisiones, errores y despliegue
 

@@ -4,6 +4,7 @@ namespace App\Http\Requests\Api\V1\Subjects;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
+use App\Rules\UniqueCatalogName;
 
 class SaveSubjectRequest extends FormRequest
 {
@@ -27,8 +28,16 @@ class SaveSubjectRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'code' => ['bail', 'required', 'string', 'max:50', 'regex:/\A[A-Z0-9][A-Z0-9._-]*\z/'],
-            'name' => ['bail', 'required', 'string', 'min:2', 'max:255', 'regex:/\p{L}/u', 'not_regex:/\p{Cc}/u'],
+            'code' => ['bail', 'required', 'string', 'max:50', 'regex:/\A[A-Z0-9][A-Z0-9._-]*\z/', function ($attribute, $value, $fail) {
+                $query = \App\Models\Subject::whereRaw('UPPER(code) = ?', [$value]);
+                if ($id = $this->route('subject')?->id) {
+                    $query->where('id', '!=', $id);
+                }
+                if ($query->exists()) {
+                    $fail('Ya existe una materia con este código.');
+                }
+            }],
+            'name' => ['bail', 'required', 'string', 'min:2', 'max:255', 'regex:/\p{L}/u', 'not_regex:/\p{Cc}/u', new UniqueCatalogName('subjects', $this->route('subject')?->id)],
             'career_ids' => ['required', 'array', 'min:1'],
             'career_ids.*' => ['bail', 'required', function ($attribute, $value, $fail) {
                 if (! is_int($value) || $value < 1) {

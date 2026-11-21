@@ -4,6 +4,7 @@ namespace App\Services\AcademicTerms;
 
 use App\Models\AcademicTerm;
 use Closure;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -54,8 +55,26 @@ class AcademicTermIntegrity
                 $validator->errors()->add('name', 'El nombre no puede contener caracteres de control.');
             }
             if (! $validator->errors()->has('start_date') && ! $validator->errors()->has('end_date')
-                && ($data['end_date'] ?? '') < ($data['start_date'] ?? '')) {
-                $validator->errors()->add('end_date', 'La fecha de fin no puede ser anterior a la fecha de inicio.');
+                && ($data['end_date'] ?? '') <= ($data['start_date'] ?? '')) {
+                $validator->errors()->add('end_date', 'La fecha de fin debe ser posterior a la fecha de inicio.');
+            }
+            if (! $validator->errors()->has('start_date') && ! $validator->errors()->has('end_date')) {
+                $start = CarbonImmutable::parse($data['start_date'], 'America/La_Paz');
+                $end = CarbonImmutable::parse($data['end_date'], 'America/La_Paz');
+                $today = CarbonImmutable::today('America/La_Paz');
+                $maximum = $today->addYears(config('catalog_limits.planning_years'))->endOfYear();
+                if ($start->year < $today->year || $end->lt($today)) {
+                    $validator->errors()->add('start_date', 'No se pueden registrar o reprogramar períodos de años anteriores ni vencidos.');
+                }
+                if ($end->gt($maximum)) {
+                    $validator->errors()->add('end_date', 'El período excede el horizonte de planificación de cinco años.');
+                }
+                $days = $start->diffInDays($end);
+                $min = config('catalog_limits.period_min_days');
+                $max = config('catalog_limits.period_max_days');
+                if ($days < $min || $days > $max) {
+                    $validator->errors()->add('end_date', "El período debe durar entre {$min} y {$max} días.");
+                }
             }
         });
         if ($validator->fails()) {
@@ -97,6 +116,9 @@ class AcademicTermIntegrity
         }
         $term = $this->find($id);
         if ($status === 'ACTIVE') {
+            if ($term->end_date->toDateString() < CarbonImmutable::today('America/La_Paz')->toDateString()) {
+                $this->reject(422, 'ACADEMIC_TERM_EXPIRED', 'No puedes activar un período vencido.', ['status' => ['El período ya finalizó.']]);
+            }
             $this->assertNoOtherActive($id);
         }
 

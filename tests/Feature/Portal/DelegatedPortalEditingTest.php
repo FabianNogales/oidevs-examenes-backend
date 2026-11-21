@@ -234,7 +234,8 @@ class DelegatedPortalEditingTest extends TestCase
         $service = $this->service();
         $this->actor(array_values(PortalEditing::PERMISSIONS));
         $cases = [
-            ['news', $news, ['title' => 'No guardar'], ['status' => 'DRAFT', 'published_at' => null, 'image' => null]],
+            ['news', $news, ['title' => 'No guardar'], ['status' => 'DRAFT', 'published_at' => null, 'image' => null,
+                'category_id' => DB::table('portal_news_categories')->value('id')]],
             ['events', $event, ['title' => 'No guardar'], ['visibility' => 'PUBLIC', 'status' => 'DRAFT']],
             ['information/sections', $section, ['description' => 'No guardar'], ['is_published' => false, 'published' => null]],
             ['information/faqs', $faq, ['answer' => 'No guardar'], ['is_published' => true, 'kind' => null]],

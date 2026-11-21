@@ -12,11 +12,11 @@ class Room extends Model
 
     protected $table = 'rooms';
 
-    protected $fillable = ['code', 'name', 'location', 'description', 'capacity', 'floor', 'status'];
+    protected $fillable = ['code', 'name', 'location', 'description', 'capacity', 'floor', 'status', 'building_id', 'inactive_until'];
 
     protected function casts(): array
     {
-        return ['capacity' => 'integer'];
+        return ['capacity' => 'integer', 'inactive_until' => \App\Casts\PortalUtcDateTime::class];
     }
 
     public function exams(): HasMany

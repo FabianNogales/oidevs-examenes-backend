@@ -31,8 +31,13 @@ class SubjectCsvParser
             $line = 1 + max(1, preg_match_all('/\r\n|\r|\n/', substr($content, 0, ftell($stream))));
             $request = new SaveSubjectRequest;
             $rules = array_intersect_key($request->rules(), array_flip(['code', 'name']));
+            $rules['name'] = array_filter($rules['name'], fn ($rule) => ! $rule instanceof \App\Rules\UniqueCatalogName);
+            // Existing codes may gain a career association; import validates the
+            // existing identity below instead of the create-form uniqueness rule.
+            $rules['code'] = array_filter($rules['code'], fn ($rule) => ! $rule instanceof \Closure);
             $rows = [];
             $names = [];
+            $codesByName = [];
             while (($start = ftell($stream)) !== false && ($cells = fgetcsv($stream, 0, ',', '"', '')) !== false) {
                 $raw = substr($content, $start, ftell($stream) - $start);
                 $data = array_combine(self::HEADERS, array_map(fn ($i) => (string) ($cells[$i] ?? ''), range(0, 2)));
@@ -49,6 +54,7 @@ class SubjectCsvParser
                     $errors[] = 'El código de carrera es obligatorio.';
                 }
                 $names[$code][$name] = true;
+                $codesByName[mb_strtolower($name)][$code] = true;
                 $rows[] = ['row_number' => $line, 'data' => $data, 'status' => 'VALID', 'errors' => $errors];
                 $line += max(1, preg_match_all('/\r\n|\r|\n/', $raw));
             }
@@ -67,6 +73,13 @@ class SubjectCsvParser
             $subjects = $subjects->concat(Subject::with('careers')->whereIn(\Illuminate\Support\Facades\DB::raw('UPPER(code)'), $chunk)->get());
         }
         $subjects = $subjects->groupBy(fn ($subject) => strtoupper($subject->code));
+        $subjectsByName = collect();
+        foreach (array_chunk(array_keys($codesByName), 500) as $chunk) {
+            $subjectsByName = $subjectsByName->concat(Subject::select(['id', 'name'])
+                ->selectRaw('LOWER(TRIM(name)) as normalized_name')
+                ->whereIn(\Illuminate\Support\Facades\DB::raw('LOWER(TRIM(name))'), $chunk)->get());
+        }
+        $subjectsByName = $subjectsByName->groupBy('normalized_name');
         $careers = collect();
         foreach (array_chunk($careerCodes, 500) as $chunk) {
             $careers = $careers->concat(Career::whereIn('code', $chunk)->get());
@@ -82,6 +95,13 @@ class SubjectCsvParser
             }
             $matches = $subjects->get($code);
             $subject = $matches?->first();
+            $sameLegacyName = $subject !== null && $subject->name === $name;
+            if (! $sameLegacyName && ($subjectsByName->get(mb_strtolower($name))?->contains(fn ($match) => $match->id !== $subject?->id) ?? false)) {
+                $row['errors'][] = 'El nombre ya está registrado con otro código.';
+            }
+            if (count($codesByName[mb_strtolower($name)]) > 1) {
+                $row['errors'][] = 'El nombre se repite con otro código dentro del archivo.';
+            }
             if ($matches && $matches->count() > 1) {
                 $row['errors'][] = 'El código coincide con varias materias existentes; requiere revisión.';
             }

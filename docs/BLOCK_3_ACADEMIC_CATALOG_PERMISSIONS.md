@@ -1,5 +1,25 @@
 # Bloque 3: permisos de catálogos académicos
 
+## Correcciones QA Saúl (20/11/2026)
+
+Períodos: POST/PUT rechaza años anteriores, rangos vencidos, fechas iguales o invertidas,
+duraciones menores de 30 o mayores de 366 días y planificación posterior al año actual + 5.
+Reglas de equipo configurables en `config/catalog_limits.php`; no se presentan como normativa externa.
+Se mantiene 422 `VALIDATION_ERROR` con errores por campo. Activar un período vencido devuelve
+422 `ACADEMIC_TERM_EXPIRED`. El vencimiento se aplica con auditoría al consultar el catálogo
+y mediante el comando programado `catalogs:refresh-statuses`; los registros históricos permanecen.
+
+Materias: el nombre no puede repetirse con otro código, aunque cambien las mayúsculas.
+La misma materia puede seguir asociándose a varias carreras. Se valida en formulario,
+servicio e importación CSV, sin borrar ni renombrar duplicados históricos.
+
+Catálogo administrativo de exámenes de incidencias (`GET /api/v1/admin/incidents/exams`):
+admite `academic_term_id`, `subject_id`, `career_id`, `course_offering_id` y `evaluation_type`
+(`partial|final|makeup|recovery`). Son filtros opcionales combinados antes de paginar;
+`meta.total` corresponde a los filtros. Conserva los campos anteriores y agrega los IDs de
+oferta/materia/período, `academic_term_name` y `evaluation_type`. IDs inexistentes: 422.
+El rediseño de navegación y los controles de estos filtros corresponden a frontend.
+
 ## Versión y límites de esta entrega
 
 Revisión e implementación local del 20/11/2026:

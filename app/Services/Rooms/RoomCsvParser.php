@@ -31,6 +31,7 @@ class RoomCsvParser
 
             $request = new SaveRoomRequest;
             $rules = array_intersect_key($request->rules(), array_flip(self::FIELDS));
+            $rules['code'][0] = 'required'; // Legacy CSV schema still includes an explicit code.
             // CSV capacities are strings, but must represent whole positive numbers.
             $rules['capacity'][] = 'regex:/^[0-9]+$/';
             $rows = [];
@@ -45,6 +46,9 @@ class RoomCsvParser
                 $raw = substr($content, $start, $end - $start);
                 $data = array_combine(self::FIELDS, array_map(fn ($index) => trim((string) ($cells[$index] ?? ''), ' '), range(0, 4)));
                 $validationData = array_map(fn ($value) => $value === '' ? null : $value, $data);
+                if (($validationData['floor'] ?? null) === 'PB') {
+                    $validationData['floor'] = '0';
+                }
                 $validator = Validator::make($validationData, $rules, $request->messages());
                 $errors = $validator->errors()->all();
                 if (count($cells) !== 5) {
@@ -64,9 +68,10 @@ class RoomCsvParser
             throw ValidationException::withMessages(['file' => 'El archivo CSV no contiene filas de datos.']);
         }
         foreach (['code', 'name'] as $field) {
-            $counts = array_count_values(array_column(array_column($rows, 'data'), $field));
+            $normalize = fn ($value) => $field === 'name' ? mb_strtolower(trim($value)) : $value;
+            $counts = array_count_values(array_map($normalize, array_column(array_column($rows, 'data'), $field)));
             foreach ($rows as &$row) {
-                if ($row['data'][$field] !== '' && $counts[$row['data'][$field]] > 1) {
+                if ($row['data'][$field] !== '' && $counts[$normalize($row['data'][$field])] > 1) {
                     $row['errors'][] = $field === 'code' ? 'El código está duplicado dentro del archivo.' : 'El nombre está duplicado dentro del archivo.';
                     $row['valid'] = false;
                 }

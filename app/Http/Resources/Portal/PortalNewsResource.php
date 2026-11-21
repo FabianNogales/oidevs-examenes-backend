@@ -14,6 +14,7 @@ class PortalNewsResource extends JsonResource
         return [
             'id' => $this->id,
             'title' => $this->title,
+            'category' => $this->category ? ['id' => $this->category->id, 'name' => $this->category->name] : null,
             'summary' => $this->summary,
             'content' => $this->when(! $request->routeIs('*.news.index'), $this->content),
             'image_url' => ($this->image_id || $this->image_path) ? route($admin ? 'portal.admin.news.image' : 'portal.public.news.image', ['news' => $this->id]) : null,

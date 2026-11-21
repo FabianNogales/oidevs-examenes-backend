@@ -73,12 +73,13 @@ class SubjectWriteTest extends TestCase
         $this->assertDatabaseMissing('career_subject', ['subject_id' => $id, 'career_id' => $this->career->id]);
     }
 
-    public function test_duplicate_codes_include_inactive_and_legacy_lowercase_but_names_can_repeat(): void
+    public function test_duplicate_codes_and_names_include_inactive_and_legacy_lowercase(): void
     {
         $subject = Subject::create(['code' => 'inf-01', 'name' => 'Programación I', 'status' => 'INACTIVE']);
         $this->postJson('/api/v1/admin/subjects', $this->payload())->assertUnprocessable()->assertJsonValidationErrors('code');
         $this->putJson('/api/v1/admin/subjects/'.$subject->id, $this->payload())->assertOk();
-        $other = $this->postJson('/api/v1/admin/subjects', $this->payload(['code' => 'INF-02']))->assertCreated()->json('data.id');
+        $this->postJson('/api/v1/admin/subjects', $this->payload(['code' => 'INF-02']))->assertUnprocessable()->assertJsonValidationErrors('name');
+        $other = $this->postJson('/api/v1/admin/subjects', $this->payload(['code' => 'INF-02', 'name' => 'Programación II']))->assertCreated()->json('data.id');
         $this->putJson('/api/v1/admin/subjects/'.$other, $this->payload())->assertUnprocessable()->assertJsonValidationErrors('code');
     }
 

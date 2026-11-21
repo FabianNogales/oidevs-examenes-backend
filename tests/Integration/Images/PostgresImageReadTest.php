@@ -129,7 +129,7 @@ class PostgresImageReadTest extends TestCase
     public function test_news_image_is_public_only_while_published(): void
     {
         $this->actingAs($this->actor('ADMINISTRADOR'));
-        $news = $this->postJson('/api/v1/admin/portal/news', ['title' => 'Fixture temporal', 'summary' => 'Resumen', 'content' => 'Contenido'])
+        $news = $this->postJson('/api/v1/admin/portal/news', ['category_id' => DB::table('portal_news_categories')->value('id'), 'title' => 'Fixture temporal', 'summary' => 'Resumen', 'content' => 'Contenido'])
             ->assertCreated()->json('data');
         $id = $news['id'];
         $news = $this->postJson("/api/v1/admin/portal/news/{$id}/image", ['revision' => $news['revision'], 'image' => RasterImageFixture::image()])

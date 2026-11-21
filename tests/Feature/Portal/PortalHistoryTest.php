@@ -8,11 +8,18 @@ use App\Models\PortalInformationContent;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class PortalHistoryTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->travelTo(\Carbon\CarbonImmutable::parse('2026-10-01 10:00:00', 'America/La_Paz'));
+    }
 
     private const BASE = '/api/v1/admin/portal';
 
@@ -67,7 +74,7 @@ class PortalHistoryTest extends TestCase
     public function test_news_history_retains_text_and_publication_metadata_but_not_storage_paths(): void
     {
         $this->actingAs($this->actor());
-        $id = $this->postJson(self::BASE.'/news', ['title' => 'Comunicado', 'summary' => 'Resumen', 'content' => 'Versión inicial'])->assertCreated()->json('data.id');
+        $id = $this->postJson(self::BASE.'/news', ['category_id' => DB::table('portal_news_categories')->value('id'), 'title' => 'Comunicado', 'summary' => 'Resumen', 'content' => 'Versión inicial'])->assertCreated()->json('data.id');
         $this->patchJson(self::BASE."/news/{$id}", ['content' => 'Versión corregida', 'revision' => 1])->assertOk();
         $this->patchJson(self::BASE."/news/{$id}/status", ['status' => 'PUBLISHED', 'revision' => 2])->assertOk();
         $this->patchJson(self::BASE."/news/{$id}/status", ['status' => 'ARCHIVED', 'revision' => 3])->assertOk();

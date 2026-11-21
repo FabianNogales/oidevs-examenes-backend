@@ -60,25 +60,40 @@ class RoomAvailabilityService
         return $query;
     }
 
-    public function annotate(Collection $rooms): Collection
+    public function annotate(Collection $rooms, ?string $date = null): Collection
     {
         if ($rooms->isEmpty()) {
             return $rooms;
         }
-        $now = CarbonImmutable::now(self::TIMEZONE);
-        $exams = $this->overlaps($now)->whereIn('room_id', $rooms->pluck('id'))
-            ->orderBy('exam_date')->orderBy('start_time')->orderBy('id')->get()->groupBy('room_id');
+        $start = $date === null ? CarbonImmutable::now(self::TIMEZONE) : CarbonImmutable::parse($date, self::TIMEZONE)->startOfDay();
+        $end = $date === null ? null : $start->addDay();
+        $query = $this->overlaps($start, $end);
+        $ids = $rooms->pluck('id');
+        $query->where(function ($query) use ($ids) {
+            $query->whereIn('room_id', $ids);
+            if (Schema::hasTable('exam_rooms')) {
+                $query->orWhereIn('id', DB::table('exam_rooms')->whereIn('room_id', $ids)->select('exam_id'));
+            }
+        });
+        $exams = $query->orderBy('exam_date')->orderBy('start_time')->orderBy('id')->get();
+        $assignments = Schema::hasTable('exam_rooms') ? DB::table('exam_rooms')->whereIn('exam_id', $exams->pluck('id'))->get()->groupBy('exam_id') : collect();
 
         foreach ($rooms as $room) {
-            $exam = $exams->get($room->id)?->first();
+            $assigned = $exams->filter(fn ($exam) => (int) $exam->room_id === (int) $room->id
+                || ($assignments->get($exam->id)?->contains('room_id', $room->id) ?? false));
+            $exam = $assigned->first();
             $room->setAttribute('availability', $exam ? 'OCCUPIED' : 'AVAILABLE');
             $current = null;
             if ($exam) {
                 [, $end] = $this->interval($exam->exam_date, $exam->start_time, (int) $exam->duration_minutes);
                 $current = ['id' => (int) $exam->id, 'name' => $exam->name, 'exam_date' => $exam->exam_date,
-                    'start_time' => $exam->start_time, 'end_time' => $end->format('H:i:s')];
+                    'start_time' => $exam->start_time, 'end_time' => $end->format('H:i:s'),
+                    'starts_at' => CarbonImmutable::parse($exam->exam_date.' '.$exam->start_time, self::TIMEZONE)->toIso8601String(),
+                    'ends_at' => $end->toIso8601String()];
             }
             $room->setAttribute('current_exam', $current);
+            $room->setAttribute('availability_date', $date ?? $start->toDateString());
+            $room->setAttribute('reservation_count', $assigned->count());
         }
 
         return $rooms;
@@ -86,6 +101,7 @@ class RoomAvailabilityService
 
     public function available(array $filters): Collection
     {
+        app(\App\Services\CatalogLifecycle::class)->reactivateRooms(request());
         $query = Room::where('status', 'ACTIVE')->orderBy('id');
         if (isset($filters['exam_date'])) {
             [$start, $end] = $this->interval($filters['exam_date'], $filters['start_time'], (int) $filters['duration_minutes']);
@@ -129,6 +145,9 @@ class RoomAvailabilityService
 
         // Called inside the exam transaction. The same room lock is used by state changes.
         $room = Room::query()->lockForUpdate()->find($roomId);
+        if ($room !== null) {
+            app(\App\Services\CatalogLifecycle::class)->reactivateLockedRoom($room, request());
+        }
         if (! $room || $room->status !== 'ACTIVE') {
             throw ValidationException::withMessages(['room_id' => 'El aula no está activa para nuevas reservas.']);
         }

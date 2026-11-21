@@ -1,5 +1,11 @@
 # HU38 / HU39 — Calendario institucional
 
+Actualización QA Saúl (20/11/2026): crear o reprogramar un evento requiere inicio
+desde mañana en America/La_Paz, duración máxima de cinco años y fechas dentro del
+horizonte de planificación de cinco años. Se mantiene 422 con errors.starts_at/ends_at.
+Editar textos, consultar, cancelar o conservar un evento histórico no exige reprogramarlo.
+Los límites configurables están en config/catalog_limits.php; revisión y permisos no cambian.
+
 Actualización V.2: historial administrativo `GET /admin/portal/events/{id}/history`.
 Ver `SPRINT3_BACKLOG_V2_ALIGNMENT.md` para contrato y resolución de HU38 CA12.
 
@@ -228,3 +234,10 @@ Contrato vigente, sin cambios:
 - PATCH de un evento histórico omitiendo category_id conserva su categoría, aunque esté
   inactiva; enviarla expresamente exige que esté activa.
 - No existe CRUD administrativo de categorías en el contrato vigente.
+
+## Ampliación de categorías (2026-11-09)
+
+La gestión ADMIN de categorías de eventos ya está disponible. Consultar
+[contrato común de categorías](PORTAL_CATEGORIES_API.md) para rutas manage,
+revision, estados, auditoría y migración automática. Los selectores existentes
+conservan su formato. No hay eliminación física.
