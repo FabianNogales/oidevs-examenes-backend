@@ -25,7 +25,7 @@ return [
         'key_id' => env('EIDA_BACKUPS_TICKET_KEY_ID', ''),
         'ttl_seconds' => 60,
     ],
-    'requests_per_hour' => 3,
+    'requests_per_hour' => 15,
     'github' => [
         'repository' => env('EIDA_BACKUPS_GITHUB_REPOSITORY', ''),
         'workflow' => 'database-backup.yml',
