@@ -20,6 +20,28 @@ FIELDS = ("id,name,mimeType,size,trashed,parents,shared,ownedByMe,isAppAuthorize
 CHUNK_BYTES = 8 * 1024 * 1024  # Multiple of Google's 256 KiB granularity, not an archive-size limit.
 ID = re.compile(r"[A-Za-z0-9_-]{1,200}")
 
+INTEGRITY_STAGES = frozenset({
+    "metadata", "media", "resumable", "dump_upload", "manifest_upload",
+    "file_identity", "dump_identity", "manifest_identity", "dump_metadata",
+    "dump_readback", "manifest_metadata", "manifest_readback", "dump_final_metadata",
+})
+INTEGRITY_CHECKS = frozenset({
+    "INVALID_FILE_IDENTIFIER", "FILE_IDENTIFIER_MISMATCH", "NAME_MISMATCH", "PARENT_MISMATCH",
+    "BACKUP_BINDING_MISMATCH", "RUN_BINDING_MISMATCH", "KIND_MISMATCH", "DOWNLOAD_NOT_ALLOWED",
+    "MIME_TYPE_MISMATCH", "SIZE_MISMATCH", "SHA256_MISMATCH", "MD5_MISMATCH",
+    "VERSION_INVALID", "SIZE_EXCEEDED", "MANIFEST_CONTENT_MISMATCH", "VERSION_CHANGED",
+})
+
+
+def integrity_failure(stage, check):
+    # One event per failure. No IDs, values, checksums, credentials or provider text.
+    print(json.dumps({
+        "event": "BACKUP_DRIVE_DIAGNOSTIC",
+        "stage": stage if stage in INTEGRITY_STAGES else "metadata",
+        "check": check if check in INTEGRITY_CHECKS else "FILE_IDENTIFIER_MISMATCH",
+    }, separators=(",", ":")), flush=True)
+    raise Failure("INTEGRITY_MISMATCH")
+
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -142,15 +164,15 @@ class DriveClient:
 
     def metadata(self, file_id):
         if not ID.fullmatch(file_id):
-            raise Failure("INTEGRITY_MISMATCH")
+            integrity_failure("metadata", "INVALID_FILE_IDENTIFIER")
         value = parse_json(self.request("GET", API + "/" + file_id + "?" + urllib.parse.urlencode({"fields": FIELDS}), retry=True)[2])
         if value.get("id") != file_id:
-            raise Failure("INTEGRITY_MISMATCH")
+            integrity_failure("metadata", "FILE_IDENTIFIER_MISMATCH")
         return value
 
     def media(self, file_id):
         if not ID.fullmatch(file_id):
-            raise Failure("INTEGRITY_MISMATCH")
+            integrity_failure("media", "INVALID_FILE_IDENTIFIER")
         return self.request("GET", API + "/" + file_id + "?alt=media", retry=True, stream=True)
 
     def generated_ids(self, count):
@@ -168,10 +190,19 @@ class DriveClient:
             raise Failure("DRIVE_PERMISSION_DENIED")
         if name is not None:
             props = metadata.get("appProperties", {})
-            if (metadata.get("name") != name or metadata.get("parents") != [self.folder_id]
-                    or props.get("backup_id") != backup_id or props.get("run_id") != run_id or props.get("kind") != kind
-                    or metadata.get("capabilities", {}).get("canDownload") is not True):
-                raise Failure("INTEGRITY_MISMATCH")
+            stage = {"dump": "dump_identity", "manifest": "manifest_identity"}.get(kind, "file_identity")
+            if metadata.get("name") != name:
+                integrity_failure(stage, "NAME_MISMATCH")
+            if metadata.get("parents") != [self.folder_id]:
+                integrity_failure(stage, "PARENT_MISMATCH")
+            if props.get("backup_id") != backup_id:
+                integrity_failure(stage, "BACKUP_BINDING_MISMATCH")
+            if props.get("run_id") != run_id:
+                integrity_failure(stage, "RUN_BINDING_MISMATCH")
+            if props.get("kind") != kind:
+                integrity_failure(stage, "KIND_MISMATCH")
+            if metadata.get("capabilities", {}).get("canDownload") is not True:
+                integrity_failure(stage, "DOWNLOAD_NOT_ALLOWED")
 
     def check_folder(self):
         folder = self.metadata(self.folder_id)
@@ -216,7 +247,8 @@ class DriveClient:
                     "Content-Length": "0", "Content-Range": f"bytes */{size}"}, expected=(200, 201, 308), retry=True)
             if status in (200, 201):
                 if parse_json(data).get("id") != file_id:
-                    raise Failure("INTEGRITY_MISMATCH")
+                    stage = {"dump": "dump_upload", "manifest": "manifest_upload"}.get(kind, "resumable")
+                    integrity_failure(stage, "FILE_IDENTIFIER_MISMATCH")
                 return file_id
             acknowledged = headers.get("Range")
             if acknowledged is None:
@@ -255,11 +287,16 @@ def upload(file, backup_id, run_id, postgres_version):
         client.resumable(file_id, file.name, "application/octet-stream", stream, size, backup_id, run_id, "dump")
     metadata = client.metadata(file_id)
     client.assert_private(metadata, file.name, backup_id, run_id, "dump")
-    if (metadata.get("mimeType") != "application/octet-stream" or metadata.get("size") != str(size)
-            or ("sha256Checksum" in metadata and metadata["sha256Checksum"] != digest)
-            or ("md5Checksum" in metadata and metadata["md5Checksum"] != md5.hexdigest())
-            or not re.fullmatch(r"[0-9]{1,100}", metadata.get("version", ""))):
-        raise Failure("INTEGRITY_MISMATCH")
+    if metadata.get("mimeType") != "application/octet-stream":
+        integrity_failure("dump_metadata", "MIME_TYPE_MISMATCH")
+    if metadata.get("size") != str(size):
+        integrity_failure("dump_metadata", "SIZE_MISMATCH")
+    if "sha256Checksum" in metadata and metadata["sha256Checksum"] != digest:
+        integrity_failure("dump_metadata", "SHA256_MISMATCH")
+    if "md5Checksum" in metadata and metadata["md5Checksum"] != md5.hexdigest():
+        integrity_failure("dump_metadata", "MD5_MISMATCH")
+    if not re.fullmatch(r"[0-9]{1,100}", metadata.get("version", "")):
+        integrity_failure("dump_metadata", "VERSION_INVALID")
     remote_sha = hashlib.sha256()
     remote_size = 0
     try:
@@ -268,11 +305,13 @@ def upload(file, backup_id, run_id, postgres_version):
                 remote_sha.update(chunk)
                 remote_size += len(chunk)
                 if remote_size > size:
-                    raise Failure("INTEGRITY_MISMATCH")
+                    integrity_failure("dump_readback", "SIZE_EXCEEDED")
     except (OSError, http.client.HTTPException):
         raise Failure("STORAGE_UNAVAILABLE") from None
-    if remote_size != size or remote_sha.hexdigest() != digest:
-        raise Failure("INTEGRITY_MISMATCH")
+    if remote_size != size:
+        integrity_failure("dump_readback", "SIZE_MISMATCH")
+    if remote_sha.hexdigest() != digest:
+        integrity_failure("dump_readback", "SHA256_MISMATCH")
     evidence = {"storage_provider": "google_drive", "file_id": file_id, "manifest_id": manifest_id,
                 "parent_id": client.folder_id, "bytes": size, "sha256": digest,
                 "md5_checksum": md5.hexdigest(), "postgres_version": postgres_version,
@@ -286,13 +325,15 @@ def upload(file, backup_id, run_id, postgres_version):
                      backup_id, run_id, "manifest")
     manifest_meta = client.metadata(manifest_id)
     client.assert_private(manifest_meta, file.name + ".manifest.json", backup_id, run_id, "manifest")
-    if manifest_meta.get("mimeType") != "application/json" or manifest_meta.get("size") != str(len(encoded)):
-        raise Failure("INTEGRITY_MISMATCH")
+    if manifest_meta.get("mimeType") != "application/json":
+        integrity_failure("manifest_metadata", "MIME_TYPE_MISMATCH")
+    if manifest_meta.get("size") != str(len(encoded)):
+        integrity_failure("manifest_metadata", "SIZE_MISMATCH")
     with client.media(manifest_id) as response:
         if response.read(8193) != encoded:
-            raise Failure("INTEGRITY_MISMATCH")
+            integrity_failure("manifest_readback", "MANIFEST_CONTENT_MISMATCH")
     current = client.metadata(file_id)
     client.assert_private(current, file.name, backup_id, run_id, "dump")
     if current.get("version") != evidence["storage_version"]:
-        raise Failure("INTEGRITY_MISMATCH")
+        integrity_failure("dump_final_metadata", "VERSION_CHANGED")
     return evidence
