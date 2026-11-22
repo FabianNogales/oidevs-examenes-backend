@@ -1,5 +1,9 @@
 # Contrato de callbacks: main y backup-execution
 
+Actualización posterior: el incidente 409 y la corrección de instantes UTC y
+reclamación remota se documentan en [BACKUPS_RUNNING_TRANSITION.md](BACKUPS_RUNNING_TRANSITION.md).
+Las comparaciones y resultados de esta sección corresponden a sus commits base.
+
 ## Resultado y evidencia pendiente
 
 Comparación obtenida mediante fetch de solo lectura de la rama remota, sin
@@ -56,10 +60,10 @@ Los reintentos conservan nonce y cuerpo, renovando timestamp y firma.
 
 El receptor valida UUID, formato numérico run_id.attempt, plazo, vinculación a
 la misma ejecución, unicidad y transición QUEUED → RUNNING. FAILED libera el slot.
-No se introducen campos workflow/branch nuevos en el payload: la rama se restringe
-en dispatch y en el job; el callback confía en HMAC del ejecutor. La comprobación
-remota de workflow/repositorio/rama/run/intento pertenece además al mecanismo de
-recuperación existente, no a una consulta nueva antes de aceptar RUNNING.
+No se introducen campos workflow/branch nuevos en el payload. La corrección
+posterior conserva HMAC y añade, antes del primer claim, la verificación remota
+del UUID/repositorio/workflow/rama/run/intento, reutilizando el validador del
+mecanismo de recuperación. Los productores originales siguen siendo compatibles.
 
 ## Corrección aplicada: diagnóstico seguro
 

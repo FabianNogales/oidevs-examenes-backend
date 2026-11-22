@@ -47,7 +47,8 @@ class BackupService
             if (Backup::whereNotNull('active_slot')->exists()) {
                 $this->reject('BACKUP_IN_PROGRESS', 409);
             }
-            if (Backup::where('requested_by', $actor->id)->where('requested_at', '>=', now()->subHour())->count()
+            if (Backup::where('requested_by', $actor->id)->where('requested_at', '>=',
+                now()->subHour()->utc()->format(Backup::STORAGE_DATE_FORMAT))->count()
                 >= config('backups.requests_per_hour')) {
                 $this->reject('BACKUP_RATE_LIMITED', 429);
             }
@@ -87,7 +88,8 @@ class BackupService
     public function reconcile(Request $request): int
     {
         return DB::transaction(function () use ($request) {
-            $abandoned = Backup::whereNotNull('active_slot')->where('deadline_at', '<=', now())->lockForUpdate()->get();
+            $abandoned = Backup::whereNotNull('active_slot')->where('deadline_at', '<=',
+                now()->utc()->format(Backup::STORAGE_DATE_FORMAT))->lockForUpdate()->get();
             $count = 0;
             foreach ($abandoned as $backup) {
                 try {
@@ -163,10 +165,26 @@ class BackupService
             $next = $payload['status'];
             $allowed = ['QUEUED' => ['RUNNING', 'FAILED'], 'RUNNING' => ['UPLOADING', 'FAILED'],
                 'UPLOADING' => ['AVAILABLE', 'FAILED']];
-            if ($backup->deadline_at->isPast() || ! in_array($next, $allowed[$backup->status] ?? [], true)
-                || ($backup->external_run_id !== null && $backup->external_run_id !== $payload['external_run_id'])
-                || Backup::where('external_run_id', $payload['external_run_id'])->where('id', '!=', $backup->id)->exists()) {
-                $this->reject('INVALID_BACKUP_TRANSITION', 409);
+            $condition = match (true) {
+                $backup->deadline_at->isPast() => 'DEADLINE_EXPIRED',
+                ! in_array($next, $allowed[$backup->status] ?? [], true) => 'STATE_NOT_ALLOWED',
+                $backup->external_run_id !== null && $backup->external_run_id !== $payload['external_run_id'] => 'RUN_ATTEMPT_MISMATCH',
+                Backup::where('external_run_id', $payload['external_run_id'])->where('id', '!=', $backup->id)->exists() => 'RUN_ALREADY_BOUND',
+                $backup->active_slot !== 1 || $backup->completed_at !== null => 'ACTIVE_SLOT_INVALID',
+                default => null,
+            };
+            if ($condition !== null) {
+                return $this->transitionRejection($request, $backup, $next, $condition);
+            }
+            if ($next === 'RUNNING' || $backup->external_run_id === null) {
+                try {
+                    $this->executor->assertRunningExecution($backup, $payload['external_run_id']);
+                } catch (BackupFailure $exception) {
+                    return $this->transitionRejection($request, $backup, $next,
+                        $exception->safeCode === 'EXECUTOR_STATE_UNVERIFIED'
+                            ? 'EXECUTION_UNVERIFIED' : 'EXECUTION_IDENTITY_MISMATCH',
+                        $exception->safeCode === 'EXECUTOR_STATE_UNVERIFIED' ? 503 : 409);
+                }
             }
             $failure = null;
             if ($next === 'AVAILABLE') {
@@ -207,9 +225,23 @@ class BackupService
 
             return $failure;
         });
+        if (is_array($failure)) {
+            $this->reject($failure['code'], $failure['status']);
+        }
         if ($failure) {
             $this->reject($failure, in_array($failure, ['STORAGE_UNAVAILABLE', 'STORAGE_NOT_CONFIGURED', 'DRIVE_RATE_LIMITED'], true) ? 503 : 422);
         }
+    }
+
+    private function transitionRejection(Request $request, Backup $backup, string $next, string $condition, int $status = 409): array
+    {
+        // Commit only this safe audit entry, then emit the rejection outside the transaction.
+        $this->record($request, 'BACKUP_TRANSITION_REJECTED', $backup, [
+            'requested_status' => $next, 'condition' => $condition,
+        ]);
+
+        return ['code' => $status === 503 ? 'EXECUTOR_STATE_UNVERIFIED' : 'INVALID_BACKUP_TRANSITION',
+            'status' => $status];
     }
 
     public function download(Request $request, Backup $backup): array

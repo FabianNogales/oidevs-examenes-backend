@@ -52,6 +52,7 @@ class ManualBackupTest extends TestCase
             'backups.download.issuer' => 'test-issuer']);
         $this->executor = Mockery::mock(BackupExecutor::class);
         $this->executor->shouldReceive('ready')->andReturn(true)->byDefault();
+        $this->executor->shouldReceive('assertRunningExecution')->andReturnNull()->byDefault();
         $this->executor->shouldReceive('dispatch')->andReturn('ACCEPTED')->byDefault();
         $this->storage = Mockery::mock(BackupStorage::class);
         $this->storage->shouldReceive('ready')->andReturn(true)->byDefault();

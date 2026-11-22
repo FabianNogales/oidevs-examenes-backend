@@ -13,4 +13,7 @@ interface BackupExecutor
 
     /** Verify the latest remote attempt is completed; otherwise throw BackupFailure. */
     public function completedExecution(Backup $backup): string;
+
+    /** Authenticate the remote run/attempt that is claiming this UUID. */
+    public function assertRunningExecution(Backup $backup, string $externalId): void;
 }

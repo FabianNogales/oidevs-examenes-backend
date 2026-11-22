@@ -47,6 +47,46 @@ class GithubBackupExecutor implements BackupExecutor
         }
     }
 
+    public function assertRunningExecution(Backup $backup, string $externalId): void
+    {
+        if (! preg_match('/\A[0-9]{1,30}\.[0-9]{1,10}\z/', $externalId)) {
+            throw new BackupFailure('EXECUTOR_IDENTITY_MISMATCH');
+        }
+        try {
+            if (! $this->ready()) {
+                throw new BackupFailure('EXECUTOR_STATE_UNVERIFIED');
+            }
+            $config = config('backups.github');
+            $runId = explode('.', $externalId)[0];
+            $response = Http::withToken($config['token'])->accept('application/vnd.github+json')
+                ->withHeaders(['X-GitHub-Api-Version' => '2022-11-28', 'Cache-Control' => 'no-cache'])
+                ->connectTimeout(2)->timeout(5)->withoutRedirecting()
+                ->get('https://api.github.com/repos/'.$config['repository'].'/actions/runs/'.$runId);
+            $run = $response->json();
+            if (! $response->successful() || ! is_array($run)
+                || ! isset($run['id'], $run['status'], $run['run_attempt'], $run['workflow_id'],
+                    $run['display_title'], $run['head_branch'], $run['path'], $run['event'],
+                    $run['repository']['full_name'], $run['created_at'])) {
+                throw new BackupFailure('EXECUTOR_STATE_UNVERIFIED');
+            }
+            try {
+                $confirmed = $this->validatedExecutionId($backup, $run);
+            } catch (BackupFailure) {
+                throw new BackupFailure('EXECUTOR_IDENTITY_MISMATCH');
+            }
+            if ($confirmed !== $externalId || $run['status'] === 'completed') {
+                throw new BackupFailure('EXECUTOR_IDENTITY_MISMATCH');
+            }
+            if ($run['status'] !== 'in_progress' || ($run['conclusion'] ?? null) !== null) {
+                throw new BackupFailure('EXECUTOR_STATE_UNVERIFIED');
+            }
+        } catch (BackupFailure $failure) {
+            throw $failure;
+        } catch (Throwable) {
+            throw new BackupFailure('EXECUTOR_STATE_UNVERIFIED');
+        }
+    }
+
     public function completedExecution(Backup $backup): string
     {
         try {
