@@ -9,6 +9,11 @@ use App\Http\Middleware\EnsureBackupAdministrator;
 use Illuminate\Support\Facades\Route;
 use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 
+// Temporary public, configuration-only diagnostic. Remove after the investigation.
+Route::get('backups/readiness', BackupReadinessController::class)
+    ->withoutMiddleware(EnsureFrontendRequestsAreStateful::class)
+    ->middleware('throttle:10,1,backups-readiness:');
+
 Route::prefix('admin/backups')->middleware(['auth:sanctum', 'session.current', 'password.changed',
     EnsureActiveAdministrator::class, EnsureBackupAdministrator::class, 'throttle:60,1,backups-read:'])->group(function () {
         Route::get('/', [BackupController::class, 'index']);

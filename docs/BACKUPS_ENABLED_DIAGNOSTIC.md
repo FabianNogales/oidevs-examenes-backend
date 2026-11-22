@@ -1,6 +1,6 @@
 # Diagnóstico seguro de summary.enabled
 
-Inspección actual del commit local c83a6fde47951489122d9320449639b2c7ca88cf.
+Base local de esta actualización: 46fd3b5a98d78fb007710c1df206754cbedbd706.
 No se inspeccionaron valores secretos ni el entorno efectivo de Vercel. Por ello
 no se atribuye el fallo de producción a una condición concreta sin su diagnóstico.
 El usuario confirmó EIDA_BACKUPS_GITHUB_REF=backup-execution en Production; falta
@@ -95,7 +95,55 @@ eso diagnostica el build, no garantiza igualdad con un runtime personalizado.
 Para comprobar el runtime se preparó el endpoint administrativo temporal descrito
 a continuación. No se desplegó ni se habilitó en Vercel durante este trabajo.
 
-## Endpoint administrativo temporal
+## Endpoint público temporal para la investigación
+
+GET /api/v1/backups/readiness
+
+Esta ruta alternativa es pública por decisión explícita del usuario. Se registra
+fuera del grupo admin/backups, sin auth:sanctum, session.current,
+password.changed, EnsureActiveAdministrator ni EnsureBackupAdministrator.
+Excluye EnsureFrontendRequestsAreStateful únicamente para esta ruta, de modo que
+una cookie del navegador no inicie el pipeline de autenticación de sesión.
+Los controles SEC-01/02 y el middleware global móvil permanecen intactos.
+
+Reutiliza BackupReadinessController y BackupReadinessDiagnostic::administratorReport:
+el nombre del método no aplica autorización, sino que identifica la proyección
+segura de cinco booleanos y failed_conditions. No se duplica la lógica y no se
+publica el reporte ampliado del comando CLI. No devuelve valores, nombres de
+variables, credenciales, IDs, rutas internas, mensajes de excepción ni trazas.
+No llama a APIs externas, reconcile ni generación de respaldos.
+
+EIDA_BACKUPS_DIAGNOSTICS_ENABLED sigue siendo false por defecto. Con true,
+un visitante sin sesión recibe 200 incluso si overall_ready es false. Con false
+recibe 404 con failed_conditions=["diagnostics_disabled"].
+Las respuestas del controlador incluyen Cache-Control: private, no-store.
+Se aplica un límite de 10 solicitudes por minuto; al superarlo se devuelve 429.
+
+Para consultarla, abrir directamente en Chrome:
+
+~~~text
+https://DOMINIO-REAL-DEL-BACKEND/api/v1/backups/readiness
+~~~
+
+No hace falta iniciar sesión ni copiar cookies. Mantener el switch habilitado
+solo durante la investigación. Al terminar, apagarlo mediante la configuración
+del deployment y retirar obligatoriamente el registro de esta ruta pública de
+routes/api/backups.php. El endpoint administrativo existente mantiene todos sus
+controles. No se modifican las validaciones que calculan summary.enabled.
+No se desplegó ni habilitó la ruta durante este trabajo.
+
+Las pruebas de BackupReadinessDiagnosticTest cubren visitante 200/404, respuesta
+exacta segura, ausencia de middleware administrativos, ausencia de sesión
+iniciada por una cookie y rate limit, además de los casos administrativos previos.
+Validación focalizada: 35 pruebas, 207 aserciones, correctas; se utilizó
+phpunit.offline.xml con SQLite en memoria y el procedimiento temporal de lectura
+documentado al final. No se ejecutaron migraciones contra bases persistentes.
+
+~~~powershell
+php vendor/bin/phpunit -c phpunit.offline.xml tests/Feature/Backups/BackupReadinessDiagnosticTest.php
+~~~
+
+## Endpoint administrativo temporal (se conserva protegido)
 
 GET /api/v1/admin/backups/diagnostics/readiness
 

@@ -2,7 +2,7 @@
 
 return [
     'enabled' => (bool) env('EIDA_BACKUPS_ENABLED', false),
-    // Temporary administrator endpoint; disable after the investigation.
+    // Temporary diagnostic endpoints; disable after the investigation.
     'diagnostics' => [
         'enabled' => (bool) env('EIDA_BACKUPS_DIAGNOSTICS_ENABLED', false),
     ],

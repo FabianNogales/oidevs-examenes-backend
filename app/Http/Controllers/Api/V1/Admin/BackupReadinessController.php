@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Backups\BackupReadinessDiagnostic;
 use Illuminate\Http\JsonResponse;
 
-/** Temporary administrator-only investigation endpoint. Disable after diagnosis. */
+/** Temporary configuration-only diagnostic; access is determined by each route. */
 class BackupReadinessController extends Controller
 {
     public function __invoke(BackupReadinessDiagnostic $diagnostic): JsonResponse

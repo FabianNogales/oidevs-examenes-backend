@@ -4,15 +4,21 @@ namespace Tests\Feature\Backups;
 
 use App\Http\Controllers\Api\V1\Admin\BackupController;
 use App\Http\Controllers\Api\V1\Admin\BackupReadinessController;
+use App\Http\Middleware\EnsureActiveAdministrator;
+use App\Http\Middleware\EnsureBackupAdministrator;
+use App\Http\Middleware\EnsureCurrentSession;
+use App\Http\Middleware\EnsurePasswordHasBeenChanged;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Backups\BackupExecutor;
 use App\Services\Backups\BackupReadinessDiagnostic;
 use App\Services\Backups\BackupService;
+use Illuminate\Auth\Middleware\Authenticate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
@@ -22,6 +28,8 @@ class BackupReadinessDiagnosticTest extends TestCase
     use RefreshDatabase;
 
     private const ENDPOINT = '/api/v1/admin/backups/diagnostics/readiness';
+
+    private const PUBLIC_ENDPOINT = '/api/v1/backups/readiness';
 
     private const PASSWORD = 'ReadinessTestPass1';
 
@@ -66,6 +74,68 @@ class BackupReadinessDiagnosticTest extends TestCase
     public static function moduleReadinessStates(): array
     {
         return ['enabled' => [true], 'disabled' => [false]];
+    }
+
+    #[DataProvider('moduleReadinessStates')]
+    public function test_public_guest_gets_only_safe_indicators_when_diagnostic_is_enabled(bool $enabled): void
+    {
+        config(['backups.enabled' => $enabled]);
+        $response = $this->getJson(self::PUBLIC_ENDPOINT)->assertOk()->assertExactJson([
+            'module_enabled' => $enabled,
+            'callback_secret_valid' => true,
+            'github_executor_ready' => true,
+            'drive_storage_ready' => true,
+            'overall_ready' => $enabled,
+            'failed_conditions' => $enabled ? [] : ['module_enabled', 'overall_ready'],
+        ]);
+        $this->assertStringContainsString('no-store', $response->headers->get('Cache-Control'));
+        $this->assertDatabaseCount('backups', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_public_guest_gets_404_when_diagnostic_is_disabled(): void
+    {
+        config(['backups.diagnostics.enabled' => false]);
+        $response = $this->getJson(self::PUBLIC_ENDPOINT)->assertNotFound()
+            ->assertExactJson(['failed_conditions' => ['diagnostics_disabled']]);
+        $this->assertStringContainsString('no-store', $response->headers->get('Cache-Control'));
+        Http::assertNothingSent();
+    }
+
+    public function test_public_route_does_not_inherit_administrative_or_stateful_middleware(): void
+    {
+        $router = $this->app['router'];
+        $route = $router->getRoutes()->match(Request::create(self::PUBLIC_ENDPOINT, 'GET'));
+        $middleware = $router->gatherRouteMiddleware($route);
+        foreach ([
+            Authenticate::class.':sanctum',
+            EnsureCurrentSession::class,
+            EnsurePasswordHasBeenChanged::class,
+            EnsureActiveAdministrator::class,
+            EnsureBackupAdministrator::class,
+            EnsureFrontendRequestsAreStateful::class,
+        ] as $excluded) {
+            $this->assertNotContains($excluded, $middleware);
+        }
+        $this->assertSame(BackupReadinessController::class.'@__invoke', $route->getAction('uses'));
+    }
+
+    public function test_public_route_does_not_start_a_session_from_a_browser_cookie(): void
+    {
+        $this->withCredentials()->withHeader('Origin', 'http://localhost')
+            ->withCookie(config('session.cookie'), Str::random(40));
+        $this->getJson(self::PUBLIC_ENDPOINT)->assertOk();
+        $this->assertFalse($this->app['request']->hasSession());
+        Http::assertNothingSent();
+    }
+
+    public function test_public_guest_is_limited_to_ten_requests_per_minute(): void
+    {
+        for ($request = 0; $request < 10; $request++) {
+            $this->getJson(self::PUBLIC_ENDPOINT)->assertOk();
+        }
+        $this->getJson(self::PUBLIC_ENDPOINT)->assertStatus(429)->assertHeader('Retry-After');
+        Http::assertNothingSent();
     }
 
     #[DataProvider('moduleReadinessStates')]
