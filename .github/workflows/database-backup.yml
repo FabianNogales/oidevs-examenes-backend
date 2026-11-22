@@ -35,18 +35,18 @@ jobs:
         env:
           BACKUP_ID: ${{ inputs.backup_id }}
           BACKUP_RUN_ID: ${{ github.run_id }}.${{ github.run_attempt }}
-          BACKUP_CALLBACK_URL: ${{ secrets.EIDA_BACKUPS_CALLBACK_URL }}
-          BACKUP_CALLBACK_SECRET: ${{ secrets.EIDA_BACKUPS_CALLBACK_SECRET }}
-          PGHOST: ${{ secrets.EIDA_BACKUPS_PGHOST }}
-          PGPORT: ${{ secrets.EIDA_BACKUPS_PGPORT }}
-          PGDATABASE: ${{ secrets.EIDA_BACKUPS_PGDATABASE }}
-          PGUSER: ${{ secrets.EIDA_BACKUPS_PGUSER }}
-          PGPASSWORD: ${{ secrets.EIDA_BACKUPS_PGPASSWORD }}
-          PGSSLMODE: ${{ secrets.EIDA_BACKUPS_PGSSLMODE }}
-          BACKUP_PG_CA_PEM: ${{ secrets.EIDA_BACKUPS_PG_CA_PEM }}
-          BACKUP_DRIVE_CLIENT_ID: ${{ secrets.EIDA_BACKUPS_DRIVE_CLIENT_ID }}
-          BACKUP_DRIVE_CLIENT_SECRET: ${{ secrets.EIDA_BACKUPS_DRIVE_CLIENT_SECRET }}
-          BACKUP_DRIVE_REFRESH_TOKEN: ${{ secrets.EIDA_BACKUPS_DRIVE_REFRESH_TOKEN }}
-          BACKUP_DRIVE_FOLDER_ID: ${{ secrets.EIDA_BACKUPS_DRIVE_FOLDER_ID }}
+          BACKUP_CALLBACK_URL: ${{ secrets.EIDA_BACKUPS_CALLBACK_URL || vars.EIDA_BACKUPS_CALLBACK_URL }}
+          BACKUP_CALLBACK_SECRET: ${{ secrets.EIDA_BACKUPS_CALLBACK_SECRET || vars.EIDA_BACKUPS_CALLBACK_SECRET }}
+          PGHOST: ${{ secrets.EIDA_BACKUPS_PGHOST || vars.EIDA_BACKUPS_PGHOST }}
+          PGPORT: ${{ secrets.EIDA_BACKUPS_PGPORT || vars.EIDA_BACKUPS_PGPORT }}
+          PGDATABASE: ${{ secrets.EIDA_BACKUPS_PGDATABASE || vars.EIDA_BACKUPS_PGDATABASE }}
+          PGUSER: ${{ secrets.EIDA_BACKUPS_PGUSER || vars.EIDA_BACKUPS_PGUSER }}
+          PGPASSWORD: ${{ secrets.EIDA_BACKUPS_PGPASSWORD || vars.EIDA_BACKUPS_PGPASSWORD }}
+          PGSSLMODE: ${{ secrets.EIDA_BACKUPS_PGSSLMODE || vars.EIDA_BACKUPS_PGSSLMODE }}
+          BACKUP_PG_CA_PEM: ${{ secrets.EIDA_BACKUPS_PG_CA_PEM || vars.EIDA_BACKUPS_PG_CA_PEM }}
+          BACKUP_DRIVE_CLIENT_ID: ${{ secrets.EIDA_BACKUPS_DRIVE_CLIENT_ID || vars.EIDA_BACKUPS_DRIVE_CLIENT_ID }}
+          BACKUP_DRIVE_CLIENT_SECRET: ${{ secrets.EIDA_BACKUPS_DRIVE_CLIENT_SECRET || vars.EIDA_BACKUPS_DRIVE_CLIENT_SECRET }}
+          BACKUP_DRIVE_REFRESH_TOKEN: ${{ secrets.EIDA_BACKUPS_DRIVE_REFRESH_TOKEN || vars.EIDA_BACKUPS_DRIVE_REFRESH_TOKEN }}
+          BACKUP_DRIVE_FOLDER_ID: ${{ secrets.EIDA_BACKUPS_DRIVE_FOLDER_ID || vars.EIDA_BACKUPS_DRIVE_FOLDER_ID }}
         run: '"$RUNNER_TEMP/eida-backup-python/bin/python" scripts/backups/executor.py'
       # No upload-artifact, deployment, restore, or automatic retention/deletion.
