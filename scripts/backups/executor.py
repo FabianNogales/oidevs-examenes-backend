@@ -153,14 +153,78 @@ class Callback:
         raise Failure("CALLBACK_UNREACHABLE")
 
 
-def command(arguments, code, timeout=120):
+PG_DIAGNOSTIC_CATEGORIES = frozenset({
+    "TLS_MODE_INVALID", "DOCKER_EXECUTION_FAILED", "COMMAND_TIMED_OUT",
+    "DNS_RESOLUTION_FAILED", "NETWORK_UNREACHABLE", "HOST_OR_PORT_UNREACHABLE",
+    "CONNECTION_TIMED_OUT", "CONNECTION_FAILED", "AUTHENTICATION_REJECTED",
+    "DATABASE_NOT_FOUND", "TLS_CERTIFICATE_UNAVAILABLE", "TLS_NEGOTIATION_FAILED",
+    "CONNECTION_POLICY_REJECTED", "CONNECTION_CONFIGURATION_INVALID", "QUERY_FAILED",
+    "QUERY_RESULT_INVALID", "SERVER_TLS_NOT_CONFIRMED",
+})
+
+
+def postgres_diagnostic(category, stage="discovery"):
+    """Fixed categories only. Never emit subprocess text, argv or environment."""
+    print(json.dumps({
+        "event": "BACKUP_POSTGRES_DIAGNOSTIC",
+        "stage": stage if stage in ("configuration", "discovery") else "discovery",
+        "category": category if category in PG_DIAGNOSTIC_CATEGORIES else "QUERY_FAILED",
+    }, separators=(",", ":")), flush=True)
+
+
+def postgres_failure_category(returncode, stderr):
+    if returncode in (125, 126, 127):
+        return "DOCKER_EXECUTION_FAILED"
+    # Inspect a bounded fragment in memory. Only an allowlisted category is logged.
+    text = stderr[:65536] if isinstance(stderr, (bytes, str)) else b""
+    text = text.decode("utf-8", errors="replace") if isinstance(text, bytes) else text
+    text = text.lower()
+    if (re.search(r"(?:fatal|error):\s*(?:28p01|28000)\b", text)
+            or any(marker in text for marker in ("password authentication failed", "authentication failed",
+                                                 "no password supplied"))):
+        return "AUTHENTICATION_REJECTED"
+    if (re.search(r"(?:fatal|error):\s*3d000\b", text)
+            or re.search(r'\bdatabase\s+"[^"\r\n]*"\s+does not exist\b', text)):
+        return "DATABASE_NOT_FOUND"
+    if any(marker in text for marker in ("could not translate host name", "name or service not known",
+                                         "temporary failure in name resolution", "could not resolve hostname")):
+        return "DNS_RESOLUTION_FAILED"
+    if any(marker in text for marker in ("network is unreachable", "no route to host",
+                                         "cannot assign requested address")):
+        return "NETWORK_UNREACHABLE"
+    if "connection refused" in text:
+        return "HOST_OR_PORT_UNREACHABLE"
+    if any(marker in text for marker in ("timeout expired", "connection timed out")):
+        return "CONNECTION_TIMED_OUT"
+    if ("root certificate file" in text and ("does not exist" in text or "could not read" in text)):
+        return "TLS_CERTIFICATE_UNAVAILABLE"
+    if any(marker in text for marker in ("ssl error", "tls error", "certificate verify failed",
+                                         "server does not support ssl", "ssl connection has been closed",
+                                         "could not establish ssl connection", "ssl handshake failed")):
+        return "TLS_NEGOTIATION_FAILED"
+    if "pg_hba.conf" in text:
+        return "CONNECTION_POLICY_REJECTED"
+    if "invalid port number" in text or "invalid connection option" in text:
+        return "CONNECTION_CONFIGURATION_INVALID"
+    return "CONNECTION_FAILED" if returncode == 2 else "QUERY_FAILED"
+
+
+def command(arguments, code, timeout=120, diagnostic_stage=None):
     try:
         try:
             result = subprocess.run(arguments, check=False, capture_output=True, timeout=timeout)
-        except (OSError, subprocess.TimeoutExpired):
+        except subprocess.TimeoutExpired:
+            if diagnostic_stage is not None:
+                postgres_diagnostic("COMMAND_TIMED_OUT", diagnostic_stage)
+            raise Failure(code) from None
+        except OSError:
+            if diagnostic_stage is not None:
+                postgres_diagnostic("DOCKER_EXECUTION_FAILED", diagnostic_stage)
             raise Failure(code) from None
         if result.returncode != 0:
-            raise Failure(code)
+            if diagnostic_stage is not None:
+                postgres_diagnostic(postgres_failure_category(result.returncode, result.stderr), diagnostic_stage)
+            raise Failure(code) from None
         return result.stdout.decode("utf-8", errors="strict").strip()
     finally:
         # Killing the Docker CLI does not necessarily stop its container (especially
@@ -180,6 +244,7 @@ def command(arguments, code, timeout=120):
 def pg_command(image, directory, program, arguments):
     # Argument arrays only. PG credentials are inherited env, never shell/dispatch/argv values.
     args = ["docker", "run", "--rm", "--network", "host", "--user", f"{os.getuid()}:{os.getgid()}",
+            "--env", "LC_ALL=C",
             "--cidfile", str(directory / (str(uuid.uuid4()) + ".cid"))]
     for name in ("PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD", "PGSSLMODE", "PGCONNECT_TIMEOUT"):
         args += ["--env", name]
@@ -198,6 +263,7 @@ def archive(directory, backup_id):
     os.environ["PGSSLMODE"] = os.environ.get("PGSSLMODE") or "require"
     os.environ["PGCONNECT_TIMEOUT"] = "15"
     if os.environ["PGSSLMODE"] not in ("require", "verify-full"):
+        postgres_diagnostic("TLS_MODE_INVALID", "configuration")
         raise Failure("TLS_REQUIRED")
     if os.environ.get("BACKUP_PG_CA_PEM"):
         (directory / "root.crt").write_text(os.environ["BACKUP_PG_CA_PEM"])
@@ -206,9 +272,14 @@ def archive(directory, backup_id):
     query = ("SELECT current_setting('server_version_num'), current_setting('server_version'), ssl "
              "FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
     discovered = command(pg_command("postgres:17-bookworm", directory, "psql",
-                         ["-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", query]), "TLS_REQUIRED")
+                         ["-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", query]), "TLS_REQUIRED",
+                         diagnostic_stage="discovery")
     parts = discovered.split("|")
-    if len(parts) != 3 or parts[2] != "t" or not parts[0].isdigit():
+    if len(parts) != 3 or not parts[0].isdigit() or parts[2] not in ("t", "f"):
+        postgres_diagnostic("QUERY_RESULT_INVALID")
+        raise Failure("TLS_REQUIRED")
+    if parts[2] != "t":
+        postgres_diagnostic("SERVER_TLS_NOT_CONFIRMED")
         raise Failure("TLS_REQUIRED")
     major = int(parts[0]) // 10000
     if not 14 <= major <= 19 or not re.fullmatch(r"[0-9][0-9A-Za-z .()+_-]{0,99}", parts[1]):
