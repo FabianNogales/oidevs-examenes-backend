@@ -21,6 +21,7 @@ Route::prefix('admin/backups')->middleware(['auth:sanctum', 'session.current', '
         Route::post('/', [BackupController::class, 'store'])->middleware('throttle:3,60,backups-create:');
         Route::get('/{backup}', [BackupController::class, 'show'])->whereUuid('backup');
         Route::post('/{backup}/download-ticket', [BackupController::class, 'download'])->whereUuid('backup')->middleware('throttle:20,1,backups-download:');
+        Route::post('/{backup}/recover', [BackupController::class, 'recover'])->whereUuid('backup')->middleware('throttle:6,1,backups-recover:');
     });
 
 Route::post('backup-executor/callback', BackupCallbackController::class)

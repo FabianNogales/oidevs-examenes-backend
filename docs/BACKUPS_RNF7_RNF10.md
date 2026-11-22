@@ -68,12 +68,20 @@ por hora se comprueban también dentro del bloqueo de base. Se conservan límite
 separados de caché: 60 operaciones/min, 20 tickets/min y 60 callbacks/min por IP.
 En serverless, usar caché compartida para los límites de lectura/callback.
 
-Plazo absoluto: 60 minutos. Workflow: 30 minutos y límites por proceso. Reconciliación
-en listado/detalle/solicitud/callback y backups:reconcile. El scheduler existente
-declara cada cinco minutos, pero solo corre si se opera ese scheduler: no se
-configuró cron externo. Un trabajo vencido no puede reclamar ni revivir una fila.
+Plazo absoluto para callbacks: 60 minutos. Workflow: 30 minutos y límites por
+proceso. Reconciliación en listado/detalle/solicitud/callback y backups:reconcile.
+Ahora el vencimiento solo inicia la comprobación: para liberar active_slot se
+exige confirmar en GitHub que la ejecución terminó; ante estado activo o
+desconocido se conserva el bloqueo. El scheduler existente declara cada cinco
+minutos, pero solo corre si se opera ese scheduler: no se configuró cron externo.
+Un trabajo vencido no puede reclamar ni revivir una fila.
 Dispatch rechazado definitivamente produce FAILED; una respuesta ambigua conserva
 QUEUED/DISPATCH_UNCONFIRMED sin redispatch ciego. Los reruns no vuelven a reclamar.
+
+Recuperación administrativa antes del plazo: POST /admin/backups/{uuid}/recover.
+Reutiliza la transición verificada de reconciliación y registra BACKUP_RECOVERED
+en la misma transacción. Conserva autenticación, sesión, contraseña y rol base,
+y no inicia ni cancela ejecuciones. Véase [procedimiento y límites](BACKUPS_RECOVERY.md).
 
 Se reutilizan auth:sanctum, session.current, password.changed,
 EnsureActiveAdministrator y EnsureBackupAdministrator: ADMINISTRADOR con

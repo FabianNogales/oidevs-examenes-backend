@@ -2,6 +2,7 @@
 
 namespace App\Services\Backups;
 
+use App\Enums\RoleName;
 use App\Models\Backup;
 use App\Services\Admin\AdministratorOperation;
 use App\Services\Audit\AuditLogService;
@@ -87,14 +88,59 @@ class BackupService
     {
         return DB::transaction(function () use ($request) {
             $abandoned = Backup::whereNotNull('active_slot')->where('deadline_at', '<=', now())->lockForUpdate()->get();
+            $count = 0;
             foreach ($abandoned as $backup) {
-                $backup->forceFill(['status' => 'FAILED', 'error_code' => 'EXECUTION_EXPIRED',
-                    'completed_at' => now(), 'active_slot' => null])->save();
-                $this->record($request, 'BACKUP_ABANDONED', $backup, ['error_code' => 'EXECUTION_EXPIRED']);
+                try {
+                    $this->failCompletedExecution($request, $backup, 'EXECUTION_EXPIRED', 'BACKUP_ABANDONED');
+                    $count++;
+                } catch (BackupFailure) {
+                    // A deadline alone never proves a runner has stopped. Keep the slot.
+                }
             }
 
-            return $abandoned->count();
+            return $count;
         });
+    }
+
+    public function recover(Request $request, string $backupId): Backup
+    {
+        try {
+            return app(AdministratorOperation::class)->run($request, function ($actor) use ($request, $backupId) {
+                abort_unless($actor->activeRoles()->where('roles.name', RoleName::ADMINISTRADOR->value)
+                    ->where('roles.is_custom', false)->exists(), 403);
+                $backup = Backup::whereKey($backupId)->lockForUpdate()->firstOrFail();
+                if ($backup->status === 'FAILED' && $backup->active_slot === null && $backup->completed_at !== null) {
+                    return $backup;
+                }
+                $this->failCompletedExecution($request, $backup, 'EXECUTOR_TERMINATED', 'BACKUP_RECOVERED');
+
+                return $backup;
+            });
+        } catch (BackupFailure $failure) {
+            $this->record($request, 'BACKUP_RECOVERY_REJECTED', Backup::find($backupId),
+                ['error_code' => $failure->safeCode]);
+            $this->reject($failure->safeCode, $failure->safeCode === 'EXECUTOR_STATE_UNVERIFIED' ? 503 : 409);
+        }
+    }
+
+    private function failCompletedExecution(Request $request, Backup $backup, string $code, string $action): void
+    {
+        if (! in_array($backup->status, Backup::ACTIVE, true) || $backup->active_slot !== 1
+            || $backup->completed_at !== null) {
+            throw new BackupFailure('BACKUP_NOT_RECOVERABLE');
+        }
+        // Called only with the target row locked, including the remote verification.
+        $externalId = $this->executor->completedExecution($backup);
+        if (! preg_match('/\A[0-9]{1,30}\.[0-9]{1,10}\z/', $externalId)
+            || ($backup->external_run_id !== null && $backup->external_run_id !== $externalId)
+            || Backup::where('external_run_id', $externalId)->where('id', '!=', $backup->id)->exists()) {
+            throw new BackupFailure('EXECUTOR_IDENTITY_MISMATCH');
+        }
+        $previous = $backup->status;
+        $backup->forceFill(['status' => 'FAILED', 'error_code' => $code, 'external_run_id' => $externalId,
+            'completed_at' => now(), 'active_slot' => null])->save();
+        $this->record($request, $action, $backup, ['error_code' => $code,
+            'previous_status' => $previous, 'external_run_id' => $externalId]);
     }
 
     public function callback(Request $request, array $payload): void

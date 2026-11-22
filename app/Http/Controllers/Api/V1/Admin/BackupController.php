@@ -56,4 +56,10 @@ class BackupController extends Controller
         return response()->json(['data' => $this->service->download($request, Backup::findOrFail($backup))])
             ->header('Cache-Control', 'private, no-store')->header('Referrer-Policy', 'no-referrer');
     }
+
+    public function recover(Request $request, string $backup): JsonResponse
+    {
+        return response()->json(['data' => BackupResource::make($this->service->recover($request, $backup))])
+            ->header('Cache-Control', 'private, no-store');
+    }
 }
