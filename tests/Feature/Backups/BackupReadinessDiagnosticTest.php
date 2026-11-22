@@ -2,13 +2,17 @@
 
 namespace Tests\Feature\Backups;
 
+use App\Http\Controllers\Api\V1\Admin\BackupController;
+use App\Http\Controllers\Api\V1\Admin\BackupReadinessController;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Backups\BackupExecutor;
 use App\Services\Backups\BackupReadinessDiagnostic;
 use App\Services\Backups\BackupService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
@@ -18,6 +22,8 @@ class BackupReadinessDiagnosticTest extends TestCase
     use RefreshDatabase;
 
     private const ENDPOINT = '/api/v1/admin/backups/diagnostics/readiness';
+
+    private const PASSWORD = 'ReadinessTestPass1';
 
     // Fail before RefreshDatabase can touch a non-isolated database.
     public function createApplication()
@@ -42,6 +48,7 @@ class BackupReadinessDiagnosticTest extends TestCase
         Http::fake();
         config([
             'sanctum.stateful' => ['localhost'],
+            'eida.institutional_email_domains' => ['umss.edu.bo'],
             'backups.diagnostics.enabled' => true,
             'backups.enabled' => true,
             'backups.callback_secret' => str_repeat('callback-sensitive-marker-', 2),
@@ -54,6 +61,70 @@ class BackupReadinessDiagnosticTest extends TestCase
             'backups.drive.refresh_token' => 'refresh-token-sensitive-marker',
             'backups.drive.folder_id' => 'folder-sensitive-marker',
         ]);
+    }
+
+    public static function moduleReadinessStates(): array
+    {
+        return ['enabled' => [true], 'disabled' => [false]];
+    }
+
+    #[DataProvider('moduleReadinessStates')]
+    public function test_same_real_login_cookie_can_list_backups_then_read_diagnostic(bool $enabled): void
+    {
+        config(['backups.enabled' => $enabled]);
+        [$user, $sessionId] = $this->loginAdministratorThroughFortify();
+
+        // Forget cached guards between requests: only the real cookie authenticates.
+        $this->useBrowserSession($sessionId)->getJson('/api/v1/admin/backups')
+            ->assertOk()->assertJsonPath('summary.enabled', $enabled);
+        $this->assertSame($sessionId, $user->refresh()->active_session_id);
+        $this->useBrowserSession($sessionId)->getJson(self::ENDPOINT)
+            ->assertOk()->assertExactJson([
+                'module_enabled' => $enabled,
+                'callback_secret_valid' => true,
+                'github_executor_ready' => true,
+                'drive_storage_ready' => true,
+                'overall_ready' => $enabled,
+                'failed_conditions' => $enabled ? [] : ['module_enabled', 'overall_ready'],
+            ]);
+        $this->assertSame($sessionId, $user->refresh()->active_session_id);
+        $this->assertDatabaseCount('backups', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_static_diagnostic_route_has_the_same_resolved_middleware_as_listing(): void
+    {
+        $router = $this->app['router'];
+        $listing = $router->getRoutes()->match(Request::create('/api/v1/admin/backups', 'GET'));
+        $diagnostic = $router->getRoutes()->match(Request::create(self::ENDPOINT, 'GET'));
+        $detail = $router->getRoutes()->match(Request::create(
+            '/api/v1/admin/backups/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'GET'
+        ));
+
+        $this->assertSame(BackupController::class.'@index', $listing->getActionName());
+        $this->assertSame(BackupReadinessController::class.'@__invoke', $diagnostic->getAction('uses'));
+        $this->assertSame([], $diagnostic->parameters());
+        $this->assertSame(BackupController::class.'@show', $detail->getActionName());
+        $this->assertSame($router->gatherRouteMiddleware($listing), $router->gatherRouteMiddleware($diagnostic));
+        Http::assertNothingSent();
+    }
+
+    public function test_destroyed_real_login_session_cannot_read_diagnostic(): void
+    {
+        [, $sessionId] = $this->loginAdministratorThroughFortify();
+        $this->app['session']->getHandler()->destroy($sessionId);
+        $this->useBrowserSession($sessionId, persistCurrentSession: false)->getJson(self::ENDPOINT)
+            ->assertUnauthorized()->assertJsonPath('message', 'La sesión no es válida o ha expirado.')
+            ->assertJsonMissingPath('overall_ready');
+        Http::assertNothingSent();
+    }
+
+    public function test_unknown_session_cookie_cannot_reuse_a_cached_authenticated_guard(): void
+    {
+        $this->loginAdministratorThroughFortify();
+        $this->useBrowserSession(Str::random(40))->getJson(self::ENDPOINT)
+            ->assertUnauthorized()->assertJsonMissingPath('overall_ready');
+        Http::assertNothingSent();
     }
 
     public function test_guest_cannot_access_diagnostic(): void
@@ -219,10 +290,7 @@ class BackupReadinessDiagnosticTest extends TestCase
 
     private function authenticateAdministrator(string $name = 'ADMINISTRADOR', bool $custom = false): User
     {
-        $user = User::factory()->create(['status' => 'ACTIVE', 'must_change_password' => false]);
-        $role = Role::firstOrCreate(['name' => $name], ['status' => 'ACTIVE']);
-        $role->forceFill(['is_custom' => $custom])->save();
-        $user->roles()->attach($role->id, ['assigned_at' => now(), 'status' => 'ACTIVE']);
+        $user = $this->createAccount($name, $custom);
         $this->withSession(['backup_diagnostic_test' => true]);
         $sessionId = $this->app['session']->getId();
         $user->forceFill(['active_session_id' => $sessionId])->save();
@@ -230,5 +298,47 @@ class BackupReadinessDiagnosticTest extends TestCase
             ->withCookie(config('session.cookie'), $sessionId);
 
         return $user;
+    }
+
+    private function createAccount(string $name = 'ADMINISTRADOR', bool $custom = false): User
+    {
+        $user = User::factory()->create([
+            'email' => 'readiness-'.Str::lower(Str::random(12)).'@umss.edu.bo',
+            'password' => self::PASSWORD, 'status' => 'ACTIVE', 'must_change_password' => false,
+        ]);
+        $role = Role::firstOrCreate(['name' => $name], ['status' => 'ACTIVE']);
+        $role->forceFill(['is_custom' => $custom])->save();
+        $user->roles()->attach($role->id, ['assigned_at' => now(), 'status' => 'ACTIVE']);
+
+        return $user;
+    }
+
+    private function loginAdministratorThroughFortify(): array
+    {
+        $user = $this->createAccount();
+        $this->useBrowserSession(Str::random(40))->postJson('/login', [
+            'identifier' => $user->email, 'password' => self::PASSWORD,
+        ])->assertOk();
+        $sessionId = $user->refresh()->active_session_id;
+        $this->assertIsString($sessionId);
+        $this->assertNotEmpty($sessionId);
+
+        return [$user, $sessionId];
+    }
+
+    private function useBrowserSession(string $sessionId, bool $persistCurrentSession = true): self
+    {
+        // Same request-isolation pattern used by SingleSessionTest, with array storage.
+        if ($persistCurrentSession && $this->app['session']->isStarted()) {
+            $this->app['session']->save();
+        }
+        $this->app['auth']->forgetGuards();
+        $this->app['session']->flush();
+        $this->app['session']->setId($sessionId);
+        $this->defaultCookies = [];
+        $this->unencryptedCookies = [];
+
+        return $this->withCredentials()->withHeader('Origin', 'http://localhost')
+            ->withCookie(config('session.cookie'), $sessionId);
     }
 }

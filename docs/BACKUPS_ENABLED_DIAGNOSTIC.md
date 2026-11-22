@@ -1,6 +1,6 @@
 # Diagnóstico seguro de summary.enabled
 
-Inspección estática del commit local d37e0f88ff239a6cce84639b36d56ee566305d07.
+Inspección actual del commit local c83a6fde47951489122d9320449639b2c7ca88cf.
 No se inspeccionaron valores secretos ni el entorno efectivo de Vercel. Por ello
 no se atribuye el fallo de producción a una condición concreta sin su diagnóstico.
 El usuario confirmó EIDA_BACKUPS_GITHUB_REF=backup-execution en Production; falta
@@ -206,12 +206,164 @@ compartido. Usa únicamente SQLite :memory:, session/cache array, bloqueo/fakes
 HTTP y comprobación de que no se envían solicitudes ni se crean respaldos.
 
 ~~~powershell
-php vendor/bin/phpunit --filter BackupReadinessDiagnosticTest
+php vendor/bin/phpunit -c phpunit.offline.xml tests/Feature/Backups/BackupReadinessDiagnosticTest.php
 ~~~
 
-No se ejecutó PHPUnit, respetando la restricción previa del usuario. El guard de
-aislamiento falla antes de RefreshDatabase si detecta una configuración externa
-o cacheada. El operador debe usar un entorno local de pruebas aislado.
+La investigación posterior del 401 amplió y ejecutó únicamente este archivo:
+29 casos, 170 aserciones, correctos. El guard de aislamiento falla antes de
+RefreshDatabase si detecta configuración externa o cacheada. Los esquemas de
+prueba se crean exclusivamente en SQLite :memory:; no se ejecutó Artisan migrate
+contra una base local persistente ni productiva, ni una suite completa.
+
+## Investigación de listado 200 y diagnóstico 401
+
+El usuario confirmó que Production tiene Source
+c83a6fde47951489122d9320449639b2c7ca88cf, idéntico al HEAD inspeccionado.
+También confirmó Copy as fetch de una solicitud del listado que funciona,
+cambiando solo la URL. No se atribuye el problema a falta de login.
+No se accedió a Production desde esta investigación.
+
+### Evidencia local
+
+Se ejecutó php artisan route:list --path=backups -vv con APP_ENV=testing,
+DB_URL vacío, SQLite :memory:, sesión/cache array y APP_KEY de prueba, sin
+consultas productivas. No hay duplicación local de las rutas.
+Ambos GET resuelven exactamente este pipeline, en el mismo orden:
+
+1. EnforceMobileTokenAccess
+2. EnsureFrontendRequestsAreStateful
+3. Authenticate:sanctum
+4. ThrottleRequests:60,1,backups-read:
+5. SubstituteBindings
+6. EnsureCurrentSession
+7. EnsurePasswordHasBeenChanged
+8. EnsureActiveAdministrator
+9. EnsureBackupAdministrator
+
+EnsureFrontendRequestsAreStateful abre internamente el pipeline de cookies/sesión
+solo si Referer u Origin coincide con sanctum.stateful; no clasifica por la ruta
+de backups. Sanctum usa el guard web. No se sustituyó ningún guard.
+
+La ruta estática se registra antes de /{backup}; además, /{backup} solo admite
+un segmento UUID y no puede absorber diagnostics/readiness. No hay parámetro
+backup ni binding de modelo en el diagnóstico.
+
+### Origen exacto del mensaje y límites de la conclusión
+
+bootstrap/app.php:47–50 convierte AuthenticationException en HTTP 401 con:
+La sesión no es válida o ha expirado.
+
+Ese render común no distingue las dos fuentes aplicables del pipeline:
+
+| Fuente | Condición que lanza la excepción |
+| --- | --- |
+| Illuminate\Auth\Middleware\Authenticate (auth:sanctum) | Ninguno de los guards indicados autentica al usuario; con sanctum, no se obtiene usuario web ni token válido |
+| Laravel\Sanctum\Http\Middleware\AuthenticateSession | Hay usuario y sesión, existe password_hash_web en sesión y no coincide con el hash esperado; cierra esa sesión y lanza AuthenticationException |
+
+La respuesta por sí sola no permite afirmar cuál de las dos condiciones ocurrió.
+No se registran hashes ni valores de sesión para distinguirlas.
+
+| Otro control | Respuesta distinta en este código |
+| --- | --- |
+| EnsureCurrentSession: cuenta inactiva | 401 con code ACCOUNT_INACTIVE |
+| EnsureCurrentSession: sesión reemplazada | 401 con code SESSION_REPLACED |
+| password.changed | 403 con code PASSWORD_CHANGE_REQUIRED |
+| Rol/cuenta administrativa insuficiente | 403 |
+| Diagnóstico apagado, después de autorizar | 404 con diagnostics_disabled |
+| Ruta/binding inexistente, una vez autorizado | 404 |
+
+El switch del diagnóstico se evalúa dentro del controlador, después de auth.
+Ni apagarlo ni una credencial Drive/GitHub inválida generan este mensaje 401.
+Por eso no se relajaron los controles ni se cambió la ruta para ocultar el error.
+La causa concreta del comportamiento diferente en Vercel sigue sin demostrarse.
+El mismo Source no certifica que dos peticiones usen el mismo artefacto,
+rutas compiladas, función, configuración o estado de sesión.
+
+### Regresión con autenticación real
+
+Se añadieron cinco casos a BackupReadinessDiagnosticTest:
+
+- Login real Fortify → listado 200 → diagnóstico 200 con la misma cookie,
+  tanto con backups.enabled=true como con false (dos casos).
+- Selección exacta del controlador estático, ausencia de parámetros y comparación
+  del middleware resuelto con el listado; el detalle UUID sigue resolviendo show.
+- Sesión real destruida → 401 genérico.
+- Cookie desconocida tras un login real → acceso rechazado, sin reutilizar
+  accidentalmente un guard autenticado que quedó en memoria.
+
+El helper persiste la sesión array y olvida guards entre solicitudes, siguiendo
+el patrón de SingleSessionTest. Los casos de login real no usan actingAs ni
+fuerzan active_session_id: lo escribe el flujo existente RecordLastLogin.
+Se conservan las pruebas anteriores de invitado, rol ajeno/personalizado, cuenta
+inactiva, contraseña pendiente, sesión reemplazada, switch apagado y JSON seguro.
+
+### Comprobación pendiente en Vercel, a cargo del operador
+
+1. En el navegador conservar el contexto autenticado ya comprobado. Repetir
+   listado → diagnóstico → listado en una misma sesión, anotando solo hora,
+   estado HTTP, host/ruta final y presencia de redirecciones. El segundo listado
+   permite detectar si la sesión fue invalidada entre peticiones. No exportar
+   Copy as fetch, HAR, Cookie, Authorization ni Set-Cookie.
+2. En el proyecto de Vercel abrir Logs y filtrar Environment Production,
+   Deployment, GET y los dos Request Path. Correlacionar por hora/request ID.
+   Comparar deploymentId, función y recursos Rewrite/Redirect si aparecen.
+   La documentación de [Runtime Logs](https://vercel.com/docs/logs/runtime)
+   describe estos filtros. Los logs existentes pueden no indicar qué rama de
+   autenticación falló: su ausencia no prueba que no existió el rechazo.
+3. Revisar en privado, sin compartir valores: presencia de cookie en ambas
+   solicitudes finales, coincidencia de Referer/Origin con sanctum.stateful,
+   mismo backend de sesiones y configuración consistente de descifrado de
+   cookies entre las funciones. Una cookie presente no demuestra que se
+   descifró ni que su sesión pudo recuperarse. No regenerar APP_KEY ni cookies
+   globales como ensayo: invalidaría sesiones.
+4. En el artefacto PHP exacto que publica el pipeline, si permite CLI, obtener
+   route:list --path=backups -vv y comparar el pipeline anterior. Revisar solo
+   existencia/fecha/origen de bootstrap/cache/routes*.php y config.php; no
+   imprimir el contenido de config.php ni valores de configuración.
+   Un resultado obtenido solo en build no demuestra el estado del runtime.
+5. No usar env dumps, config:show, phpinfo o APP_DEBUG=true en Production.
+   Si los pasos anteriores no distinguen auth:sanctum de AuthenticateSession,
+   hace falta evidencia privada dentro de la invocación: únicamente código de
+   condición, controlador esperado y booleanos de contexto; jamás trazas,
+   hashes, cookies o datos del usuario. Este cambio no añade instrumentación
+   previa a la autenticación ni un endpoint público para obtenerla.
+
+No se requiere un deployment para ejecutar las pruebas locales añadidas.
+No hay un parche productivo confirmado que desplegar. Si la evidencia identifica
+un artefacto/ruta cacheada incorrecta, la corrección corresponde al pipeline y
+requerirá un nuevo deployment autorizado desde el Source correcto; no se afirma
+que esa sea la causa. Conservar EIDA_BACKUPS_DIAGNOSTICS_ENABLED=true solo
+durante la investigación y apagarlo al finalizar.
+
+### Particularidad del ejecutor local de PHPUnit en Windows
+
+El comando directo se detuvo antes de cargar tests con Cannot open bootstrap
+script, aunque el archivo existe: PHP devuelve is_readable=false para archivos
+del repositorio, incluido vendor/autoload.php. No se atribuye este problema
+local al 401 de Vercel ni se cambiaron ACL, vendor o configuración de PHPUnit.
+
+Para verificar los 29 casos se usaron copias temporales idénticas del archivo de
+pruebas y un bootstrap que requiere el autoloader original. Se mantuvo
+phpunit.offline.xml y se eliminaron las copias al terminar. Reproducción local
+desde la raíz del backend si aparece el mismo problema:
+
+~~~powershell
+$readinessTempDirectory = Join-Path ([IO.Path]::GetTempPath()) ('eida-readiness-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $readinessTempDirectory | Out-Null
+$readinessBootstrap = Join-Path $readinessTempDirectory 'bootstrap.php'
+$readinessTestCopy = Join-Path $readinessTempDirectory 'BackupReadinessDiagnosticTest.php'
+try {
+    Set-Content -LiteralPath $readinessBootstrap -Value "<?php require 'C:/proyecto/oidevs-examenes-backend/vendor/autoload.php';" -Encoding ascii
+    Copy-Item -LiteralPath 'tests/Feature/Backups/BackupReadinessDiagnosticTest.php' -Destination $readinessTestCopy
+    php vendor/bin/phpunit -c phpunit.offline.xml --bootstrap $readinessBootstrap $readinessTestCopy
+    $readinessTestExit = $LASTEXITCODE
+} finally {
+    Remove-Item -LiteralPath $readinessBootstrap -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $readinessTestCopy -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $readinessTempDirectory -ErrorAction SilentlyContinue
+}
+Write-Output "PHPUnit exit: $readinessTestExit"
+~~~
 
 ## Corrección manual en Vercel, según el resultado
 
