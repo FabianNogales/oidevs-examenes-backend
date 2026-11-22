@@ -2,6 +2,10 @@
 
 return [
     'enabled' => (bool) env('EIDA_BACKUPS_ENABLED', false),
+    // Temporary administrator endpoint; disable after the investigation.
+    'diagnostics' => [
+        'enabled' => (bool) env('EIDA_BACKUPS_DIAGNOSTICS_ENABLED', false),
+    ],
     'executor' => env('EIDA_BACKUPS_EXECUTOR', 'github'),
     'callback_secret' => env('EIDA_BACKUPS_CALLBACK_SECRET', ''),
     'callback_window_seconds' => 300,
