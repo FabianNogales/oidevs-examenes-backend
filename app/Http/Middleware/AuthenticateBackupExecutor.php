@@ -21,10 +21,18 @@ class AuthenticateBackupExecutor
         $signature = $request->header('X-Backup-Signature', '');
         $body = $request->getContent();
         $canonical = $timestamp."\n".$nonce."\nPOST\n".BackupService::CALLBACK_PATH."\n".$body;
-        if (strlen($body) > 16384 || ! ctype_digit($timestamp) || ! Str::isUuid($nonce)
-            || abs(now()->timestamp - (int) $timestamp) > config('backups.callback_window_seconds')
-            || ! hash_equals(hash_hmac('sha256', $canonical, $secret), $signature)) {
-            app(BackupService::class)->record($request, 'BACKUP_CALLBACK_REJECTED', context: ['error_code' => 'EXECUTOR_UNAUTHENTICATED']);
+        $condition = match (true) {
+            strlen($body) > 16384 => 'BODY_TOO_LARGE',
+            ! ctype_digit($timestamp) => 'TIMESTAMP_INVALID',
+            ! Str::isUuid($nonce) => 'NONCE_INVALID',
+            abs(now()->timestamp - (int) $timestamp) > config('backups.callback_window_seconds') => 'TIMESTAMP_EXPIRED',
+            ! hash_equals(hash_hmac('sha256', $canonical, $secret), $signature) => 'SIGNATURE_MISMATCH',
+            default => null,
+        };
+        if ($condition !== null) {
+            app(BackupService::class)->record($request, 'BACKUP_CALLBACK_REJECTED', context: [
+                'error_code' => 'EXECUTOR_UNAUTHENTICATED', 'condition' => $condition,
+            ]);
 
             return response()->json(['code' => 'EXECUTOR_UNAUTHENTICATED', 'message' => 'Firma no válida.'], 401);
         }

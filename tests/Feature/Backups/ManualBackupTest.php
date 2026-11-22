@@ -2,9 +2,11 @@
 
 namespace Tests\Feature\Backups;
 
+use App\Models\AuditLog;
 use App\Models\Backup;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Audit\AuditLogService;
 use App\Services\Backups\BackupExecutor;
 use App\Services\Backups\BackupFailure;
 use App\Services\Backups\BackupService;
@@ -62,7 +64,8 @@ class ManualBackupTest extends TestCase
     {
         $id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
-        return [['GET', ''], ['POST', ''], ['GET', '/'.$id], ['POST', '/'.$id.'/download-ticket']];
+        return [['GET', ''], ['POST', ''], ['GET', '/'.$id], ['POST', '/'.$id.'/download-ticket'],
+            ['POST', '/'.$id.'/recover']];
     }
 
     #[DataProvider('adminEndpoints')]
@@ -209,10 +212,144 @@ class ManualBackupTest extends TestCase
         $this->account();
         $backup = $this->backup(['status' => 'RUNNING', 'active_slot' => 1,
             'external_run_id' => '123.1', 'deadline_at' => now()->subMinute()]);
+        $this->executor->shouldReceive('completedExecution')->once()->andReturn('123.1');
         $this->getJson('/api/v1/admin/backups/'.$backup->id)->assertOk()->assertJsonPath('data.state', 'FAILED')
             ->assertJsonPath('data.error_code', 'EXECUTION_EXPIRED');
         $this->sendBackupCallbackRequest(['backup_id' => $backup->id, 'status' => 'UPLOADING', 'external_run_id' => '123.1'])->assertConflict();
         $this->assertDatabaseHas('audit_logs', ['action' => 'BACKUP_ABANDONED']);
+    }
+
+    public function test_completed_execution_can_be_recovered_without_touching_history_and_then_request_again(): void
+    {
+        $user = $this->account();
+        $history = $this->backup();
+        $historyBefore = $history->refresh()->getAttributes();
+        $backup = $this->backup(['status' => 'QUEUED', 'active_slot' => 1]);
+        $this->executor->shouldReceive('completedExecution')->once()
+            ->with(Mockery::on(fn ($candidate) => $candidate->id === $backup->id))->andReturn('123.1');
+
+        $this->postJson('/api/v1/admin/backups/'.$backup->id.'/recover')->assertOk()
+            ->assertJsonPath('data.state', 'FAILED')->assertJsonPath('data.error_code', 'EXECUTOR_TERMINATED');
+        $this->assertNull($backup->refresh()->active_slot);
+        $this->assertSame('123.1', $backup->external_run_id);
+        $this->assertNotNull($backup->completed_at);
+        $this->assertSame($historyBefore, $history->refresh()->getAttributes());
+        $this->assertDatabaseHas('audit_logs', ['action' => 'BACKUP_RECOVERED', 'user_id' => $user->id]);
+        $audit = AuditLog::where('action', 'BACKUP_RECOVERED')->firstOrFail();
+        $this->assertSame($backup->id, $audit->new_values['backup_id']);
+        $this->assertSame('QUEUED', $audit->new_values['previous_status']);
+        $this->assertSame('123.1', $audit->new_values['external_run_id']);
+
+        // Idempotent recovery neither verifies again nor releases any other slot.
+        $this->postJson('/api/v1/admin/backups/'.$backup->id.'/recover')->assertOk();
+        $this->assertSame(1, AuditLog::where('action', 'BACKUP_RECOVERED')->count());
+        $this->executor->shouldReceive('dispatch')->once()->andReturn('ACCEPTED');
+        $this->postJson('/api/v1/admin/backups')->assertStatus(202)->assertJsonPath('data.state', 'QUEUED');
+        $this->assertSame(1, Backup::whereNotNull('active_slot')->count());
+        $this->assertDatabaseCount('backups', 3);
+    }
+
+    public function test_recovery_does_not_require_backup_generation_to_be_enabled(): void
+    {
+        $this->account();
+        config(['backups.enabled' => false]);
+        $backup = $this->backup(['status' => 'QUEUED', 'active_slot' => 1]);
+        $this->executor->shouldReceive('completedExecution')->once()->andReturn('123.1');
+        $this->executor->shouldNotReceive('dispatch');
+        $this->postJson('/api/v1/admin/backups/'.$backup->id.'/recover')->assertOk()
+            ->assertJsonPath('data.state', 'FAILED');
+    }
+
+    public static function unverifiedExecutions(): array
+    {
+        return [['EXECUTOR_ACTIVE', 409], ['EXECUTOR_STATE_UNVERIFIED', 503]];
+    }
+
+    #[DataProvider('unverifiedExecutions')]
+    public function test_active_or_unverified_execution_keeps_its_slot_even_after_deadline(string $code, int $status): void
+    {
+        $this->account();
+        $backup = $this->backup(['status' => 'QUEUED', 'active_slot' => 1, 'deadline_at' => now()->subMinute()]);
+        $this->executor->shouldReceive('completedExecution')->andThrow(new BackupFailure($code));
+        $this->postJson('/api/v1/admin/backups/'.$backup->id.'/recover')->assertStatus($status)
+            ->assertJsonPath('code', $code);
+        $this->getJson('/api/v1/admin/backups/'.$backup->id)->assertOk()->assertJsonPath('data.state', 'QUEUED');
+        $this->assertSame(1, $backup->refresh()->active_slot);
+        $this->assertNull($backup->completed_at);
+        $this->assertDatabaseMissing('audit_logs', ['action' => 'BACKUP_RECOVERED']);
+        $this->executor->shouldNotReceive('dispatch');
+        $this->postJson('/api/v1/admin/backups')->assertConflict()->assertJsonPath('code', 'BACKUP_IN_PROGRESS');
+    }
+
+    public function test_recovery_rejects_available_or_inconsistent_records(): void
+    {
+        $this->account();
+        $this->executor->shouldNotReceive('completedExecution');
+        foreach ([['status' => 'AVAILABLE'], ['status' => 'QUEUED', 'active_slot' => null]] as $values) {
+            $backup = $this->backup($values);
+            $this->postJson('/api/v1/admin/backups/'.$backup->id.'/recover')->assertConflict()
+                ->assertJsonPath('code', 'BACKUP_NOT_RECOVERABLE');
+            $this->assertSame($values['status'], $backup->refresh()->status);
+        }
+    }
+
+    public function test_recovery_cannot_bind_an_execution_already_used_by_another_record(): void
+    {
+        $this->account();
+        $this->backup(['external_run_id' => '123.1']);
+        $backup = $this->backup(['status' => 'QUEUED', 'active_slot' => 1]);
+        $this->executor->shouldReceive('completedExecution')->once()->andReturn('123.1');
+        $this->postJson('/api/v1/admin/backups/'.$backup->id.'/recover')->assertConflict()
+            ->assertJsonPath('code', 'EXECUTOR_IDENTITY_MISMATCH');
+        $this->assertSame(1, $backup->refresh()->active_slot);
+    }
+
+    public function test_late_callbacks_cannot_reactivate_a_recovered_backup(): void
+    {
+        $this->account();
+        $backup = $this->backup(['status' => 'QUEUED', 'active_slot' => 1]);
+        $this->executor->shouldReceive('completedExecution')->once()->andReturn('123.1');
+        $this->postJson('/api/v1/admin/backups/'.$backup->id.'/recover')->assertOk();
+        foreach (['RUNNING', 'UPLOADING'] as $status) {
+            $this->sendBackupCallbackRequest(['backup_id' => $backup->id, 'status' => $status,
+                'external_run_id' => '123.1'])->assertConflict();
+        }
+        $this->sendBackupCallbackRequest($this->evidence($backup))->assertConflict();
+        $this->assertSame('FAILED', $backup->refresh()->status);
+        $this->assertNull($backup->active_slot);
+        $this->assertDatabaseCount('backup_callback_receipts', 0);
+    }
+
+    public function test_recovery_requires_an_active_account_and_changed_password(): void
+    {
+        $user = $this->account();
+        $backup = $this->backup(['status' => 'QUEUED', 'active_slot' => 1]);
+        $this->executor->shouldNotReceive('completedExecution');
+        $user->forceFill(['must_change_password' => true])->save();
+        $this->postJson('/api/v1/admin/backups/'.$backup->id.'/recover')->assertForbidden();
+        $user->forceFill(['must_change_password' => false, 'status' => 'INACTIVE'])->save();
+        $this->postJson('/api/v1/admin/backups/'.$backup->id.'/recover')->assertUnauthorized();
+    }
+
+    public function test_audit_failure_rolls_back_the_state_change_and_slot_release(): void
+    {
+        $this->account();
+        $backup = $this->backup(['status' => 'QUEUED', 'active_slot' => 1]);
+        $this->executor->shouldReceive('completedExecution')->once()->andReturn('123.1');
+        $audit = Mockery::mock(AuditLogService::class);
+        $audit->shouldReceive('log')->once()->andThrow(new \RuntimeException('audit unavailable'));
+        $this->app->instance(AuditLogService::class, $audit);
+        $this->withoutExceptionHandling();
+        try {
+            $this->postJson('/api/v1/admin/backups/'.$backup->id.'/recover');
+            $this->fail('Recovery must not commit without its audit entry.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('audit unavailable', $exception->getMessage());
+        }
+        $this->assertSame('QUEUED', $backup->refresh()->status);
+        $this->assertSame(1, $backup->active_slot);
+        $this->assertNull($backup->external_run_id);
+        $this->assertNull($backup->completed_at);
     }
 
     public function test_download_is_authorized_reverified_audited_and_never_proxies_dump(): void
