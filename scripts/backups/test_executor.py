@@ -1,13 +1,16 @@
 """Isolated unit tests. Never invoke a Docker container, database or remote API."""
 
+import contextlib
 import hashlib
 import hmac
 import io
 import json
 import os
+import socket
 from pathlib import Path
 import tempfile
 import unittest
+import urllib.error
 from unittest.mock import MagicMock, patch
 
 import executor
@@ -15,6 +18,68 @@ import drive_storage
 
 
 class ExecutorTest(unittest.TestCase):
+    def test_rejected_callback_logs_only_safe_http_category_and_known_fields(self):
+        environment = {"BACKUP_CALLBACK_URL": "https://example.invalid" + executor.CALLBACK_PATH,
+                       "BACKUP_CALLBACK_SECRET": "sensitive-secret-marker-" * 3}
+        cases = [(401, "authentication_rejected", "EXECUTOR_UNAUTHENTICATED"),
+                 (403, "authorization_rejected", None), (409, "state_conflict", "INVALID_BACKUP_TRANSITION"),
+                 (422, "payload_invalid", None), (308, "redirect_rejected", None)]
+        for http_status, category, code in cases:
+            with self.subTest(http_status=http_status), patch.dict(os.environ, environment, clear=True), \
+                    patch("executor.urllib.request.build_opener") as opener, \
+                    patch("executor.time.sleep") as sleep, contextlib.redirect_stdout(io.StringIO()) as output:
+                body = json.dumps({"code": code, "message": environment["BACKUP_CALLBACK_SECRET"],
+                                   "errors": {"external_run_id": ["sensitive-validation-marker"],
+                                              "sensitive-field-marker": ["sensitive-token-marker"]}}).encode()
+                opener.return_value.open.side_effect = urllib.error.HTTPError(
+                    "https://sensitive-host-marker.invalid", http_status, "sensitive-reason-marker", {},
+                    io.BytesIO(body))
+                with self.assertRaises(executor.Failure) as failure:
+                    executor.Callback("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "123.1").send("RUNNING")
+                self.assertEqual(failure.exception.code, "CALLBACK_REJECTED")
+                diagnostic = json.loads(output.getvalue())
+                self.assertEqual(diagnostic["phase"], "RUNNING")
+                self.assertEqual(diagnostic["http_status"], http_status)
+                self.assertEqual(diagnostic["category"], category)
+                self.assertEqual(diagnostic["response_code"], code)
+                self.assertEqual(diagnostic["validation_fields"], ["external_run_id"])
+                self.assertEqual(diagnostic["execution_state"], "claim_pending")
+                self.assertNotIn("sensitive", output.getvalue())
+                self.assertNotIn("signature", output.getvalue().lower())
+                sleep.assert_not_called()
+
+    def test_unknown_response_codes_and_html_are_never_echoed(self):
+        environment = {"BACKUP_CALLBACK_URL": "https://example.invalid" + executor.CALLBACK_PATH,
+                       "BACKUP_CALLBACK_SECRET": "t" * 48}
+        for body in [b'{"code":"sensitive-provider-marker"}', b"<html>sensitive-marker</html>",
+                     b'{"message":"' + b"sensitive" * 800 + b'"}']:
+            with patch.dict(os.environ, environment, clear=True), \
+                    patch("executor.urllib.request.build_opener") as opener, \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                opener.return_value.open.side_effect = urllib.error.HTTPError(
+                    environment["BACKUP_CALLBACK_URL"], 403, "", {}, io.BytesIO(body))
+                with self.assertRaises(executor.Failure):
+                    executor.Callback("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "123.1").send("RUNNING")
+                self.assertIsNone(json.loads(output.getvalue())["response_code"])
+                self.assertNotIn("sensitive", output.getvalue())
+
+    def test_transport_errors_are_classified_without_exception_text_and_retried_boundedly(self):
+        environment = {"BACKUP_CALLBACK_URL": "https://example.invalid" + executor.CALLBACK_PATH,
+                       "BACKUP_CALLBACK_SECRET": "t" * 48}
+        with patch.dict(os.environ, environment, clear=True), \
+                patch("executor.urllib.request.build_opener") as opener, patch("executor.time.sleep"), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            opener.return_value.open.side_effect = urllib.error.URLError(
+                socket.gaierror("sensitive-dns-marker"))
+            with self.assertRaises(executor.Failure) as failure:
+                executor.Callback("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "123.1").send("RUNNING")
+            self.assertEqual(failure.exception.code, "CALLBACK_UNREACHABLE")
+            diagnostics = [json.loads(line) for line in output.getvalue().splitlines()]
+            self.assertEqual(len(diagnostics), 4)
+            self.assertTrue(all(item["transport_error"] == "dns" for item in diagnostics))
+            self.assertTrue(all(item["http_status"] is None for item in diagnostics))
+            self.assertNotIn("sensitive", output.getvalue())
+
     def test_callback_signature_binds_body_nonce_method_path_and_timestamp(self):
         environment = {"BACKUP_CALLBACK_URL": "https://example.invalid" + executor.CALLBACK_PATH,
                        "BACKUP_CALLBACK_SECRET": "t" * 48}

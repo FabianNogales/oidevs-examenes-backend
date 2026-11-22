@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 import re
 import signal
+import socket
+import ssl
 import subprocess
 import tempfile
 import time
@@ -23,6 +25,70 @@ from backup_errors import Failure
 from drive_storage import upload
 
 CALLBACK_PATH = "/api/v1/backup-executor/callback"
+
+CALLBACK_CODES = frozenset({
+    "EXECUTOR_UNAUTHENTICATED", "BACKUPS_DISABLED", "INVALID_BACKUP_TRANSITION", "CALLBACK_REPLAY",
+    "STORAGE_UNAVAILABLE", "STORAGE_NOT_CONFIGURED", "DRIVE_RATE_LIMITED", "FILE_MISSING",
+    "INTEGRITY_MISMATCH", "DRIVE_PERMISSION_DENIED", "OAUTH_REVOKED",
+})
+CALLBACK_FIELDS = frozenset({
+    "backup_id", "external_run_id", "status", "storage_provider", "file_id", "manifest_id",
+    "parent_id", "bytes", "sha256", "storage_version", "md5_checksum", "integrity_method",
+    "postgres_version", "error_code",
+})
+
+
+def callback_diagnostic(phase, attempt, http_status=None, response=None, transport_error=None):
+    """Only fixed codes/field names and numbers reach logs, never provider text."""
+    categories = {401: "authentication_rejected", 403: "authorization_rejected",
+                  404: "callback_not_found", 409: "state_conflict", 413: "payload_too_large",
+                  419: "csrf_rejected", 422: "payload_invalid", 429: "rate_limited"}
+    category = categories.get(http_status, "unexpected_http_response")
+    if http_status is not None and 300 <= http_status < 400:
+        category = "redirect_rejected"
+    elif http_status is not None and http_status >= 500:
+        category = "server_unavailable"
+    if transport_error:
+        category = "transport_failure"
+    code, fields = None, []
+    if response is not None:
+        try:
+            raw = response.read(4097)
+            data = json.loads(raw) if len(raw) <= 4096 else None
+            if isinstance(data, dict):
+                candidate = data.get("code")
+                code = candidate if isinstance(candidate, str) and candidate in CALLBACK_CODES else None
+                errors = data.get("errors")
+                if isinstance(errors, dict):
+                    fields = sorted(field for field in errors if field in CALLBACK_FIELDS)
+        except (OSError, ValueError, TypeError):
+            pass
+    states = {"RUNNING": "claim_pending", "UPLOADING": "running",
+              "AVAILABLE": "uploading", "FAILED": "terminating"}
+    print(json.dumps({
+        "event": "BACKUP_CALLBACK_DIAGNOSTIC",
+        "phase": phase if phase in states else "UNKNOWN",
+        "attempt": attempt,
+        "http_status": http_status,
+        "category": category,
+        "response_code": code,
+        "validation_fields": fields,
+        "execution_state": states.get(phase, "unknown"),
+        "transport_error": transport_error,
+    }, separators=(",", ":")), flush=True)
+
+
+def callback_transport_error(error):
+    reason = getattr(error, "reason", error)
+    if isinstance(reason, (TimeoutError, socket.timeout)):
+        return "timeout"
+    if isinstance(reason, ssl.SSLError):
+        return "tls"
+    if isinstance(reason, socket.gaierror):
+        return "dns"
+    if isinstance(reason, ConnectionError):
+        return "connection"
+    return "transport_error"
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -72,11 +138,16 @@ class Callback:
                 with urllib.request.build_opener(NoRedirect).open(request, timeout=20) as response:
                     if response.status == 200:
                         return
+                    callback_diagnostic(status, attempt + 1, response.status)
             except urllib.error.HTTPError as error:
+                try:
+                    callback_diagnostic(status, attempt + 1, error.code, error)
+                finally:
+                    error.close()
                 if error.code < 500 and error.code != 429:
                     raise Failure("CALLBACK_REJECTED") from None
-            except (OSError, urllib.error.URLError):
-                pass
+            except (OSError, urllib.error.URLError) as error:
+                callback_diagnostic(status, attempt + 1, transport_error=callback_transport_error(error))
             if attempt < 3:
                 time.sleep(2 ** attempt)
         raise Failure("CALLBACK_UNREACHABLE")
