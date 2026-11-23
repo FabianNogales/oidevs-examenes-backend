@@ -182,7 +182,15 @@ export async function verifyTicket(
         !/^[0-9]{1,100}$/.test(claims.storage_version)
     )
         throw new DownloadFailure("INVALID_TICKET", 401);
-    if (claims.exp <= now) throw new DownloadFailure("TICKET_EXPIRED", 410);
+    if (claims.exp <= now) {
+        console.info(JSON.stringify({
+            event: "BACKUP_DOWNLOAD_DIAGNOSTIC",
+            phase: "before_consume",
+            condition: "TICKET_EXPIRED",
+            consumed: false,
+        }));
+        throw new DownloadFailure("TICKET_EXPIRED", 410);
+    }
     return claims;
 }
 
@@ -384,9 +392,9 @@ export async function handle(request: Request, env: Env): Promise<Response> {
         if (form.size !== 1 || !form.has("ticket"))
             throw new DownloadFailure("INVALID_REQUEST", 400);
         const claims = await verifyTicket(form.get("ticket")!, env);
+        // Expiry authorizes the start. D1 still arbitrates this single use;
+        // its latency and Drive preparation must not expire an accepted request.
         await consume(claims, env); // Fail closed before OAuth or any file access.
-        if (claims.exp <= Math.floor(Date.now() / 1000))
-            throw new DownloadFailure("TICKET_EXPIRED", 410);
         const token = await accessToken(env);
         await metadata(claims, token);
         // No signal timeout on the streaming response body: the ticket limits start,
@@ -407,8 +415,6 @@ export async function handle(request: Request, env: Env): Promise<Response> {
             // Recheck identity, size and content hash after opening media.
             // No dump buffering; only a second small metadata response is read here.
             await metadata(claims, token);
-            if (claims.exp <= Math.floor(Date.now() / 1000))
-                throw new DownloadFailure("TICKET_EXPIRED", 410);
         } catch (error) {
             await upstream.body?.cancel();
             throw error;
@@ -429,6 +435,14 @@ export async function handle(request: Request, env: Env): Promise<Response> {
             "Accept-Ranges": "none",
         });
         if (length !== null) headers.set("Content-Length", length);
+        if (claims.exp <= Math.floor(Date.now() / 1000)) {
+            console.info(JSON.stringify({
+                event: "BACKUP_DOWNLOAD_DIAGNOSTIC",
+                phase: "after_consume",
+                condition: "EXPIRED_AFTER_AUTHORIZED_START",
+                consumed: true,
+            }));
+        }
         return new Response(upstream.body, { status: 200, headers });
     } catch (error) {
         // Never log requests (ticket in body), OAuth responses, exceptions or tokens.

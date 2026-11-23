@@ -266,6 +266,80 @@ test("invalid signature, expiry and audience do not consume tickets or contact G
     env.sqlite.close();
 });
 
+test("expiration before authorization rejects without consuming or contacting Drive", async () => {
+    const env = environment(),
+        calls = google();
+    const logs = [];
+    mock.method(console, "info", (line) => logs.push(JSON.parse(line)));
+    const now = Math.floor(Date.now() / 1000);
+    const response = await handle(
+        request(await ticket(env, { iat: now - 60, exp: now })),
+        env,
+    );
+    assert.equal(response.status, 410);
+    assert.deepEqual(logs, [{
+        event: "BACKUP_DOWNLOAD_DIAGNOSTIC",
+        phase: "before_consume",
+        condition: "TICKET_EXPIRED",
+        consumed: false,
+    }]);
+    assert.equal(calls.length, 0);
+    assert.equal(
+        env.sqlite.prepare("SELECT count(*) AS total FROM consumed_tickets").get().total,
+        0,
+    );
+    env.sqlite.close();
+});
+
+for (const phase of ["consumption", "media"])
+    test(`expiration during ${phase} does not abort an authorized download`, async () => {
+        const env = environment();
+        const logs = [];
+        mock.method(console, "info", (line) => logs.push(JSON.parse(line)));
+        let clock = 1_800_000_000_000;
+        mock.method(Date, "now", () => clock);
+        const value = await ticket(env);
+        if (phase === "consumption") {
+            const prepare = env.TICKETS.prepare;
+            env.TICKETS.prepare = (sql) => ({
+                bind(...values) {
+                    const statement = prepare(sql).bind(...values);
+                    return {
+                        async run() {
+                            const result = await statement.run();
+                            clock += 61_000;
+                            return result;
+                        },
+                    };
+                },
+            });
+        }
+        google((read) => {
+            if (phase === "media" && read === 2) clock += 61_000;
+            return {};
+        });
+        const response = await handle(request(value), env);
+        assert.equal(response.status, 200);
+        assert.equal((await response.arrayBuffer()).byteLength, 4);
+        assert.deepEqual(logs, [{
+            event: "BACKUP_DOWNLOAD_DIAGNOSTIC",
+            phase: "after_consume",
+            condition: "EXPIRED_AFTER_AUTHORIZED_START",
+            consumed: true,
+        }]);
+        assert.equal(
+            env.sqlite.prepare("SELECT count(*) AS total FROM consumed_tickets").get().total,
+            1,
+        );
+        // An expired replay remains forbidden and must not create a redemption.
+        assert.equal((await handle(request(value), env)).status, 410);
+        assert.equal(
+            env.sqlite.prepare("SELECT count(*) AS total FROM consumed_tickets").get().total,
+            1,
+        );
+        env.sqlite.close();
+    });
+
 test("D1 outage fails closed and does not call OAuth", async () => {
     const env = environment(),
         calls = google();
