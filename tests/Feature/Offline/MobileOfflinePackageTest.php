@@ -181,15 +181,69 @@ class MobileOfflinePackageTest extends TestCase
         $this->photograph($other->id, 'profile');
         $token = $this->bearer($this->fixture['user']);
         $this->mobile($token, 'POST', '/prepare')->assertOk();
-        foreach (['avatars/../missing.png', 'https://example.test/photo.png', 'avatars/corrupt.png'] as $path) {
+        foreach (['avatars/../missing.png', '../missing.png', 'https://example.test/photo.png', 'avatars/corrupt.png'] as $path) {
             $student->user->forceFill(['profile_photo' => $path])->save();
-            $this->mobile($token, 'GET', '/package?schema_version=2')->assertConflict()->assertJsonPath('code', 'OFFLINE_PHOTO_UNAVAILABLE');
+            $this->mobile($token, 'GET', '/package?schema_version=2')->assertConflict()
+                ->assertJsonPath('code', 'OFFLINE_PHOTO_UNAVAILABLE')
+                ->assertJsonPath('photo_error.stage', 'manifest')
+                ->assertJsonPath('photo_error.student_id', (string) $student->id)
+                ->assertJsonPath('photo_error.reason', $path === 'avatars/corrupt.png' ? 'LEGACY_IMAGE_CONTENT_INVALID' : 'LEGACY_IMAGE_REFERENCE_UNSAFE');
             $this->assertDatabaseCount('exam_offline_packages', 0);
         }
 
         $student->user->forceFill(['profile_image_id' => $other->user->fresh()->profile_image_id])->save();
-        $this->mobile($token, 'GET', '/package?schema_version=2')->assertConflict()->assertJsonPath('code', 'OFFLINE_PHOTO_UNAVAILABLE');
+        $this->mobile($token, 'GET', '/package?schema_version=2')->assertConflict()
+            ->assertJsonPath('code', 'OFFLINE_PHOTO_UNAVAILABLE')
+            ->assertJsonPath('photo_error.reason', 'STORED_IMAGE_REFERENCE_INVALID');
         $this->assertDatabaseCount('exam_offline_packages', 0);
+    }
+
+    public function test_collaborator_downloads_39_students_with_imported_filenames_and_stored_images(): void
+    {
+        Storage::fake('public');
+        $student = Student::findOrFail($this->fixture['studentId']);
+        $student->user->forceFill(['profile_photo' => '20260001.jpg'])->save();
+        $others = [];
+        for ($index = 0; $index < 38; $index++) {
+            $others[] = $this->addOfflineStudent(sprintf('Zeta%02d', $index));
+        }
+        $bytes = $this->photograph($others[1]->id, 'profile');
+        $this->photograph($others[1]->id);
+        $others[0]->user->forceFill(['profile_photo' => 'juan.jpg'])->save();
+        Storage::disk('public')->put('juan.jpg', $bytes);
+        $collaborator = $this->offlineCollaborator();
+        $owner = $this->bearer($this->fixture['user']);
+        $token = $this->bearer($collaborator);
+        $this->mobile($owner, 'POST', '/prepare')->assertOk();
+        $before = $this->mobile($token, 'GET', '/mobile-context')->assertOk()->json('data');
+
+        $manifest = $this->manifest($this->mobile($token, 'GET', '/package?schema_version=2'));
+        $this->assertCount(39, $manifest['students']);
+        $this->assertSame($before['own_list_id'], $manifest['list_id']);
+        $this->assertSame($before['distribution_id'], $manifest['distribution_id']);
+        $this->assertSame($before['version'], $manifest['version']);
+        $missing = collect($manifest['students'])->firstWhere('student_id', (string) $student->id);
+        $this->assertSame(['ABSENT', 'ABSENT'], array_column($missing['photos'], 'state'));
+        $present = 0;
+        foreach ($manifest['students'] as $member) {
+            foreach ($member['photos'] as $photo) {
+                if ($photo['state'] !== 'PRESENT') {
+                    continue;
+                }
+                $present++;
+                $this->assertSame(hash('sha256', $bytes), $photo['sha256']);
+                $path = '/packages/'.$manifest['package_id'].'/photos/'.$member['student_id'].'/'.$photo['kind'];
+                $response = $this->mobile($token, 'GET', $path)->assertOk();
+                $this->assertSame($bytes, $response->streamedContent());
+                $this->mobile($owner, 'GET', $path)->assertForbidden();
+            }
+        }
+        $this->assertSame(3, $present);
+        $this->mobile($token, 'GET', '/packages/'.$manifest['package_id'])->assertOk();
+        $after = $this->mobile($token, 'GET', '/mobile-context')->assertOk()->json('data');
+        $this->assertSame($before, $after);
+        $this->assertDatabaseCount('exam_offline_distributions', 1);
+        $this->assertDatabaseCount('exam_offline_lists', 1);
     }
 
     public function test_mobile_permissions_and_device_revocation_are_enforced(): void

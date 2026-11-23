@@ -105,7 +105,7 @@ class DatabaseImageService
     {
         if ($id) {
             $record = $this->owned($id, $purpose, $ownerId)->first(['mime_type', 'byte_size', 'sha256']);
-            abort_unless($record, 404);
+            abort_unless($record, 404, 'STORED_IMAGE_REFERENCE_INVALID');
             return ['mime' => $record->mime_type, 'size' => (int) $record->byte_size, 'sha256' => $record->sha256];
         }
         $image = $this->read($id, $purpose, $ownerId, $legacyPath);
@@ -116,7 +116,7 @@ class DatabaseImageService
     {
         if ($id) {
             $record = $this->owned($id, $purpose, $ownerId)->first();
-            abort_unless($record, 404);
+            abort_unless($record, 404, 'STORED_IMAGE_REFERENCE_INVALID');
             $bytes = is_resource($record->content) ? stream_get_contents($record->content) : $record->content;
             if (strlen($bytes) !== (int) $record->byte_size || ! hash_equals($record->sha256, hash('sha256', $bytes))) {
                 throw new RuntimeException('Stored image integrity check failed.');
@@ -128,14 +128,17 @@ class DatabaseImageService
             $prefixes = match ($purpose) {
                 'profile' => ['avatars/', 'profile-photos/'], 'historical' => ['institutional-photos/'], 'news' => ['portal-news/']
             };
-            abort_unless($legacyPath && Str::startsWith($legacyPath, $prefixes)
-                && ! str_contains($legacyPath, '..') && ! str_contains($legacyPath, '\\'), 404);
+            // CSV imports also persisted a plain filename, relative to the public disk.
+            $importedFilename = $purpose === 'profile' && is_string($legacyPath)
+                && preg_match('/\A[A-Za-z0-9][A-Za-z0-9_-]{0,199}\.(?:jpe?g|png|webp)\z/i', $legacyPath);
+            abort_unless($legacyPath && (Str::startsWith($legacyPath, $prefixes) || $importedFilename)
+                && ! str_contains($legacyPath, '..') && ! str_contains($legacyPath, '\\'), 404, 'LEGACY_IMAGE_REFERENCE_UNSAFE');
             $disk = Storage::disk($purpose === 'profile' ? 'public' : 'local');
-            abort_unless($disk->exists($legacyPath), 404);
-            abort_if($disk->size($legacyPath) > 5242880, 404);
+            abort_unless($disk->exists($legacyPath), 404, 'LEGACY_IMAGE_FILE_MISSING');
+            abort_if($disk->size($legacyPath) > 5242880, 404, 'LEGACY_IMAGE_TOO_LARGE');
             $bytes = $disk->get($legacyPath);
             $info = @getimagesizefromstring($bytes);
-            abort_unless($info && in_array($info['mime'], ['image/jpeg', 'image/png', 'image/webp'], true), 404);
+            abort_unless($info && in_array($info['mime'], ['image/jpeg', 'image/png', 'image/webp'], true), 404, 'LEGACY_IMAGE_CONTENT_INVALID');
             $mime = $info['mime'];
             $hash = hash('sha256', $bytes);
         }

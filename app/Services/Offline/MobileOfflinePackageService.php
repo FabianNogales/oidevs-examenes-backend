@@ -13,6 +13,7 @@ use App\Services\Entries\EntryControlService;
 use App\Services\Entries\ExamEntryAvailability;
 use App\Services\Images\DatabaseImageService;
 use App\Services\QrV3\ExamQrV3;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -97,7 +98,7 @@ class MobileOfflinePackageService
                     try {
                         $metadata = $this->images->metadata($id, $kind, $student->id, $path);
                     } catch (NotFoundHttpException $error) {
-                        $this->access->fail('OFFLINE_PHOTO_UNAVAILABLE', 'No se pudo resolver una fotografía de la lista. Requiere revisión antes de descargar.');
+                        $this->photoUnavailable('manifest', $student->id, $kind, $error);
                     }
                     $photos[] = [...$metadata, 'kind' => $kind, 'state' => 'PRESENT',
                         'revision' => $kind === 'historical' ? (string) $student->historical_photo_revision : ($id ?? $metadata['sha256']),
@@ -126,11 +127,25 @@ class MobileOfflinePackageService
     private function missingLegacyPhoto(string $path, string $kind): bool
     {
         $prefixes = $kind === 'profile' ? ['avatars/', 'profile-photos/'] : ['institutional-photos/'];
-        if (! Str::startsWith($path, $prefixes) || str_contains($path, '..') || str_contains($path, '\\')) {
+        $importedFilename = $kind === 'profile'
+            && preg_match('/\A[A-Za-z0-9][A-Za-z0-9_-]{0,199}\.(?:jpe?g|png|webp)\z/i', $path);
+        if ((! Str::startsWith($path, $prefixes) && ! $importedFilename) || str_contains($path, '..') || str_contains($path, '\\')) {
             return false;
         }
 
         return ! Storage::disk($kind === 'profile' ? 'public' : 'local')->exists($path);
+    }
+
+    private function photoUnavailable(string $stage, int $studentId, string $kind, NotFoundHttpException $error): never
+    {
+        $reasons = ['STORED_IMAGE_REFERENCE_INVALID', 'LEGACY_IMAGE_REFERENCE_UNSAFE',
+            'LEGACY_IMAGE_FILE_MISSING', 'LEGACY_IMAGE_TOO_LARGE', 'LEGACY_IMAGE_CONTENT_INVALID'];
+        $reason = in_array($error->getMessage(), $reasons, true) ? $error->getMessage() : 'IMAGE_REFERENCE_UNAVAILABLE';
+        throw new HttpResponseException(response()->json([
+            'code' => 'OFFLINE_PHOTO_UNAVAILABLE',
+            'message' => 'No se pudo obtener una fotografía de la lista. Requiere revisar su referencia.',
+            'photo_error' => ['stage' => $stage, 'student_id' => (string) $studentId, 'kind' => $kind, 'reason' => $reason],
+        ], 409));
     }
 
     /** Reauthorize every resume/photo against actor, device, episode, exam and own list. */
@@ -177,7 +192,7 @@ class MobileOfflinePackageService
         try {
             $image = $this->images->read($ref['id'], $kind, $studentId, $ref['legacy_path']);
         } catch (NotFoundHttpException $error) {
-            $this->access->fail('OFFLINE_PHOTO_UNAVAILABLE', 'Una fotografía del paquete ya no está disponible. Prepara una copia nueva.');
+            $this->photoUnavailable('photo', $studentId, $kind, $error);
         }
         if (! hash_equals($photo['sha256'], $image['hash']) || strlen($image['bytes']) !== $photo['size'] || $image['mime'] !== $photo['mime']) {
             $this->access->fail('PHOTO_CHANGED', 'La fotografía cambió. Descarga un snapshot nuevo.');
