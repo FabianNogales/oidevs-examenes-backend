@@ -48,7 +48,8 @@ class DriveBackupStorage implements BackupStorage
             }
         }
         if ((string) ($file['size'] ?? '') !== (string) $evidence['bytes']
-            || (string) ($file['version'] ?? '') !== $evidence['storage_version']
+            || ! preg_match('/\A[0-9]{1,100}\z/', (string) ($file['version'] ?? ''))
+            || ((string) $file['version'] !== $evidence['storage_version'] && ! isset($file['sha256Checksum']))
             || (isset($file['sha256Checksum']) && ! hash_equals($evidence['sha256'], $file['sha256Checksum']))
             || (isset($file['md5Checksum']) && $file['md5Checksum'] !== ($evidence['md5_checksum'] ?? null))) {
             throw new BackupFailure('INTEGRITY_MISMATCH');
@@ -71,12 +72,29 @@ class DriveBackupStorage implements BackupStorage
             || ($manifest['md5_checksum'] ?? null) !== ($evidence['md5_checksum'] ?? null)) {
             throw new BackupFailure('INTEGRITY_MISMATCH');
         }
-        // Re-read to bind the bounded manifest and dump metadata to unchanged revisions.
+        // The manifest stays bound to the executor's verified version. A later
+        // dump metadata version requires an independently matching content hash.
         foreach ([[$fileId, $file], [$manifestId, $manifestFile]] as [$id, $before]) {
             $after = $this->client->metadata($id);
             $this->assertPrivate($after);
             if (($after['version'] ?? null) !== ($before['version'] ?? null)) {
-                throw new BackupFailure('INTEGRITY_MISMATCH');
+                if ($id !== $fileId
+                    || ! preg_match('/\A[0-9]{1,100}\z/', (string) ($after['version'] ?? ''))
+                    || ! isset($after['sha256Checksum']) || ! hash_equals($evidence['sha256'], $after['sha256Checksum'])
+                    || (isset($after['md5Checksum']) && $after['md5Checksum'] !== ($evidence['md5_checksum'] ?? null))
+                    || ($after['capabilities']['canDownload'] ?? false) !== true) {
+                    throw new BackupFailure('INTEGRITY_MISMATCH');
+                }
+                foreach (['name', 'mimeType', 'parents', 'size'] as $field) {
+                    if (($after[$field] ?? null) !== ($before[$field] ?? null)) {
+                        throw new BackupFailure('INTEGRITY_MISMATCH');
+                    }
+                }
+                foreach (['backup_id', 'run_id', 'kind'] as $field) {
+                    if (($after['appProperties'][$field] ?? null) !== ($before['appProperties'][$field] ?? null)) {
+                        throw new BackupFailure('INTEGRITY_MISMATCH');
+                    }
+                }
             }
         }
     }
