@@ -12,6 +12,7 @@ use App\Services\QrV3\QrV3KeyRing;
 use App\Services\QrV3\QrV3Service;
 use App\Services\Students\StudentQrService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Tests\Support\ConfiguresQrV3Issuer;
@@ -145,6 +146,50 @@ class MobileOfflinePackageTest extends TestCase
         $this->mobile($owner, 'GET', '/packages/'.$m['package_id'])->assertForbidden();
         $newDevice = $this->bearer($a);
         $this->mobile($newDevice, 'GET', '/packages/'.$m['package_id'])->assertForbidden();
+    }
+
+    public function test_missing_safe_legacy_files_allow_download_but_existing_photos_remain_verified(): void
+    {
+        Storage::fake('public');
+        Storage::fake('local');
+        $student = Student::findOrFail($this->fixture['studentId']);
+        $student->user->forceFill(['profile_photo' => 'avatars/legacy.png'])->save();
+        $student->forceFill(['historical_photo' => 'institutional-photos/legacy.png'])->save();
+        $token = $this->bearer($this->fixture['user']);
+        $this->mobile($token, 'POST', '/prepare')->assertOk();
+
+        $manifest = $this->manifest($this->mobile($token, 'GET', '/package?schema_version=2'));
+        $this->assertSame(['ABSENT', 'ABSENT'], array_column($manifest['students'][0]['photos'], 'state'));
+        $this->mobile($token, 'GET', '/packages/'.$manifest['package_id'])->assertOk();
+
+        $bytes = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aVZ0AAAAASUVORK5CYII=');
+        Storage::disk('public')->put('avatars/legacy.png', $bytes);
+        $manifest = $this->manifest($this->mobile($token, 'GET', '/package?schema_version=2'));
+        $profile = $manifest['students'][0]['photos'][0];
+        $this->assertSame('PRESENT', $profile['state']);
+        $this->assertSame(hash('sha256', $bytes), $profile['sha256']);
+        $response = $this->mobile($token, 'GET', '/packages/'.$manifest['package_id'].'/photos/'.$student->id.'/profile')->assertOk();
+        $this->assertSame($bytes, $response->streamedContent());
+    }
+
+    public function test_unsafe_corrupt_and_foreign_image_references_never_become_absent(): void
+    {
+        Storage::fake('public');
+        Storage::disk('public')->put('avatars/corrupt.png', 'not an image');
+        $student = Student::findOrFail($this->fixture['studentId']);
+        $other = $this->addOfflineStudent('Zeta');
+        $this->photograph($other->id, 'profile');
+        $token = $this->bearer($this->fixture['user']);
+        $this->mobile($token, 'POST', '/prepare')->assertOk();
+        foreach (['avatars/../missing.png', 'https://example.test/photo.png', 'avatars/corrupt.png'] as $path) {
+            $student->user->forceFill(['profile_photo' => $path])->save();
+            $this->mobile($token, 'GET', '/package?schema_version=2')->assertConflict()->assertJsonPath('code', 'OFFLINE_PHOTO_UNAVAILABLE');
+            $this->assertDatabaseCount('exam_offline_packages', 0);
+        }
+
+        $student->user->forceFill(['profile_image_id' => $other->user->fresh()->profile_image_id])->save();
+        $this->mobile($token, 'GET', '/package?schema_version=2')->assertConflict()->assertJsonPath('code', 'OFFLINE_PHOTO_UNAVAILABLE');
+        $this->assertDatabaseCount('exam_offline_packages', 0);
     }
 
     public function test_mobile_permissions_and_device_revocation_are_enforced(): void

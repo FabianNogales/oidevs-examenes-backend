@@ -15,8 +15,11 @@ use App\Services\Images\DatabaseImageService;
 use App\Services\QrV3\ExamQrV3;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\PersonalAccessToken;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /** Additive mobile snapshot. Legacy package and HU37 wire contracts stay unchanged. */
 class MobileOfflinePackageService
@@ -85,12 +88,17 @@ class MobileOfflinePackageService
                 foreach (['profile', 'historical'] as $kind) {
                     $id = $kind === 'profile' ? $student->user?->profile_image_id : $student->historical_image_id;
                     $path = $kind === 'profile' ? $student->user?->profile_photo : $student->historical_photo;
-                    if (! $id && ! $path) {
+                    if (! $id && (! $path || $this->missingLegacyPhoto($path, $kind))) {
                         $photos[] = ['kind' => $kind, 'state' => 'ABSENT'];
                         continue;
                     }
-                    // Missing/corrupt references are errors, never legitimate absence.
-                    $metadata = $this->images->metadata($id, $kind, $student->id, $path);
+                    // Only missing local legacy files count as absence. Stored-image
+                    // ownership, unsafe paths and existing image validation still fail closed.
+                    try {
+                        $metadata = $this->images->metadata($id, $kind, $student->id, $path);
+                    } catch (NotFoundHttpException $error) {
+                        $this->access->fail('OFFLINE_PHOTO_UNAVAILABLE', 'No se pudo resolver una fotografía de la lista. Requiere revisión antes de descargar.');
+                    }
                     $photos[] = [...$metadata, 'kind' => $kind, 'state' => 'PRESENT',
                         'revision' => $kind === 'historical' ? (string) $student->historical_photo_revision : ($id ?? $metadata['sha256']),
                         'path' => 'exams/'.$examId.'/offline/packages/'.$legacy['package_id'].'/photos/'.$student->id.'/'.$kind];
@@ -113,6 +121,16 @@ class MobileOfflinePackageService
             $package->save();
             return [...$legacy, 'mobile' => $mobile];
         }, 3);
+    }
+
+    private function missingLegacyPhoto(string $path, string $kind): bool
+    {
+        $prefixes = $kind === 'profile' ? ['avatars/', 'profile-photos/'] : ['institutional-photos/'];
+        if (! Str::startsWith($path, $prefixes) || str_contains($path, '..') || str_contains($path, '\\')) {
+            return false;
+        }
+
+        return ! Storage::disk($kind === 'profile' ? 'public' : 'local')->exists($path);
     }
 
     /** Reauthorize every resume/photo against actor, device, episode, exam and own list. */
@@ -156,7 +174,11 @@ class MobileOfflinePackageService
         $photo = collect($student['photos'] ?? [])->firstWhere('kind', $kind);
         $ref = $package->snapshot['mobile_photo_refs'][(string) $studentId][$kind] ?? null;
         abort_unless($ref && $photo && $photo['state'] === 'PRESENT', 404);
-        $image = $this->images->read($ref['id'], $kind, $studentId, $ref['legacy_path']);
+        try {
+            $image = $this->images->read($ref['id'], $kind, $studentId, $ref['legacy_path']);
+        } catch (NotFoundHttpException $error) {
+            $this->access->fail('OFFLINE_PHOTO_UNAVAILABLE', 'Una fotografía del paquete ya no está disponible. Prepara una copia nueva.');
+        }
         if (! hash_equals($photo['sha256'], $image['hash']) || strlen($image['bytes']) !== $photo['size'] || $image['mime'] !== $photo['mime']) {
             $this->access->fail('PHOTO_CHANGED', 'La fotografía cambió. Descarga un snapshot nuevo.');
         }
