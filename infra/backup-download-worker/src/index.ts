@@ -42,6 +42,7 @@ class DownloadFailure extends Error {
     constructor(
         readonly code: string,
         readonly status: number,
+        readonly category = "dependency_unavailable",
     ) {
         super(code);
     }
@@ -203,12 +204,12 @@ async function consume(claims: Claims, env: Env): Promise<void> {
             .bind(claims.jti, claims.exp, Math.floor(Date.now() / 1000))
             .run();
         if (!result.success || typeof result.meta.changes !== "number")
-            throw new DownloadFailure("SERVICE_UNAVAILABLE", 503);
+            throw new DownloadFailure("SERVICE_UNAVAILABLE", 503, "d1_invalid_result");
         if (result.meta.changes !== 1)
             throw new DownloadFailure("TICKET_CONSUMED", 409);
     } catch (error) {
         if (error instanceof DownloadFailure) throw error;
-        throw new DownloadFailure("SERVICE_UNAVAILABLE", 503);
+        throw new DownloadFailure("SERVICE_UNAVAILABLE", 503, "d1_error");
     }
 }
 
@@ -219,14 +220,14 @@ async function jsonResponse(
     try {
         return JSON.parse(text);
     } catch {
-        throw new DownloadFailure("SERVICE_UNAVAILABLE", 503);
+        throw new DownloadFailure("SERVICE_UNAVAILABLE", 503, "invalid_json");
     }
 }
 
 async function accessToken(env: Env): Promise<string> {
     const response = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
-        redirect: "error",
+        redirect: "manual",
         signal: AbortSignal.timeout(15000),
         body: new URLSearchParams({
             client_id: env.GOOGLE_CLIENT_ID,
@@ -235,6 +236,10 @@ async function accessToken(env: Env): Promise<string> {
             grant_type: "refresh_token",
         }),
     });
+    if (response.status >= 300 && response.status < 400) {
+        await response.body?.cancel();
+        throw new DownloadFailure("SERVICE_UNAVAILABLE", 503, "redirect_rejected");
+    }
     const result = await jsonResponse(response);
     if (
         !response.ok ||
@@ -246,12 +251,17 @@ async function accessToken(env: Env): Promise<string> {
                 ? "OAUTH_REVOKED"
                 : "SERVICE_UNAVAILABLE",
             503,
+            !response.ok ? "oauth_http_error" : "oauth_token_missing",
         );
     }
     return result.access_token;
 }
 
 async function googleError(response: Response): Promise<never> {
+    if (response.status >= 300 && response.status < 400) {
+        await response.body?.cancel();
+        throw new DownloadFailure("SERVICE_UNAVAILABLE", 503, "redirect_rejected");
+    }
     if (response.status === 401) {
         await response.body?.cancel();
         throw new DownloadFailure("OAUTH_REVOKED", 503);
@@ -288,6 +298,7 @@ async function googleError(response: Response): Promise<never> {
             ? "DRIVE_PERMISSION_DENIED"
             : "SERVICE_UNAVAILABLE",
         503,
+        "drive_http_error",
     );
 }
 
@@ -298,7 +309,7 @@ async function metadata(claims: Claims, token: string): Promise<void> {
         `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(claims.file_id)}?fields=${encodeURIComponent(fields)}`,
         {
             headers: { Authorization: `Bearer ${token}` },
-            redirect: "error",
+            redirect: "manual",
             signal: AbortSignal.timeout(15000),
         },
     );
@@ -338,11 +349,13 @@ function failureResponse(error: DownloadFailure, env: Env): Response {
     const code = error.code in messages ? error.code : "SERVICE_UNAVAILABLE";
     const nonce = crypto.randomUUID();
     let script = "";
+    let frameAncestors = "'none'";
     try {
         const origin = new URL(env.APP_ORIGIN).origin;
         if (origin === env.APP_ORIGIN && origin.startsWith("https://")) {
-            // Origin is only a UI notification destination, never download authorization.
-            script = `<script nonce="${nonce}">window.opener?.postMessage({type:'eida-backup-download-error',code:${JSON.stringify(code)}},${JSON.stringify(origin)});</script>`;
+            // Only EIDA may frame the error page; this never authorizes a download.
+            frameAncestors = origin;
+            script = `<script nonce="${nonce}">const recipient=window.opener||(window.parent!==window?window.parent:null);recipient?.postMessage({type:'eida-backup-download-error',code:${JSON.stringify(code)}},${JSON.stringify(origin)});</script>`;
         }
     } catch {
         /* The error page remains usable without an opener. */
@@ -354,13 +367,14 @@ function failureResponse(error: DownloadFailure, env: Env): Response {
             headers: {
                 ...noStore,
                 "Content-Type": "text/html; charset=utf-8",
-                "Content-Security-Policy": `default-src 'none'; script-src 'nonce-${nonce}'; frame-ancestors 'none'; base-uri 'none'`,
+                "Content-Security-Policy": `default-src 'none'; script-src 'nonce-${nonce}'; frame-ancestors ${frameAncestors}; base-uri 'none'`,
             },
         },
     );
 }
 
 export async function handle(request: Request, env: Env): Promise<Response> {
+    let stage = "configuration";
     try {
         if (
             env.ENABLED !== "true" ||
@@ -375,7 +389,8 @@ export async function handle(request: Request, env: Env): Promise<Response> {
             !env.GOOGLE_CLIENT_SECRET ||
             !env.GOOGLE_REFRESH_TOKEN
         )
-            throw new DownloadFailure("SERVICE_UNAVAILABLE", 503);
+            throw new DownloadFailure("SERVICE_UNAVAILABLE", 503, "configuration_invalid");
+        stage = "ticket_validation";
         const url = new URL(request.url);
         if (
             request.method !== "POST" ||
@@ -394,11 +409,15 @@ export async function handle(request: Request, env: Env): Promise<Response> {
         const claims = await verifyTicket(form.get("ticket")!, env);
         // Expiry authorizes the start. D1 still arbitrates this single use;
         // its latency and Drive preparation must not expire an accepted request.
+        stage = "d1";
         await consume(claims, env); // Fail closed before OAuth or any file access.
+        stage = "oauth";
         const token = await accessToken(env);
+        stage = "drive_query";
         await metadata(claims, token);
         // No signal timeout on the streaming response body: the ticket limits start,
         // not the duration of an authorized transfer. Client disconnection cancels fetch.
+        stage = "download";
         const upstream = await fetch(
             `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(claims.file_id)}?alt=media`,
             {
@@ -406,7 +425,7 @@ export async function handle(request: Request, env: Env): Promise<Response> {
                     Authorization: `Bearer ${token}`,
                     "Accept-Encoding": "identity",
                 },
-                redirect: "error",
+                redirect: "manual",
                 signal: request.signal,
             },
         );
@@ -414,11 +433,13 @@ export async function handle(request: Request, env: Env): Promise<Response> {
         try {
             // Recheck identity, size and content hash after opening media.
             // No dump buffering; only a second small metadata response is read here.
+            stage = "drive_query";
             await metadata(claims, token);
         } catch (error) {
             await upstream.body?.cancel();
             throw error;
         }
+        stage = "download";
         const length = upstream.headers.get("Content-Length");
         if (
             upstream.status !== 200 ||
@@ -446,12 +467,20 @@ export async function handle(request: Request, env: Env): Promise<Response> {
         return new Response(upstream.body, { status: 200, headers });
     } catch (error) {
         // Never log requests (ticket in body), OAuth responses, exceptions or tokens.
-        return failureResponse(
-            error instanceof DownloadFailure
-                ? error
-                : new DownloadFailure("SERVICE_UNAVAILABLE", 503),
-            env,
-        );
+        const failure = error instanceof DownloadFailure
+            ? error
+            : new DownloadFailure("SERVICE_UNAVAILABLE", 503,
+                error instanceof Error && error.name === "TimeoutError" ? "timeout"
+                    : error instanceof Error && error.name === "AbortError" ? "request_aborted"
+                        : "unexpected_error");
+        if (failure.code === "SERVICE_UNAVAILABLE") {
+            console.info(JSON.stringify({
+                event: "BACKUP_DOWNLOAD_DIAGNOSTIC",
+                stage,
+                category: failure.category,
+            }));
+        }
+        return failureResponse(failure, env);
     }
 }
 
