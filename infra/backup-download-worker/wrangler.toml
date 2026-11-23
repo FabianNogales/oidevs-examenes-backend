@@ -1,3 +1,4 @@
+keep_vars = true
 name = "eida-backup-download"
 main = "src/index.ts"
 compatibility_date = "2026-11-21"
@@ -8,11 +9,9 @@ preview_urls = false
 enabled = false
 
 [vars]
-ENABLED = "false"
 TICKET_AUDIENCE = "eida-backup-download"
 TICKET_ISSUER = "eida-backups"
 TICKET_KEY_ID = "eida-backup-v1"
-DRIVE_FOLDER_ID = "1LUzMamIl-nX1LXBbg0FomuR5JmUQY1d7"
 APP_ORIGIN = "https://oidevs-examenes-frontend.vercel.app"
 
 [[d1_databases]]

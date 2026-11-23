@@ -310,7 +310,12 @@ async function metadata(claims: Claims, token: string): Promise<void> {
             true ||
         JSON.stringify(file.parents) !== JSON.stringify([claims.parent_id]) ||
         file.size !== String(claims.bytes) ||
-        file.version !== claims.storage_version ||
+        typeof file.version !== "string" ||
+        !/^[0-9]{1,100}$/.test(file.version) ||
+        // Drive versions include metadata changes; a different version needs
+        // Drive's current SHA-256 to match the content authorized by Laravel.
+        (file.version !== claims.storage_version &&
+            file.sha256Checksum !== claims.sha256) ||
         props?.backup_id !== claims.backup_id ||
         props?.kind !== "dump" ||
         (file.sha256Checksum !== undefined &&
@@ -399,7 +404,7 @@ export async function handle(request: Request, env: Env): Promise<Response> {
         );
         if (!upstream.ok) await googleError(upstream);
         try {
-            // Reject a revision changed between the metadata check and opening media.
+            // Recheck identity, size and content hash after opening media.
             // No dump buffering; only a second small metadata response is read here.
             await metadata(claims, token);
             if (claims.exp <= Math.floor(Date.now() / 1000))
