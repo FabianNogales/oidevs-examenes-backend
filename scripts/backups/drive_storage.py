@@ -312,10 +312,40 @@ def upload(file, backup_id, run_id, postgres_version):
         integrity_failure("dump_readback", "SIZE_MISMATCH")
     if remote_sha.hexdigest() != digest:
         integrity_failure("dump_readback", "SHA256_MISMATCH")
+    # Drive versions include metadata changes. Bind the manifest to the last
+    # observed version only after rechecking the content of a changed version.
+    current = client.metadata(file_id)
+    client.assert_private(current, file.name, backup_id, run_id, "dump")
+    if current.get("version") != metadata["version"]:
+        if current.get("mimeType") != "application/octet-stream":
+            integrity_failure("dump_final_metadata", "MIME_TYPE_MISMATCH")
+        if current.get("size") != str(size):
+            integrity_failure("dump_final_metadata", "SIZE_MISMATCH")
+        if "sha256Checksum" in current and current["sha256Checksum"] != digest:
+            integrity_failure("dump_final_metadata", "SHA256_MISMATCH")
+        if "md5Checksum" in current and current["md5Checksum"] != md5.hexdigest():
+            integrity_failure("dump_final_metadata", "MD5_MISMATCH")
+        if not re.fullmatch(r"[0-9]{1,100}", current.get("version", "")):
+            integrity_failure("dump_final_metadata", "VERSION_INVALID")
+        remote_sha = hashlib.sha256()
+        remote_size = 0
+        try:
+            with client.media(file_id) as response:
+                while chunk := response.read(1024 * 1024):
+                    remote_sha.update(chunk)
+                    remote_size += len(chunk)
+                    if remote_size > size:
+                        integrity_failure("dump_readback", "SIZE_EXCEEDED")
+        except (OSError, http.client.HTTPException):
+            raise Failure("STORAGE_UNAVAILABLE") from None
+        if remote_size != size:
+            integrity_failure("dump_readback", "SIZE_MISMATCH")
+        if remote_sha.hexdigest() != digest:
+            integrity_failure("dump_readback", "SHA256_MISMATCH")
     evidence = {"storage_provider": "google_drive", "file_id": file_id, "manifest_id": manifest_id,
                 "parent_id": client.folder_id, "bytes": size, "sha256": digest,
                 "md5_checksum": md5.hexdigest(), "postgres_version": postgres_version,
-                "storage_version": metadata["version"],
+                "storage_version": current["version"],
                 "integrity_method": "DRIVE_SHA256_AND_READBACK" if "sha256Checksum" in metadata else "READBACK_SHA256"}
     manifest = {**evidence, "backup_id": backup_id, "external_run_id": run_id, "filename": file.name,
                 "format": "custom", "pg_restore_verified": True, "readback_sha256": remote_sha.hexdigest(),
@@ -332,8 +362,4 @@ def upload(file, backup_id, run_id, postgres_version):
     with client.media(manifest_id) as response:
         if response.read(8193) != encoded:
             integrity_failure("manifest_readback", "MANIFEST_CONTENT_MISMATCH")
-    current = client.metadata(file_id)
-    client.assert_private(current, file.name, backup_id, run_id, "dump")
-    if current.get("version") != evidence["storage_version"]:
-        integrity_failure("dump_final_metadata", "VERSION_CHANGED")
     return evidence
