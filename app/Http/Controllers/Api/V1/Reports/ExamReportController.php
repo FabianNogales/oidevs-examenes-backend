@@ -47,7 +47,7 @@ class ExamReportController extends Controller
             $content = $export->render($snapshot, $format);
 
             return response($content, 200, [
-                'Content-Type' => $format === 'pdf' ? 'application/pdf' : 'text/csv; charset=UTF-8',
+                'Content-Type' => $format === 'pdf' ? 'application/pdf' : 'text/csv; charset=utf-8',
                 'Content-Disposition' => 'attachment; filename="reporte-examen-'.$examId.'.'.$format.'"',
                 'X-Report-Id' => $snapshot['report']['id'], 'X-Report-Generated-At' => $snapshot['report']['generated_at'],
                 'Access-Control-Expose-Headers' => 'X-Report-Id, X-Report-Generated-At, Content-Disposition',

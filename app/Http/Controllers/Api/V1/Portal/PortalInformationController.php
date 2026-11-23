@@ -31,7 +31,7 @@ class PortalInformationController extends Controller
 
     public function store(SavePortalInformationRequest $request, PortalInformationService $service): JsonResponse
     {
-        return PortalInformationResource::make($service->save('FAQ', $request->validated(), $request))->response()->setStatusCode(201);
+        return PortalInformationResource::make($service->save($this->kind($request), $request->validated(), $request))->response()->setStatusCode(201);
     }
 
     public function update(SavePortalInformationRequest $request, int $content, PortalInformationService $service): PortalInformationResource

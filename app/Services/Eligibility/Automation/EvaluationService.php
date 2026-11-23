@@ -73,7 +73,7 @@ class EvaluationService
                 $statuses = array_column($criteria, 'status');
                 $computed = in_array('FAILED', $statuses, true) ? 'INELIGIBLE'
                     : (in_array('PENDING', $statuses, true) ? 'PENDING' : 'ELIGIBLE');
-                $preserve = $current !== null && ! in_array($current->decision_source, ['AUTOMATIC', 'INITIALIZED'], true);
+                $preserve = $current !== null && $current->decision_source === 'MANUAL';
                 $canApply = $computed !== 'PENDING' && ! $preserve;
                 $currentStatus = $current?->status === 'NOT_ELIGIBLE' ? 'INELIGIBLE' : $current?->status;
                 $reason = ! $criteria ? 'No se seleccionaron criterios automáticos.'
@@ -87,7 +87,7 @@ class EvaluationService
                     'manual_override_preserved' => $preserve, 'will_update' => $canApply,
                     'state_will_change' => $canApply && $computed !== $currentStatus,
                     'traceability_only' => $canApply && $computed === $currentStatus,
-                    'protected_source' => $preserve ? ($current->decision_source ?? 'LEGACY') : null,
+                    'protected_source' => $preserve ? 'MANUAL' : null,
                     'current_reason' => $current?->reason,
                     'effective_reason' => $canApply ? ($computed === 'INELIGIBLE' ? $reason : null) : $current?->reason,
                     'reason' => $reason, 'missing_fields' => array_values(array_unique(array_merge(...array_column($criteria, 'missing_fields')))),

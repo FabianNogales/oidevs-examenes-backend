@@ -18,7 +18,7 @@ class CriteriaEvaluator
         $operator = 'GTE';
         if ($code === 'MIN_ATTENDANCE_PERCENTAGE') {
             $minimum = (float) $parameters['minimum_percentage'];
-            if ($record?->total_classes === null || $record?->attended_classes === null) {
+            if ($record?->total_classes === null || $record?->attended_classes === null || $record->total_classes <= 0) {
                 $missing = ['attended_classes', 'total_classes'];
             } else {
                 $actual = $record->attended_classes * 100 / $record->total_classes;
@@ -30,7 +30,8 @@ class CriteriaEvaluator
             $scores = [];
             $notTaken = false;
             foreach ($keys as $key) {
-                if (! isset($assessments[$key])) {
+                if (! isset($assessments[$key]) || ! is_array($assessments[$key])
+                    || ! array_key_exists('was_taken', $assessments[$key]) || $assessments[$key]['was_taken'] === null) {
                     $missing[] = "assessments.$key";
 
                     continue;
@@ -41,10 +42,10 @@ class CriteriaEvaluator
                     continue;
                 }
                 if ($code !== 'PREVIOUS_ASSESSMENTS_TAKEN') {
-                    if ($assessments[$key]['score'] === null) {
+                    if (! array_key_exists('score', $assessments[$key]) || $assessments[$key]['score'] === null) {
                         $missing[] = "assessments.$key.score";
                     } else {
-                        $scores[] = (int) round($assessments[$key]['score'] * 100);
+                        $scores[] = (int) round(((float) $assessments[$key]['score']) * 100);
                     }
                 }
             }

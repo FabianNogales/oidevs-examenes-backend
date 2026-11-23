@@ -57,7 +57,7 @@ class PortalInformationTest extends TestCase
 
     public function test_administrative_operations_reject_guests_and_base_roles_without_delegated_permissions(): void
     {
-        $routes = [['GET', '/sections'], ['GET', '/faqs'], ['POST', '/faqs']];
+        $routes = [['GET', '/sections'], ['POST', '/sections'], ['GET', '/faqs'], ['POST', '/faqs']];
         foreach (['sections', 'faqs'] as $type) {
             $routes = array_merge($routes, [['GET', "/{$type}/1"], ['PATCH', "/{$type}/1"], ['POST', "/{$type}/1/publish"], ['POST', "/{$type}/1/unpublish"]]);
         }
@@ -179,8 +179,99 @@ class PortalInformationTest extends TestCase
         $this->patchJson(self::ADMIN."/faqs/{$section->id}", ['answer' => 'Respuesta.', 'revision' => 1])->assertNotFound();
         $this->postJson(self::ADMIN."/faqs/{$section->id}/publish", ['revision' => 1])->assertNotFound();
         $this->getJson(self::ADMIN."/sections/{$faq->id}")->assertNotFound();
-        $this->postJson(self::ADMIN.'/sections', [])->assertStatus(405);
+        $this->postJson(self::ADMIN.'/sections', [])->assertUnprocessable()
+            ->assertJsonValidationErrors(['title', 'description', 'sort_order']);
         $this->getJson(self::ADMIN.'/faqs/999')->assertNotFound();
+    }
+
+    public function test_administrator_can_create_institutional_sections_with_unique_keys_draft_state_and_audit(): void
+    {
+        $admin = $this->actor();
+        $this->actingAs($admin);
+
+        $links = [
+            ['label' => 'Reglamento', 'url' => 'https://www.umss.edu.bo/reglamento'],
+            ['label' => 'Ayuda', 'url' => '/ayuda'],
+        ];
+        $created = $this->postJson(self::ADMIN.'/sections', [
+            'title' => 'Reglamento General',
+            'description' => 'Normativa institucional vigente.',
+            'links' => $links,
+            'sort_order' => 7,
+        ])->assertCreated()
+            ->assertJsonPath('data.key', 'reglamento_general')
+            ->assertJsonPath('data.revision', 1)
+            ->assertJsonPath('data.is_published', false)
+            ->assertJsonPath('data.has_unpublished_changes', true)
+            ->assertJsonPath('data.published', null)
+            ->assertJsonPath('data.draft', [
+                'title' => 'Reglamento General',
+                'description' => 'Normativa institucional vigente.',
+                'links' => $links,
+                'sort_order' => 7,
+            ])
+            ->assertJsonPath('data.created_by', $admin->id)
+            ->assertJsonPath('data.updated_by', $admin->id)
+            ->json('data');
+
+        $this->getJson(self::ADMIN."/sections/{$created['id']}")->assertOk()->assertExactJson(['data' => $created]);
+        $this->assertDatabaseHas('audit_logs', [
+            'user_id' => $admin->id,
+            'action' => 'PORTAL_INFORMATION_SECTION_CREATED',
+            'entity_type' => 'PortalInformationContent',
+            'entity_id' => $created['id'],
+        ]);
+
+        // Duplicate title and seeded key collisions receive numeric suffixes within the 50-char limit.
+        $this->postJson(self::ADMIN.'/sections', [
+            'title' => 'Reglamento General',
+            'description' => 'Segunda versión.',
+            'links' => [],
+            'sort_order' => 8,
+        ])->assertCreated()->assertJsonPath('data.key', 'reglamento_general_2');
+
+        $this->postJson(self::ADMIN.'/sections', [
+            'title' => 'About',
+            'description' => 'Sección adicional.',
+            'sort_order' => 9,
+        ])->assertCreated()->assertJsonPath('data.key', 'about_2')->assertJsonPath('data.draft.links', []);
+
+        $longTitle = str_repeat('seccion_larga_', 10);
+        $firstLongKey = $this->postJson(self::ADMIN.'/sections', [
+            'title' => $longTitle,
+            'description' => 'Descripción larga.',
+            'sort_order' => 10,
+        ])->assertCreated()->json('data.key');
+        $secondLongKey = $this->postJson(self::ADMIN.'/sections', [
+            'title' => $longTitle,
+            'description' => 'Descripción larga duplicada.',
+            'sort_order' => 11,
+        ])->assertCreated()->json('data.key');
+        $this->assertLessThanOrEqual(50, strlen($firstLongKey));
+        $this->assertLessThanOrEqual(50, strlen($secondLongKey));
+        $this->assertNotSame($firstLongKey, $secondLongKey);
+
+        // Draft section stays hidden from public endpoint until explicitly published.
+        $this->getJson(self::PUBLIC)->assertOk()->assertJsonCount(0, 'data.sections');
+        $this->publish(PortalInformationContent::findOrFail($created['id']));
+        $this->getJson(self::PUBLIC)->assertOk()
+            ->assertJsonCount(1, 'data.sections')
+            ->assertJsonPath('data.sections.0.key', 'reglamento_general')
+            ->assertJsonPath('data.sections.0.title', 'Reglamento General');
+
+        // Reject invalid payloads on POST /sections.
+        foreach ([
+            ['title' => str_repeat('x', 201), 'description' => 'Ok', 'sort_order' => 1],
+            ['title' => 'Ok', 'description' => str_repeat('x', 10001), 'sort_order' => 1],
+            ['title' => 'Ok', 'description' => 'Ok', 'sort_order' => -1],
+            ['title' => 'Ok', 'description' => 'Ok', 'sort_order' => 100001],
+            ['title' => 'Ok', 'description' => 'Ok', 'sort_order' => 1, 'key' => 'custom_key'],
+            ['title' => 'Ok', 'description' => 'Ok', 'sort_order' => 1, 'revision' => 1],
+            ['title' => 'Ok', 'description' => 'Ok', 'sort_order' => 1, 'question' => 'No permitido'],
+            ['title' => 'Ok', 'description' => 'Ok', 'sort_order' => 1, 'links' => [['label' => 'Malo', 'url' => 'javascript:alert(1)']]],
+        ] as $invalid) {
+            $this->postJson(self::ADMIN.'/sections', $invalid)->assertUnprocessable();
+        }
     }
 
     public function test_invalid_lengths_sort_order_and_managed_fields_are_rejected(): void

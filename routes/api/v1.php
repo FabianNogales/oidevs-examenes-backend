@@ -107,13 +107,13 @@ Route::prefix('admin/portal')->name('portal.admin.')
             foreach (['sections', 'faqs'] as $type) {
                 $permission = EnsurePermission::class.':portal.information.'.$type.'.update';
                 Route::get('/'.$type, [$information, 'index'])->name($type.'.index')->middleware($permission);
+                Route::post('/'.$type, [$information, 'store'])->name($type.'.store')->middleware(EnsureActiveAdministrator::class);
                 Route::get('/'.$type.'/{content}', [$information, 'show'])->whereNumber('content')->name($type.'.show')->middleware($permission);
                 Route::get('/'.$type.'/{content}/history', [PortalHistoryController::class, 'information'])->whereNumber('content')->name($type.'.history')->middleware(EnsureActiveAdministrator::class);
                 Route::patch('/'.$type.'/{content}', [$information, 'update'])->whereNumber('content')->name($type.'.update')->middleware($permission);
                 Route::post('/'.$type.'/{content}/publish', [$information, 'publish'])->whereNumber('content')->name($type.'.publish')->middleware(EnsureActiveAdministrator::class);
                 Route::post('/'.$type.'/{content}/unpublish', [$information, 'unpublish'])->whereNumber('content')->name($type.'.unpublish')->middleware(EnsureActiveAdministrator::class);
             }
-            Route::post('/faqs', [$information, 'store'])->name('faqs.store')->middleware(EnsureActiveAdministrator::class);
         });
         $news = PortalNewsController::class;
         Route::get('/news', [$news, 'index'])->name('news.index')->middleware(EnsurePermission::class.':portal.news.update');
