@@ -9,6 +9,7 @@ use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class PortalInformationService
 {
@@ -69,7 +70,19 @@ class PortalInformationService
             }
             if ($id === null) {
                 $item->kind = $kind;
-                $item->draft = ['question' => $data['question'], 'answer' => $data['answer'], 'sort_order' => $data['sort_order'] ?? 0];
+                if ($kind === 'SECTION') {
+                    $item->key = $this->uniqueSectionKey($data['title']);
+                    $item->draft = [
+                        'title' => $data['title'],
+                        'description' => $data['description'],
+                        'links' => array_values($data['links'] ?? []),
+                        'sort_order' => $data['sort_order'] ?? 0,
+                    ];
+                } else {
+                    $item->draft = ['question' => $data['question'], 'answer' => $data['answer'], 'sort_order' => $data['sort_order'] ?? 0];
+                }
+                $item->published = null;
+                $item->is_published = false;
                 $item->revision = 1;
                 $item->created_by = $request->user()->id;
             } else {
@@ -84,10 +97,32 @@ class PortalInformationService
             }
             $item->updated_by = $request->user()->id;
             $item->save();
-            $this->audit($item, $request, $id === null ? 'PORTAL_INFORMATION_CREATED' : 'PORTAL_INFORMATION_DRAFT_UPDATED', $before);
+            $action = $id === null
+                ? ($kind === 'SECTION' ? 'PORTAL_INFORMATION_SECTION_CREATED' : 'PORTAL_INFORMATION_CREATED')
+                : 'PORTAL_INFORMATION_DRAFT_UPDATED';
+            $this->audit($item, $request, $action, $before);
 
             return $item->refresh();
         });
+    }
+
+    private function uniqueSectionKey(string $title): string
+    {
+        $base = rtrim(substr(Str::slug($title, '_'), 0, 50), '_');
+        if ($base === '') {
+            $base = 'section';
+        }
+
+        $candidate = $base;
+        $suffix = 2;
+        while (PortalInformationContent::where('key', $candidate)->exists()) {
+            $tag = '_'.$suffix;
+            $prefix = rtrim(substr($base, 0, 50 - strlen($tag)), '_');
+            $candidate = ($prefix !== '' ? $prefix : 'section').$tag;
+            $suffix++;
+        }
+
+        return $candidate;
     }
 
     public function publish(string $kind, int $id, int $revision, bool $publish, Request $request): PortalInformationContent

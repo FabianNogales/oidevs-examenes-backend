@@ -253,17 +253,64 @@ class ExamReportTest extends TestCase
                 $this->assertStringNotContainsString('Filtros:', $response->getContent());
                 $this->assertStringNotContainsString('"date_from":', $response->getContent());
             } else {
-                $response->assertHeader('Content-Type', 'text/csv; charset=UTF-8');
-                $rows = $this->csvRows($response->getContent());
+                $response->assertHeader('Content-Type', 'text/csv; charset=utf-8');
+                $raw = $response->getContent();
+                $this->assertStringStartsWith("\xEF\xBB\xBF", $raw);
+                $this->assertStringContainsString("\r\n\r\n", $raw);
+                $rows = $this->csvRows($raw);
                 $this->assertNotContains('Filtros', $rows[0]);
                 $this->assertCount(11, $rows[0]);
                 $this->assertCount(11, $rows[1]);
-                $this->assertStringNotContainsString('"date_from":', $response->getContent());
+                $this->assertSame([null], $rows[2]);
+                $this->assertStringNotContainsString('"date_from":', $raw);
                 $this->assertSame('00123', $rows[4][6]);
                 $this->assertSame('00099', $rows[4][7]);
                 $this->assertStringStartsWith("'", $rows[4][10]);
             }
         }
+    }
+
+    public function test_csv_export_complies_with_rfc_4180_bom_crlf_quoting_and_blank_separator(): void
+    {
+        $this->student->update([
+            'first_names' => ' Ana "La" , Ruiz ',
+            'last_names' => 'Pérez',
+        ]);
+        SpecialCase::create([
+            'exam_id' => $this->exam->id,
+            'student_id' => $this->student->id,
+            'type' => 'IDENTIFICATION',
+            'description' => "Nota con, coma y \"comillas\"\nSegunda línea",
+            'reported_by' => $this->owner->id,
+            'status' => 'PENDING',
+        ]);
+
+        $snapshot = $this->report('INCIDENTS')->assertOk()->json();
+        $response = $this->get($this->reportPath('INCIDENTS').'/export?'.http_build_query([
+            'report_id' => $snapshot['report']['id'],
+            'format' => 'csv',
+        ]))->assertOk()->assertHeader('Content-Type', 'text/csv; charset=utf-8');
+
+        $raw = $response->getContent();
+        $this->assertStringStartsWith("\xEF\xBB\xBF", $raw);
+        $this->assertStringEndsWith("\r\n", $raw);
+
+        // Ensure metadata block and records table are separated by an explicit blank CRLF line.
+        $body = substr($raw, 3);
+        $parts = explode("\r\n\r\n", $body, 2);
+        $this->assertCount(2, $parts);
+
+        // Verify metadata lines use CRLF without bare LF.
+        $this->assertStringNotContainsString("\n", str_replace("\r\n", '', $parts[0]));
+
+        // Verify RFC 4180 double-quote escaping and quoting for spaces/commas/quotes/newlines.
+        $this->assertStringContainsString('" Ana ""La"" , Ruiz "', $parts[1]);
+        $this->assertStringContainsString("\"Nota con, coma y \"\"comillas\"\"\nSegunda línea\"", $parts[1]);
+
+        $rows = $this->csvRows($raw);
+        $this->assertSame([null], $rows[2]);
+        $this->assertSame(' Ana "La" , Ruiz ', $rows[4][4]);
+        $this->assertSame("Nota con, coma y \"comillas\"\nSegunda línea", $rows[4][10]);
     }
 
     public function test_invalid_filters_unknown_types_and_failures_do_not_produce_false_reports(): void

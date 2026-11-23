@@ -243,7 +243,7 @@ class EidaFullDemoSeeder extends Seeder
     {
         app(AcademicTermIntegrity::class)->transaction(function (): void {
             foreach ($this->termPlan() as $key => $data) {
-                $data = app(AcademicTermIntegrity::class)->validatePayload($data, true);
+                // Historical demo periods are snapshots; check uniqueness, overlaps and active exclusivity without rejecting past dates.
                 app(AcademicTermIntegrity::class)->assertCanSave($data);
                 $id = $this->insert('academic_terms', $key, $data, ['name']);
                 $this->audit('DEMO_PERIOD_SNAPSHOT_CREATED', 'ACADEMIC_TERM', $id, null, $data);
@@ -290,7 +290,8 @@ class EidaFullDemoSeeder extends Seeder
                 $eligibility = EligibilityRules::values(['status' => $ineligible ? 'INELIGIBLE' : 'ELIGIBLE',
                     'reason_code' => 'INSTITUTIONAL_REQUIREMENT_PENDING', 'observations' => 'FULLQA: documento ficticio pendiente.']);
                 $this->insert('exam_eligibilities', $key.'-'.$n, $eligibility + ['exam_id' => $id,
-                    'student_id' => $this->id('students', $n), 'evaluated_by' => $values['created_by'],
+                    'student_id' => $this->id('students', $n), 'decision_source' => $ineligible ? 'MANUAL' : 'INITIALIZED',
+                    'evaluated_by' => $values['created_by'],
                     'evaluated_at' => $start->subDay()->min($this->now)->setTimezone(config('app.timezone'))->format('Y-m-d H:i:s'), 'revision' => 1]);
             }
         }

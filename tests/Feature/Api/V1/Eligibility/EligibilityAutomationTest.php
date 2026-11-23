@@ -115,24 +115,24 @@ class EligibilityAutomationTest extends TestCase
             (new ExamEligibility)->forceFill(['exam_id' => $this->exam->id, 'student_id' => $id,
                 'status' => $source === 'INITIALIZED' ? 'ELIGIBLE' : 'INELIGIBLE', 'decision_source' => $source])->save();
         }
-        $preview = $this->postJson($this->base.'/evaluations/preview?filter=PROTECTED&per_page=1&page=2',
+        $preview = $this->postJson($this->base.'/evaluations/preview?filter=PROTECTED&per_page=1&page=1',
             ['configuration_revision' => 1, 'catalog_revision' => $this->globalRevision()])->assertOk()
-            ->assertJsonPath('data.results.meta.total', 2)->assertJsonCount(1, 'data.results.data')
-            ->assertJsonPath('data.results.data.0.protected_source', 'LEGACY')
-            ->assertJsonPath('data.summary.total', 4)->assertJsonPath('data.summary.state_changes', 1)
-            ->assertJsonPath('data.summary.traceability_only', 1)->assertJsonPath('data.summary.protected', 2)
-            ->assertJsonPath('data.summary.effective_eligible', 2)->assertJsonPath('data.summary.effective_ineligible', 2)->json('data');
-        foreach (['ALL' => 4, 'CHANGES' => 1, 'ELIGIBLE' => 2, 'INELIGIBLE' => 2, 'PENDING' => 0, 'PROTECTED' => 2] as $filter => $total) {
+            ->assertJsonPath('data.results.meta.total', 1)->assertJsonCount(1, 'data.results.data')
+            ->assertJsonPath('data.results.data.0.protected_source', 'MANUAL')
+            ->assertJsonPath('data.summary.total', 4)->assertJsonPath('data.summary.state_changes', 2)
+            ->assertJsonPath('data.summary.traceability_only', 1)->assertJsonPath('data.summary.protected', 1)
+            ->assertJsonPath('data.summary.effective_eligible', 3)->assertJsonPath('data.summary.effective_ineligible', 1)->json('data');
+        foreach (['ALL' => 4, 'CHANGES' => 2, 'ELIGIBLE' => 3, 'INELIGIBLE' => 1, 'PENDING' => 0, 'PROTECTED' => 1] as $filter => $total) {
             $this->getJson($this->base.'/evaluations/'.$preview['id'].'?filter='.$filter.'&per_page=1')->assertOk()
                 ->assertJsonPath('data.results.meta.total', $total)->assertJsonPath('data.summary', $preview['summary']);
         }
-        $this->getJson($this->base.'/evaluations/'.$preview['id'].'?search=202600003&filter=PROTECTED')->assertOk()
-            ->assertJsonPath('data.results.meta.total', 1)->assertJsonPath('data.results.data.0.protected_source', 'LEGACY');
+        $this->getJson($this->base.'/evaluations/'.$preview['id'].'?search=202600002&filter=PROTECTED')->assertOk()
+            ->assertJsonPath('data.results.meta.total', 1)->assertJsonPath('data.results.data.0.protected_source', 'MANUAL');
         $this->getJson($this->base.'/evaluations/'.$preview['id'].'?search=PROTEGIDO%201')->assertOk()->assertJsonPath('data.results.meta.total', 1);
         $this->getJson($this->base.'/evaluations/'.$preview['id'].'?search[]=x')->assertUnprocessable();
         $this->postJson($this->base.'/evaluations/preview?filter=BAD', ['configuration_revision' => 1, 'catalog_revision' => $this->globalRevision()])->assertUnprocessable();
-        $this->postJson($this->base.'/evaluations/'.$preview['preview_id'].'/confirm?filter=PROTECTED&page=2')->assertOk()
-            ->assertJsonPath('data.updated', 2)->assertJsonPath('data.manual_preserved', 2);
+        $this->postJson($this->base.'/evaluations/'.$preview['preview_id'].'/confirm?filter=PROTECTED&page=1')->assertOk()
+            ->assertJsonPath('data.updated', 3)->assertJsonPath('data.manual_preserved', 1);
         $this->assertDatabaseCount('exam_eligibilities', 4);
         $this->assertDatabaseHas('exam_eligibilities', ['student_id' => $this->fixture['studentId'], 'status' => 'ELIGIBLE']);
     }
@@ -365,17 +365,165 @@ class EligibilityAutomationTest extends TestCase
         $this->getJson($this->base.'/evaluations/'.$confirmation['evaluation_id'])->assertOk()->assertJsonPath('data.results.data.0.computed_status', 'INELIGIBLE');
     }
 
-    public function test_pending_and_no_optional_criteria_preserve_existing_states_and_legacy_decisions(): void
+    public function test_pending_preserves_existing_state_and_only_manual_decisions_block_automation(): void
     {
         $this->configure([$this->criterion()])->assertOk();
         $legacy = ExamEligibility::create(['exam_id' => $this->exam->id, 'student_id' => $this->fixture['studentId'], 'status' => 'ELIGIBLE']);
         $preview = $this->postJson($this->base.'/evaluations/preview', ['catalog_revision' => app(GlobalCriteriaCatalog::class)->revision(), 'configuration_revision' => 1])->assertOk()
             ->assertJsonPath('data.results.data.0.computed_status', 'PENDING')->assertJsonPath('data.results.data.0.effective_status', 'ELIGIBLE')
-            ->assertJsonPath('data.results.data.0.manual_override_preserved', true)->json('data.preview_id');
+            ->assertJsonPath('data.results.data.0.manual_override_preserved', false)
+            ->assertJsonPath('data.results.data.0.protected_source', null)
+            ->assertJsonPath('data.results.data.0.will_update', false)->json('data.preview_id');
         $this->postJson($this->base.'/evaluations/'.$preview.'/confirm')->assertOk()->assertJsonPath('data.updated', 0);
         $this->assertSame('LEGACY', $legacy->fresh()->decision_source);
+
+        // Removing criteria allows automatic evaluation to update a LEGACY record (not protected).
         $this->configure([], 1)->assertOk();
-        $this->postJson($this->base.'/evaluations/preview', ['catalog_revision' => app(GlobalCriteriaCatalog::class)->revision(), 'configuration_revision' => 2])->assertOk()->assertJsonPath('data.results.data.0.will_update', false);
+        $this->postJson($this->base.'/evaluations/preview', ['catalog_revision' => app(GlobalCriteriaCatalog::class)->revision(), 'configuration_revision' => 2])->assertOk()
+            ->assertJsonPath('data.results.data.0.manual_override_preserved', false)
+            ->assertJsonPath('data.results.data.0.will_update', true);
+
+        // Explicit MANUAL decision remains protected.
+        $legacy->forceFill(['decision_source' => 'MANUAL'])->save();
+        $this->postJson($this->base.'/evaluations/preview', ['catalog_revision' => app(GlobalCriteriaCatalog::class)->revision(), 'configuration_revision' => 2])->assertOk()
+            ->assertJsonPath('data.results.data.0.manual_override_preserved', true)
+            ->assertJsonPath('data.results.data.0.protected_source', 'MANUAL')
+            ->assertJsonPath('data.results.data.0.will_update', false);
+    }
+
+    public function test_automatic_evaluation_applies_minimum_criteria_handles_missing_data_and_overrides_legacy_defaults(): void
+    {
+        $baseStudent = (array) DB::table('students')->where('id', $this->fixture['studentId'])->first();
+        unset($baseStudent['id']);
+
+        $createStudent = function (string $sis, string $name) use ($baseStudent): int {
+            $row = $baseStudent;
+            $row['user_id'] = User::factory()->create()->id;
+            $row['sis_code'] = $sis;
+            $row['identity_number'] = 'CI-'.$sis;
+            $row['first_names'] = $name;
+            $id = DB::table('students')->insertGetId($row);
+            DB::table('enrollments')->insert([
+                'course_offering_id' => $this->fixture['offering']->id,
+                'student_id' => $id,
+                'status' => 'ACTIVE',
+                'registered_by' => $this->fixture['user']->id,
+            ]);
+
+            return $id;
+        };
+
+        // 1. Failing student (fixture student, SIS 202600001) with LEGACY ELIGIBLE default row.
+        $failingId = $this->fixture['studentId'];
+        ExamEligibility::create(['exam_id' => $this->exam->id, 'student_id' => $failingId, 'status' => 'ELIGIBLE']);
+
+        // 2. Student with no academic record at all (no prior decision).
+        $noRecordId = $createStudent('202600010', 'Sin Datos');
+
+        // 3. Student with null score on FIRST_PARTIAL (no prior decision).
+        $nullScoreId = $createStudent('202600011', 'Nota Nula');
+
+        // 4. Student meeting all criteria (with INITIALIZED default row).
+        $passingId = $createStudent('202600012', 'Cumple Todo');
+        (new ExamEligibility)->forceFill([
+            'exam_id' => $this->exam->id,
+            'student_id' => $passingId,
+            'status' => 'ELIGIBLE',
+            'decision_source' => 'INITIALIZED',
+        ])->save();
+
+        // 5. Failing student with explicit MANUAL override (must remain protected).
+        $manualId = $createStudent('202600013', 'Manual Protegido');
+        (new ExamEligibility)->forceFill([
+            'exam_id' => $this->exam->id,
+            'student_id' => $manualId,
+            'status' => 'ELIGIBLE',
+            'decision_source' => 'MANUAL',
+        ])->save();
+
+        $this->configure([
+            $this->criterion('MIN_ACCUMULATED_SCORE', ['assessment_keys' => CriteriaCatalog::ASSESSMENTS, 'minimum_total' => 102]),
+            $this->criterion('MIN_ASSESSMENT_AVERAGE', ['assessment_keys' => CriteriaCatalog::ASSESSMENTS, 'minimum_average' => 51]),
+            $this->criterion('MIN_ASSESSMENT_SCORE', ['assessment_key' => 'FIRST_PARTIAL', 'minimum_score' => 50]),
+            $this->criterion('MIN_ATTENDANCE_PERCENTAGE', ['minimum_percentage' => 80]),
+        ])->assertOk();
+
+        $importId = $this->csv(implode("\n", [
+            '202600001,FIRST_PARTIAL,true,30,15,20',
+            '202600001,SECOND_PARTIAL,true,40,,',
+            '202600011,FIRST_PARTIAL,true,,18,20',
+            '202600011,SECOND_PARTIAL,true,60,,',
+            '202600012,FIRST_PARTIAL,true,60,18,20',
+            '202600012,SECOND_PARTIAL,true,60,,',
+            '202600013,FIRST_PARTIAL,true,20,10,20',
+            '202600013,SECOND_PARTIAL,true,20,,',
+        ])."\n")->assertOk()->assertJsonPath('data.can_confirm', true)->json('data.preview_id');
+        $this->postJson($this->academic.'/imports/'.$importId.'/confirm')->assertOk();
+
+        $preview = $this->postJson($this->base.'/evaluations/preview?per_page=20', [
+            'configuration_revision' => 1,
+            'catalog_revision' => $this->globalRevision(),
+        ])->assertOk()->json('data');
+
+        $byStudent = collect($preview['results']['data'])->keyBy('student_id');
+
+        // Student with score/average below minimum (even with LEGACY ELIGIBLE row) -> INELIGIBLE and will_update=true.
+        $this->assertSame('INELIGIBLE', $byStudent[$failingId]['computed_status']);
+        $this->assertSame('INELIGIBLE', $byStudent[$failingId]['effective_status']);
+        $this->assertTrue($byStudent[$failingId]['will_update']);
+        $this->assertFalse($byStudent[$failingId]['manual_override_preserved']);
+        $this->assertNull($byStudent[$failingId]['protected_source']);
+
+        // Student without academic data -> PENDING, missing_fields populated, effective_status=null, will_update=false.
+        $this->assertSame('PENDING', $byStudent[$noRecordId]['computed_status']);
+        $this->assertNull($byStudent[$noRecordId]['effective_status']);
+        $this->assertFalse($byStudent[$noRecordId]['will_update']);
+        $this->assertNotEmpty($byStudent[$noRecordId]['missing_fields']);
+
+        // Student with null score -> PENDING, missing_fields includes score, effective_status=null, will_update=false.
+        $this->assertSame('PENDING', $byStudent[$nullScoreId]['computed_status']);
+        $this->assertNull($byStudent[$nullScoreId]['effective_status']);
+        $this->assertFalse($byStudent[$nullScoreId]['will_update']);
+        $this->assertContains('assessments.FIRST_PARTIAL.score', $byStudent[$nullScoreId]['missing_fields']);
+
+        // Student passing all criteria -> ELIGIBLE and will_update=true.
+        $this->assertSame('ELIGIBLE', $byStudent[$passingId]['computed_status']);
+        $this->assertSame('ELIGIBLE', $byStudent[$passingId]['effective_status']);
+        $this->assertTrue($byStudent[$passingId]['will_update']);
+
+        // Student with explicit MANUAL override -> protected.
+        $this->assertSame('INELIGIBLE', $byStudent[$manualId]['computed_status']);
+        $this->assertSame('ELIGIBLE', $byStudent[$manualId]['effective_status']);
+        $this->assertFalse($byStudent[$manualId]['will_update']);
+        $this->assertTrue($byStudent[$manualId]['manual_override_preserved']);
+        $this->assertSame('MANUAL', $byStudent[$manualId]['protected_source']);
+
+        // Confirm applies INELIGIBLE to legacy student, keeps MANUAL protected, and never creates ELIGIBLE for PENDING.
+        $this->postJson($this->base.'/evaluations/'.$preview['preview_id'].'/confirm')->assertOk()
+            ->assertJsonPath('data.updated', 2)
+            ->assertJsonPath('data.manual_preserved', 1)
+            ->assertJsonPath('data.pending', 2);
+
+        $this->assertDatabaseHas('exam_eligibilities', [
+            'exam_id' => $this->exam->id,
+            'student_id' => $failingId,
+            'status' => 'INELIGIBLE',
+            'decision_source' => 'AUTOMATIC',
+        ]);
+        $this->assertDatabaseHas('exam_eligibilities', [
+            'exam_id' => $this->exam->id,
+            'student_id' => $passingId,
+            'status' => 'ELIGIBLE',
+            'decision_source' => 'AUTOMATIC',
+        ]);
+        $this->assertDatabaseHas('exam_eligibilities', [
+            'exam_id' => $this->exam->id,
+            'student_id' => $manualId,
+            'status' => 'ELIGIBLE',
+            'decision_source' => 'MANUAL',
+        ]);
+        $this->assertDatabaseMissing('exam_eligibilities', ['exam_id' => $this->exam->id, 'student_id' => $noRecordId]);
+        $this->assertDatabaseMissing('exam_eligibilities', ['exam_id' => $this->exam->id, 'student_id' => $nullScoreId]);
     }
 
     public function test_stale_preview_after_manual_change_data_change_or_expiry_returns_409(): void

@@ -271,6 +271,7 @@ class DelegatedPortalEditingTest extends TestCase
             }
             $this->getJson(self::ADMIN.'information/'.$path.'/'.$item->id.'/history')->assertForbidden();
         }
+        $this->postJson(self::ADMIN.'information/sections', [])->assertForbidden();
         $this->postJson(self::ADMIN.'information/faqs', [])->assertForbidden();
         $this->postJson(self::ADMIN.'news/'.$news->id.'/image', ['revision' => 1])->assertForbidden();
         $this->deleteJson(self::ADMIN.'news/'.$news->id.'/image', ['revision' => 1])->assertForbidden();

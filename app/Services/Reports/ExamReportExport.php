@@ -72,7 +72,7 @@ class ExamReportExport
 
             return preg_match('/^(?:[\s\p{C}]*[=+@-]|[\t\r\n])/u', $text) ? "'".$text : $text;
         }, $cells);
-        if (fputcsv($stream, $cells, ',', '"', '') === false) {
+        if (fputcsv($stream, $cells, ',', '"', '', "\r\n") === false) {
             throw new \RuntimeException('Could not render CSV report.');
         }
     }
