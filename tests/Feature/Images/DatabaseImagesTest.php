@@ -28,6 +28,9 @@ class DatabaseImagesTest extends TestCase
             'identity_number' => '12345', 'first_names' => 'Ana', 'last_names' => 'Prueba', 'status' => 'ACTIVE']);
         Storage::fake('public');
         Storage::fake('local');
+        $historical = RasterImageFixture::image();
+        Storage::disk('local')->put('institutional-photos/setup.png', file_get_contents($historical->getRealPath()));
+        $this->student->forceFill(['historical_photo' => 'institutional-photos/setup.png'])->save();
     }
 
     private function actor(string $role): User
@@ -69,7 +72,7 @@ class DatabaseImagesTest extends TestCase
         $this->assertSame($bytes, $response->streamedContent());
         $this->assertStringContainsString('no-store', $response->headers->get('Cache-Control'));
         $this->assertSame([], Storage::disk('public')->allFiles());
-        $this->assertSame([], Storage::disk('local')->allFiles());
+        $this->assertSame(['institutional-photos/setup.png'], Storage::disk('local')->allFiles());
         if (DB::getDriverName() === 'pgsql') {
             $column = DB::selectOne("SELECT data_type FROM information_schema.columns WHERE table_name = 'stored_images' AND column_name = 'content'");
             $this->assertSame('bytea', $column->data_type);

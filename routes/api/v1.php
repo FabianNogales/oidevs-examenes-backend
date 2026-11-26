@@ -261,8 +261,8 @@ Route::post('auth/mobile/login', [MobileAuthController::class, 'login'])
 
 Route::prefix('auth')->middleware(['auth:sanctum', 'session.current'])->group(function () {
     Route::post('/logout', [AuthController::class, 'revokeSessionToken']);
-    Route::get('/devices', [MobileDeviceController::class, 'index']);
-    Route::delete('/devices/{id}', [MobileDeviceController::class, 'destroy'])->whereNumber('id');
+    Route::get('/devices', [MobileDeviceController::class, 'index'])->middleware('password.changed');
+    Route::delete('/devices/{id}', [MobileDeviceController::class, 'destroy'])->whereNumber('id')->middleware('password.changed');
 });
 
 // HU02 Auth: devuelve usuario, roles y estado de primer acceso
@@ -277,6 +277,8 @@ Route::middleware([
     'password.changed',
     'role:'.RoleName::ESTUDIANTE->value,
 ])->group(function () {
+    Route::post('/students/initial-setup/historical-photo', [HistoricalPhotoController::class, 'register'])
+        ->middleware('throttle:10,1')->name('students.historical-photo.register');
     // Rutas de Perfil del Estudiante (HU-10)
     Route::get('/students/profile', [StudentProfileController::class, 'show']);
     Route::get('/students/profile/photo', [ProfilePhotoController::class, 'own'])->name('students.profile-photo');

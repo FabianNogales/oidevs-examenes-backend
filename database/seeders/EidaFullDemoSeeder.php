@@ -3,455 +3,541 @@
 namespace Database\Seeders;
 
 use App\Enums\RoleName;
-use App\Models\AcademicTerm;
+use App\Models\AcademicRecord;
+use App\Models\AuditLog;
+use App\Models\Career;
 use App\Models\Exam;
+use App\Models\ExamEligibility;
+use App\Models\ExamOfflineDistribution;
 use App\Models\Role;
-use App\Models\StudentQrToken;
 use App\Models\User;
 use App\Services\AcademicTerms\AcademicTermIntegrity;
-use App\Services\Audit\AuditLogService;
+use App\Services\Admin\CustomRoleService;
+use App\Services\Admin\StaffAccountService;
+use App\Services\Auth\LoginUserResolver;
 use App\Services\Collaborators\ExamCollaboratorService;
+use App\Services\Discipline\DisciplineService;
+use App\Services\Eligibility\Automation\AcademicDataService;
+use App\Services\Eligibility\Automation\ConfigurationService;
+use App\Services\Eligibility\Automation\EvaluationService;
+use App\Services\Eligibility\Automation\GlobalCriteriaCatalog;
+use App\Services\Eligibility\ExamEligibilityInitializer;
+use App\Services\Eligibility\ExamEligibilityService;
+use App\Services\Entries\EntryAnnulmentService;
 use App\Services\Entries\ExamEntryAvailability;
-use App\Services\Exams\ExamRevision;
+use App\Services\Entries\QrEntryService;
+use App\Services\Exams\ExamRoomAssignmentService;
+use App\Services\Exams\ExamSchedulePolicy;
+use App\Services\Offline\OfflineAssignmentService;
+use App\Services\Offline\OfflinePackageService;
+use App\Services\Offline\OfflineSyncService;
+use App\Services\Portal\PortalCalendarService;
+use App\Services\Portal\PortalInformationService;
+use App\Services\Portal\PortalNewsService;
+use App\Services\Portal\PortalServiceCatalog;
+use App\Services\QrV3\ExamQrV3;
+use App\Services\QrV3\QrV3Factory;
 use App\Services\Rooms\RoomAvailabilityService;
+use App\Services\Students\StudentQrService;
 use App\Services\Students\StudentRegistrationService;
 use App\Services\Teachers\TeacherService;
-use App\Support\Eligibility\EligibilityRules;
+use Carbon\Carbon;
 use Carbon\CarbonImmutable;
-use Closure;
 use DomainException;
 use Illuminate\Database\Seeder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
-/** Explicitly invoked demo snapshots; see docs/EIDA_FULL_DEMO_SEEDER.md. */
 class EidaFullDemoSeeder extends Seeder
 {
-    private const DATASET = 'EIDA-FULLQA-v1';
+    public const DATASET = 'EIDA-SPRINT123-v2';
 
-    private const STAGE_ACTION = 'DEMO_SEED_STAGE_CREATED';
+    public const DEMO_PASSWORD = 'EidaDemo2026!';
 
-    private const ADMIN_PASSWORD = 'DemoAdmin1';
+    private array $ids = [];
 
-    private const TEACHER_PASSWORD = 'DemoTeacher1';
+    private User $admin;
 
-    private const STUDENT_PASSWORD = 'DemoStudent1';
+    private string $passwordHash;
 
     private CarbonImmutable $now;
 
-    private string $domain;
-
-    private ?User $actor = null;
-
-    /** @var array<string, array<string|int, int>> IDs owned by immutable stage manifests. */
-    private array $ids = [];
-
-    private array $pending = [];
-
     public function run(): void
     {
-        if (config('eida.allow_demo_seeding') !== true) {
-            throw new DomainException('Demo deshabilitada: configura EIDA_ALLOW_DEMO_SEEDING=true solo en la BD de demostracion.');
-        }
         if (DB::getDriverName() !== 'pgsql') {
-            throw new DomainException('EidaFullDemoSeeder requiere PostgreSQL y todas las migraciones actuales.');
+            throw new DomainException('EidaFullDemoSeeder requiere PostgreSQL.');
         }
         $this->now = CarbonImmutable::now(ExamEntryAvailability::TIMEZONE)->startOfMinute();
-        $domains = config('eida.institutional_email_domains', []);
-        $this->domain = strtolower(trim((string) ($domains[0] ?? '')));
-        if ($this->domain === '' || filter_var('fullqa.admin@'.$this->domain, FILTER_VALIDATE_EMAIL) === false) {
-            throw new DomainException('Configura al menos un EIDA_INSTITUTIONAL_EMAIL_DOMAINS valido; no se inventa un dominio alternativo.');
-        }
+        // Use the backend's existing issuer and keys, including their signature checks.
+        app(QrV3Factory::class)->make()->publicSigningMaterial($this->now->subDay()->timestamp, $this->now->addHours(5)->timestamp, true);
+        $this->passwordHash = Hash::make(self::DEMO_PASSWORD);
         $this->ids = [];
-        $this->actor = null;
-        foreach (RoleName::cases() as $role) {
-            if (Role::where('name', $role->value)->where('status', '!=', 'ACTIVE')->exists()) {
-                throw new DomainException('Existe un rol oficial inactivo. La demo no modifica roles existentes.');
-            }
-        }
-        $this->stage('foundation', fn () => $this->foundation());
-        $this->actor = User::findOrFail($this->id('users', 'admin'));
-        $this->stage('academic', fn () => $this->academic());
-        $this->stage('scenarios', fn () => $this->scenarios());
-        $this->refreshTimeline();
-
-        $this->command?->info('EIDA FULLQA lista. Dominio: '.$this->domain.'; horarios: America/La_Paz.');
-        $this->command?->line('Admin: fullqa.admin@'.$this->domain.' / '.self::ADMIN_PASSWORD.' (solo creacion inicial).');
-        $this->command?->line('No se restablecen passwords, estados, habilitaciones, colaboraciones ni ingresos en reejecuciones.');
-    }
-
-    /** Each small phase and its ownership manifest commit or roll back together. */
-    private function stage(string $stage, Closure $create): void
-    {
-        app(AcademicTermIntegrity::class)->transaction(function () use ($stage, $create): void {
-            // Same order as timeline refresh: period lock, then demo lock.
-            // Serializes concurrent invocations, even when no manifest exists yet.
+        app(AcademicTermIntegrity::class)->transaction(function (): void {
             DB::select('SELECT pg_advisory_xact_lock(240028, 1)');
-            $manifests = \App\Models\AuditLog::where('action', self::STAGE_ACTION)
-                ->where('entity_type', self::DATASET)->where('new_values->stage', $stage)->limit(2)->get();
-            if ($manifests->count() > 1) {
-                throw new DomainException('Manifiestos demo duplicados; se requiere revision manual.');
+            $existing = AuditLog::where('action', 'DEMO_DATASET_CREATED')->where('entity_type', self::DATASET)->get();
+            if ($existing->count() > 1) {
+                throw new DomainException('Manifiesto duplicado; requiere revisión manual.');
             }
-            $manifest = $manifests->first();
-            if ($manifest !== null) {
-                $values = $manifest->new_values;
-                if (($values['domain'] ?? null) !== $this->domain) {
-                    throw new DomainException('El dominio cambio desde la primera seed. Conserva el dominio original; no se duplicaran cuentas.');
-                }
-                foreach ($values['records'] as $table => $records) {
-                    foreach ($records as $key => $id) {
-                        if (! DB::table($table)->where('id', $id)->exists()) {
-                            throw new DomainException("Falta un registro del manifiesto {$stage}: {$table}/{$id}. No se recrea silenciosamente.");
-                        }
-                        $this->ids[$table][$key] = (int) $id;
+            if ($manifest = $existing->first()) {
+                foreach ($manifest->new_values['records'] as $table => $ids) {
+                    if (DB::table($table)->whereIn('id', array_values($ids))->count() !== count($ids)) {
+                        throw new DomainException("Faltan registros en {$table}; no se recrean silenciosamente.");
                     }
                 }
+                $this->ids = $manifest->new_values['records'];
+                $this->restoreInstitutionalAccounts();
+                $this->command?->info('Demo existente: cuentas institucionales verificadas; se conservan las relaciones, fechas y listas congeladas.');
 
                 return;
             }
-            $this->pending = [];
-            $create();
-            $this->audit(self::STAGE_ACTION, self::DATASET, null, null, [
-                'stage' => $stage, 'domain' => $this->domain, 'records' => $this->pending,
-            ]);
+            $legacyEmails = [];
+            foreach ($this->accountKeys() as $key) {
+                $legacyEmails[] = $key.'@eida.test';
+                $legacyEmails[] = $key.'@example.com';
+            }
+            if (User::whereIn(DB::raw('LOWER(email)'), $legacyEmails)->exists()) {
+                throw new DomainException('Existen cuentas demo anteriores sin manifiesto de propiedad. Requieren revisión; no se adoptan por correo ni se duplican.');
+            }
+            $this->foundation();
+            $this->academic();
+            $this->exams();
+            $this->portal();
+            $this->assertIntegrity();
+            AuditLog::create(['user_id' => $this->admin->id, 'action' => 'DEMO_DATASET_CREATED', 'entity_type' => self::DATASET,
+                'new_values' => ['records' => $this->ids, 'executed_at' => $this->now->toISOString(), 'timezone' => ExamEntryAvailability::TIMEZONE],
+                'user_agent' => self::DATASET]);
         });
+        $this->command?->info('Demo Sprint 1–3 lista. Contraseña de demostración: '.self::DEMO_PASSWORD);
+        foreach ($this->ids as $table => $records) {
+            $this->command?->line($table.': '.count($records));
+        }
+        $this->command?->line('Roles base disponibles: '.Role::whereIn('name', array_column(RoleName::cases(), 'value'))->count());
+        $this->command?->line('Permisos del catálogo migrado: '.DB::table('permissions')->count());
+        foreach (User::whereIn('id', array_values($this->ids['users']))->orderBy('id')->pluck('email') as $email) {
+            $this->command?->line($email);
+        }
+        $exam = Exam::findOrFail($this->id('exams', 'A-INGRESO'));
+        $this->command?->line('Ingreso: '.$exam->name.' / '.$exam->exam_date.' '.$exam->start_time.' America/La_Paz; '.(ExamEntryAvailability::reason($exam) ?? 'DISPONIBLE'));
     }
 
     private function foundation(): void
     {
-        // Fail on existing period conflicts before creating accounts or catalogues.
-        foreach ($this->termPlan() as $data) {
-            app(AcademicTermIntegrity::class)->assertCanSave($data);
-        }
-        $this->ensureRoles();
-        foreach ([['SIS', 'Sistemas', 'ACTIVE'], ['INF', 'Informatica', 'ACTIVE'], ['LEG', 'Carrera historica', 'INACTIVE']] as [$key, $name, $status]) {
-            $this->insert('careers', $key, ['code' => 'FULLQA-'.$key, 'name' => 'FULLQA '.$name, 'status' => $status], ['code']);
-        }
-        foreach ([['TIS', 'Taller de Software', 'ACTIVE'], ['RED', 'Redes', 'ACTIVE'], ['BD', 'Bases de Datos', 'ACTIVE'], ['OLD', 'Materia historica', 'INACTIVE']] as [$key, $name, $status]) {
-            $this->insert('subjects', $key, ['code' => 'FULLQA-'.$key, 'name' => 'FULLQA '.$name, 'status' => $status], ['code']);
-        }
-        foreach ([['SIS', 'TIS'], ['INF', 'TIS'], ['SIS', 'RED'], ['INF', 'RED'], ['INF', 'BD'], ['SIS', 'BD'], ['LEG', 'OLD']] as [$career, $subject]) {
-            $this->insert('career_subject', $career.'-'.$subject, [
-                'career_id' => $this->id('careers', $career), 'subject_id' => $this->id('subjects', $subject),
-            ]);
-        }
-        foreach (['A', 'B', 'C', 'OFF'] as $index => $key) {
-            $this->insert('rooms', $key, [
-                'code' => 'FULLQA-'.$key, 'name' => 'FULLQA Aula '.$key, 'location' => 'Edificio ficticio FULLQA',
-                'description' => 'Ambiente ficticio para demostracion.', 'capacity' => 25 + $index * 10,
-                'floor' => (string) ($index + 1), 'status' => $key === 'OFF' ? 'INACTIVE' : 'ACTIVE',
-            ], ['code', 'name']);
-        }
-
-        $email = 'fullqa.admin@'.$this->domain;
-        $this->vacant('users', ['email' => $email]);
-        $admin = User::forceCreate(['email' => $email, 'password' => Hash::make(self::ADMIN_PASSWORD),
-            'status' => 'ACTIVE', 'must_change_password' => false, 'profile_photo' => null]);
-        $this->remember('users', 'admin', $admin->id);
-        $this->actor = $admin;
-        $this->recordRole($admin, RoleName::ADMINISTRADOR);
-
-        foreach ([1 => 'Irene', 2 => 'Tomas'] as $n => $name) {
-            $data = ['email' => "fullqa.docente{$n}@{$this->domain}", 'institutional_code' => "fullqa-doc-0{$n}",
-                'identity_number' => (string) (99000100 + $n), 'first_names' => $name, 'last_names' => 'Demo Docente'];
-            $this->vacant('users', ['email' => $data['email']]);
-            $this->vacant('teachers', array_intersect_key($data, array_flip(['institutional_code', 'identity_number'])));
-            $teacher = app(TeacherService::class)->create($data, $admin, $this->request($admin));
-            // The service initializes CI + must_change_password; these ready accounts simulate a completed first access.
-            $teacher->user->forceFill(['password' => Hash::make(self::TEACHER_PASSWORD), 'must_change_password' => false])->save();
-            $this->remember('teachers', $n, $teacher->id);
-            $this->remember('users', 'teacher'.$n, $teacher->user_id);
-            $this->recordRole($teacher->user, RoleName::DOCENTE);
-        }
-
-        $names = ['Ana', 'Bruno', 'Carla', 'Diego', 'Elena', 'Felipe', 'Gabriela', 'Hugo', 'Ines', 'Julia', 'Kevin', 'Lucia'];
-        foreach ($names as $index => $name) {
-            $n = $index + 1;
-            $data = ['email' => sprintf('fullqa.estudiante%02d@%s', $n, $this->domain),
-                'sis_code' => (string) (990260000 + $n), 'identity_number' => (string) (99010000 + $n),
-                'first_names' => $name, 'last_names' => 'Demo Estudiante', 'profile_photo' => null];
-            $this->vacant('users', ['email' => $data['email']]);
-            $this->vacant('students', array_intersect_key($data, array_flip(['sis_code', 'identity_number'])));
-            $career = \App\Models\Career::findOrFail($this->id('careers', $n % 2 === 1 ? 'SIS' : 'INF'));
-            $student = app(StudentRegistrationService::class)->create($data, $career, $admin, $this->request($admin));
-            if ($n !== 8) {
-                $student->user->forceFill(['password' => Hash::make(self::STUDENT_PASSWORD), 'must_change_password' => false])->save();
+        foreach (RoleName::cases() as $role) {
+            $row = Role::firstOrCreate(['name' => $role->value], ['status' => 'ACTIVE']);
+            if ($row->status !== 'ACTIVE') {
+                throw new DomainException('Existe un rol base inactivo; la demo no lo modifica.');
             }
-            // Initial snapshots: 09 has inactive account/profile; 10 has active account but inactive academic profile.
-            if (in_array($n, [9, 10], true)) {
-                $student->forceFill(['status' => 'INACTIVE'])->save();
-                if ($n === 9) {
-                    $student->user->forceFill(['status' => 'INACTIVE'])->save();
-                }
-                $this->audit('DEMO_PROFILE_SNAPSHOT_INITIALIZED', 'Student', $student->id, null,
-                    ['student_id' => $student->id, 'status' => 'INACTIVE', 'user_status' => $student->user->status]);
+        }
+        foreach (['SIS' => 'Ingeniería de Sistemas', 'INF' => 'Informática'] as $key => $name) {
+            $this->insert('careers', $key, ['code' => 'DEMO-'.$key, 'name' => 'DEMO '.$name, 'status' => 'ACTIVE'], ['code']);
+        }
+        foreach (['TIS' => 'Taller de Software', 'BD' => 'Bases de Datos', 'RED' => 'Redes'] as $key => $name) {
+            $this->insert('subjects', $key, ['code' => 'DEMO-'.$key, 'name' => 'DEMO '.$name, 'status' => 'ACTIVE'], ['code']);
+            foreach (['SIS', 'INF'] as $career) {
+                $this->insert('career_subject', $career.$key, ['career_id' => $this->id('careers', $career), 'subject_id' => $this->id('subjects', $key)]);
+            }
+        }
+        foreach (['Norte', 'Sur'] as $name) {
+            $this->insert('buildings', $name, ['name' => 'DEMO Edificio '.$name, 'is_active' => true], ['name']);
+        }
+        foreach (['A', 'B', 'C', 'D'] as $i => $key) {
+            $this->insert('rooms', $key, ['code' => 'DEMO-'.$key, 'name' => 'DEMO Aula '.$key,
+                'building_id' => $this->id('buildings', $i < 2 ? 'Norte' : 'Sur'), 'floor' => (string) ($i % 2 + 1),
+                'location' => 'Campus ficticio de demostración', 'capacity' => 30, 'status' => $key === 'D' ? 'INACTIVE' : 'ACTIVE',
+                'inactive_until' => $key === 'D' ? $this->now->addDays(2) : null], ['code', 'name']);
+        }
+        $this->vacant('users', ['email' => 'admin@umss.edu.bo', 'staff_identity_number' => '88000001']);
+        $this->admin = User::forceCreate(['email' => 'admin@umss.edu.bo', 'password' => $this->passwordHash,
+            'staff_first_names' => 'Adriana', 'staff_last_names' => 'Ficticia Administradora', 'staff_identity_number' => '88000001',
+            'status' => 'ACTIVE', 'email_verified_at' => now(), 'must_change_password' => false]);
+        $this->remember('users', 'admin', $this->admin->id);
+        $this->admin->roles()->attach(Role::where('name', RoleName::ADMINISTRADOR->value)->value('id'),
+            ['status' => 'ACTIVE', 'assigned_by' => $this->admin->id, 'assigned_at' => now()]);
+        foreach (['docente1' => 'Irene', 'docente2' => 'Tomás', 'docente3' => 'Nora', 'colaborador1' => 'Mario', 'colaborador2' => 'Sara'] as $key => $name) {
+            $n = count($this->ids['teachers'] ?? []) + 1;
+            $data = ['email' => $key.'@umss.edu.bo', 'institutional_code' => 'DEMO-DOC-'.$n,
+                'identity_number' => (string) (88000100 + $n), 'first_names' => $name, 'last_names' => 'Ficticio Docente '.$n];
+            $this->vacant('users', ['email' => $data['email']]);
+            $this->vacant('teachers', ['institutional_code' => $data['institutional_code'], 'identity_number' => $data['identity_number']]);
+            $teacher = app(TeacherService::class)->create($data, $this->admin, $this->request($this->admin));
+            $this->ready($teacher->user, $key);
+            $this->remember('teachers', $key, $teacher->id);
+        }
+        $first = ['Ana', 'Bruno', 'Carla', 'Diego', 'Elena', 'Felipe', 'Gabriela', 'Hugo', 'Inés', 'Julia', 'Kevin', 'Lucía', 'Mateo', 'Nadia', 'Óscar', 'Paula', 'René', 'Sofía'];
+        $last = ['Alba', 'Borda', 'Caro', 'Doria', 'Escal', 'Faro', 'Galo', 'Heria', 'Iria', 'Jara', 'Koria', 'Lara', 'Mora', 'Nero', 'Oria', 'Pera', 'Quera', 'Roa'];
+        foreach ($first as $i => $name) {
+            $n = $i + 1;
+            $data = ['email' => "estudiante{$n}@umss.edu.bo", 'sis_code' => (string) (880260000 + $n),
+                'identity_number' => (string) (88010000 + $n), 'first_names' => $name, 'last_names' => $last[$i].' Ficticio', 'profile_photo' => null];
+            $this->vacant('users', ['email' => $data['email']]);
+            $this->vacant('students', ['sis_code' => $data['sis_code'], 'identity_number' => $data['identity_number']]);
+            $student = app(StudentRegistrationService::class)->create($data, Career::findOrFail($this->id('careers', $n % 2 ? 'SIS' : 'INF')),
+                $this->admin, $this->request($this->admin));
+            $this->ready($student->user, 'estudiante'.$n);
+            if ($n === 17) {
+                $student->update(['status' => 'INACTIVE']);
             }
             $this->remember('students', $n, $student->id);
-            $this->remember('users', 'student'.$n, $student->user_id);
-            $this->recordRole($student->user, RoleName::ESTUDIANTE);
         }
-    }
-
-    /** Bootstrap official roles without depending on another seeder or overwriting existing roles. */
-    private function ensureRoles(): void
-    {
-        $roles = [
-            RoleName::ADMINISTRADOR->value => 'Administracion del sistema EIDA.',
-            RoleName::DOCENTE->value => 'Gestion docente dentro del sistema EIDA.',
-            RoleName::ESTUDIANTE->value => 'Acceso estudiantil al sistema EIDA.',
-        ];
-
-        foreach ($roles as $name => $description) {
-            Role::query()->firstOrCreate(
-                ['name' => $name],
-                ['description' => $description, 'status' => 'ACTIVE'],
-            );
+        foreach (['secretaria1' => ['DEMO Secretaría académica', ['rooms.view', 'subjects.view', 'careers.view', 'academic_terms.view', 'course_offerings.view']],
+            'secretaria2' => ['DEMO Edición institucional', ['portal.news.update', 'portal.events.update', 'portal.information.sections.update', 'portal.information.faqs.update', 'portal.services.update']]] as $key => [$name, $permissions]) {
+            $this->vacant('roles', ['name' => $name]);
+            $role = app(CustomRoleService::class)->save(['name' => $name, 'permission_keys' => $permissions], $this->request($this->admin));
+            $this->remember('roles', $key, $role->id);
+            $ci = $key === 'secretaria1' ? '88000201' : '88000202';
+            $this->vacant('users', ['email' => $key.'@umss.edu.bo', 'staff_identity_number' => $ci]);
+            $user = app(StaffAccountService::class)->create(['email' => $key.'@umss.edu.bo', 'role_id' => $role->id,
+                'first_names' => $key === 'secretaria1' ? 'Vera' : 'Yara', 'last_names' => 'Ficticia Secretaría', 'identity_number' => $ci], $this->request($this->admin));
+            $this->ready($user, $key);
         }
-    }
-
-    /** Guard every independent natural UNIQUE, never adopt an existing account by email/SIS/CI. */
-    private function vacant(string $table, array $keys): void
-    {
-        foreach ($keys as $field => $value) {
-            $query = DB::table($table);
-            $exists = $field === 'email'
-                ? $query->whereRaw('LOWER(email) = ?', [strtolower($value)])->exists()
-                : $query->where($field, $value)->exists();
-            if ($exists) {
-                throw new DomainException("Colision de namespace demo en {$table}.{$field}; no se adopta ni modifica el registro existente.");
-            }
-        }
-    }
-
-    private function recordRole(User $user, RoleName $roleName): void
-    {
-        $role = Role::where('name', $roleName->value)->where('status', 'ACTIVE')->firstOrFail();
-        $pivot = DB::table('role_user')->where('user_id', $user->id)->where('role_id', $role->id)->first();
-        if ($pivot === null) {
-            $id = DB::table('role_user')->insertGetId(['user_id' => $user->id, 'role_id' => $role->id,
-                'assigned_at' => now(), 'assigned_by' => $this->actor->id, 'status' => 'ACTIVE']);
-        } else {
-            $id = $pivot->id;
-        }
-        $this->remember('role_user', $user->id, $id);
-        $this->audit('USER_ROLE_ASSIGNED', 'User', $user->id, null, ['role_id' => $role->id, 'role' => $roleName->value,
-            'assigned' => true, 'assigned_at' => now()->toISOString(), 'assigned_by' => $this->actor->id]);
+        $this->capture('role_user', 'user_id', array_values($this->ids['users']));
     }
 
     private function academic(): void
     {
-        app(AcademicTermIntegrity::class)->transaction(function (): void {
-            foreach ($this->termPlan() as $key => $data) {
-                // Historical demo periods are snapshots; check uniqueness, overlaps and active exclusivity without rejecting past dates.
-                app(AcademicTermIntegrity::class)->assertCanSave($data);
-                $id = $this->insert('academic_terms', $key, $data, ['name']);
-                $this->audit('DEMO_PERIOD_SNAPSHOT_CREATED', 'ACADEMIC_TERM', $id, null, $data);
-            }
-            foreach ($this->offeringPlan() as $key => [$teacher, $subject, $term, $status]) {
-                // Historical INACTIVE offering is a snapshot, not a new assignment into an inactive period via API.
-                $values = ['teacher_id' => $this->id('teachers', $teacher), 'subject_id' => $this->id('subjects', $subject),
-                    'academic_term_id' => $this->id('academic_terms', $term), 'status' => $status];
-                $id = $this->insert('course_offerings', $key, $values);
-                $this->audit('DEMO_OFFERING_SNAPSHOT_CREATED', 'CourseOffering', $id, null, $values);
-            }
-            foreach ($this->enrollmentPlan() as $offering => $students) {
-                $teacher = $this->offeringPlan()[$offering][0];
-                foreach ($students as $n) {
-                    $this->insert('enrollments', $offering.'-'.$n, ['course_offering_id' => $this->id('course_offerings', $offering),
-                        'student_id' => $this->id('students', $n), 'registered_by' => $this->id('users', 'teacher'.$teacher),
-                        'status' => ($offering === 'MAIN' && $n === 5) || $offering === 'OFF' ? 'INACTIVE' : 'ACTIVE']);
-                }
-            }
-        });
-    }
-
-    private function scenarios(): void
-    {
-        foreach ($this->examPlan() as $key => [$offering, $room, $start, $duration, $status, $type]) {
-            $teacher = $this->offeringPlan()[$offering][0];
-            if (in_array($status, ExamEntryAvailability::STATES, true)) {
-                app(RoomAvailabilityService::class)->ensureReservable($this->id('rooms', $room), $start->toDateString(), $start->format('H:i:s'), $duration);
-            }
-            $values = ['course_offering_id' => $this->id('course_offerings', $offering), 'room_id' => $this->id('rooms', $room),
-                'name' => 'FULLQA '.$key, 'exam_date' => $start->toDateString(), 'start_time' => $start->format('H:i:s'),
-                'duration_minutes' => $duration, 'status' => $status, 'evaluation_type' => $type,
-                'rules' => 'FULLQA: portar CI; datos y credenciales ficticios de QA.', 'created_by' => $this->id('users', 'teacher'.$teacher)];
-            $id = $this->insert('exams', $key, $values);
-            // The database independently adds CREATE/Exam; keep both events honest and distinct.
-            $this->audit('DEMO_EXAM_SNAPSHOT_CREATED', 'Exam', $id, null, $values);
-            $students = match ($key) {
-                'A-INGRESO' => [1, 2, 3, 4, 5, 7, 8, 9, 10],
-                'B-PROXIMO', 'C-FUTURO', 'F-CANCELADO' => [1, 2, 3, 4, 6, 7, 8],
-                default => $this->enrollmentPlan()[$offering],
-            };
+        // Reuse a covering institutional period without claiming or modifying it.
+        $current = DB::table('academic_terms')->where('status', 'ACTIVE')->whereDate('start_date', '<=', $this->now->subDays(7)->toDateString())
+            ->whereDate('end_date', '>=', $this->now->addDays(7)->toDateString())->first();
+        if ($current) {
+            $termId = $current->id;
+        } else {
+            $data = ['name' => 'DEMO Periodo Sprint 1–3', 'start_date' => $this->now->subDays(30)->toDateString(),
+                'end_date' => $this->now->addDays(60)->toDateString(), 'status' => 'ACTIVE'];
+            app(AcademicTermIntegrity::class)->assertCanSave($data);
+            $termId = $this->insert('academic_terms', 'CURRENT', $data, ['name']);
+        }
+        $earliest = CarbonImmutable::parse(DB::table('academic_terms')->min('start_date'), ExamEntryAvailability::TIMEZONE);
+        $history = ['name' => 'DEMO Periodo histórico', 'start_date' => $earliest->subDays(91)->toDateString(),
+            'end_date' => $earliest->subDay()->toDateString(), 'status' => 'INACTIVE'];
+        app(AcademicTermIntegrity::class)->assertCanSave($history);
+        $historyId = $this->insert('academic_terms', 'HISTORY', $history, ['name']);
+        foreach (['MAIN' => ['docente1', 'TIS', range(1, 18)], 'SECOND' => ['docente2', 'BD', range(1, 8)],
+            'OTHER' => ['docente3', 'RED', range(9, 16)], 'HISTORY' => ['docente2', 'BD', range(1, 8)]] as $key => [$teacher, $subject, $students]) {
+            $offering = $this->insert('course_offerings', $key, ['teacher_id' => $this->id('teachers', $teacher),
+                'subject_id' => $this->id('subjects', $subject), 'academic_term_id' => $key === 'HISTORY' ? $historyId : $termId,
+                'status' => $key === 'HISTORY' ? 'INACTIVE' : 'ACTIVE']);
             foreach ($students as $n) {
-                $ineligible = $n === 2 && in_array($key, ['A-INGRESO', 'B-PROXIMO'], true);
-                $eligibility = EligibilityRules::values(['status' => $ineligible ? 'INELIGIBLE' : 'ELIGIBLE',
-                    'reason_code' => 'INSTITUTIONAL_REQUIREMENT_PENDING', 'observations' => 'FULLQA: documento ficticio pendiente.']);
-                $this->insert('exam_eligibilities', $key.'-'.$n, $eligibility + ['exam_id' => $id,
-                    'student_id' => $this->id('students', $n), 'decision_source' => $ineligible ? 'MANUAL' : 'INITIALIZED',
-                    'evaluated_by' => $values['created_by'],
-                    'evaluated_at' => $start->subDay()->min($this->now)->setTimezone(config('app.timezone'))->format('Y-m-d H:i:s'), 'revision' => 1]);
-            }
-        }
-
-        $teacher = User::findOrFail($this->id('users', 'teacher1'));
-        $service = app(ExamCollaboratorService::class);
-        foreach ([['A-INGRESO', 'student12', false], ['B-PROXIMO', 'teacher2', false], ['A-INGRESO', 'student11', true]] as [$exam, $user, $revoke]) {
-            $collaboration = $service->assignCollaborator($this->id('exams', $exam), $this->id('users', $user), $this->request($teacher));
-            $this->remember('exam_collaborators', $exam.'-'.$user, $collaboration->id);
-            if ($revoke) {
-                $service->revokeCollaborator($this->id('exams', $exam), $this->id('users', $user), $this->request($teacher));
-            }
-        }
-        foreach ($this->entryPlan() as $key => [$exam, $n, $method]) {
-            $examRow = Exam::findOrFail($this->id('exams', $exam));
-            $values = ['exam_id' => $examRow->id, 'student_id' => $this->id('students', $n), 'room_id' => $examRow->room_id,
-                'verified_by' => $this->id('users', 'teacher1'), 'verification_method' => $method, 'status' => 'VALID',
-                'entered_at' => $this->entryTime($examRow)];
-            $id = $this->insert('exam_entries', $key, $values);
-            // Historical rows cannot be created through today's admission window; explicitly labelled initial snapshots.
-            \App\Models\AuditLog::create(['user_id' => $values['verified_by'], 'action' => 'DEMO_ENTRY_SNAPSHOT_CREATED',
-                'entity_type' => 'ExamEntry', 'entity_id' => $id, 'new_values' => $values,
-                'user_agent' => self::DATASET, 'created_at' => $values['entered_at']]);
-        }
-    }
-
-    /** Only these temporal fields are managed. All other demo edits survive subsequent runs. */
-    private function refreshTimeline(): void
-    {
-        app(AcademicTermIntegrity::class)->transaction(function (): void {
-            DB::select('SELECT pg_advisory_xact_lock(240028, 1)');
-            $changes = [];
-            foreach ($this->offeringPlan() as $key => [$teacher, $subject, $term]) {
-                $offering = DB::table('course_offerings')->where('id', $this->id('course_offerings', $key))->first();
-                if ((int) $offering->teacher_id !== $this->id('teachers', $teacher)
-                    || (int) $offering->subject_id !== $this->id('subjects', $subject)
-                    || (int) $offering->academic_term_id !== $this->id('academic_terms', $term)) {
-                    throw new DomainException('Una oferta demo fue reasignada. No se desplazan sus examenes automaticamente.');
+                $this->insert('enrollments', $key.'-'.$n, ['course_offering_id' => $offering, 'student_id' => $this->id('students', $n),
+                    'registered_by' => $this->id('users', $teacher), 'status' => $n === 18 ? 'INACTIVE' : 'ACTIVE']);
+                if ($n === 4) {
+                    continue;
                 }
-            }
-            foreach ($this->termPlan() as $key => $plan) {
-                $term = AcademicTerm::findOrFail($this->id('academic_terms', $key));
-                $data = ['name' => $term->name, 'start_date' => $plan['start_date'], 'end_date' => $plan['end_date'], 'status' => $term->status];
-                app(AcademicTermIntegrity::class)->assertCanSave($data, $term->id);
-                $old = $term->only(['start_date', 'end_date']);
-                $term->fill(array_intersect_key($data, $old));
-                if ($term->isDirty()) {
-                    $term->save();
-                    $changes['academic_terms'][$term->id] = ['old' => $old, 'new' => $term->only(array_keys($old))];
-                }
-            }
-            // Lock every managed exam first: admission and QR generation use the same lock.
-            $exams = Exam::whereIn('id', array_values($this->ids['exams']))->orderBy('id')->lockForUpdate()->get()->keyBy('id');
-            $roomIds = $exams->pluck('room_id')->unique()->sort()->values();
-            \App\Models\Room::whereIn('id', $roomIds)->orderBy('id')->lockForUpdate()->get();
-            foreach ($this->examPlan() as $key => [$offering, $room, $start]) {
-                $exam = $exams->get($this->id('exams', $key));
-                if ((int) $exam->course_offering_id !== $this->id('course_offerings', $offering)
-                    || ! in_array((int) $exam->room_id, array_values($this->ids['rooms']), true)) {
-                    throw new DomainException('Un examen demo fue vinculado fuera de su escenario. No se desplaza automaticamente.');
-                }
-                $old = $exam->only(['exam_date', 'start_time']);
-                $exam->fill(['exam_date' => $start->toDateString(), 'start_time' => $start->format('H:i:s')]);
-                if ($exam->isDirty(['exam_date', 'start_time'])) {
-                    if (DB::table('exam_entries')->where('exam_id', $exam->id)
-                        ->whereNotIn('id', array_values($this->ids['exam_entries']))->exists()) {
-                        throw new DomainException('Hay ingresos posteriores a la seed en un examen demo. Revisa su historial antes de desplazar la ventana; no se alteran esos ingresos.');
-                    }
-                    // Check target intervals against both real exams and other managed target intervals.
-                    $this->assertTargetRoomFree($exam, $exams);
-                    app(ExamRevision::class)->saveNext($exam);
-                    StudentQrToken::where('exam_id', $exam->id)->where('status', 'ACTIVE')->whereNull('revoked_at')
-                        ->update(['status' => 'REVOKED', 'revoked_at' => now(), 'updated_at' => now()]);
-                    $changes['exams'][$exam->id] = ['old' => $old, 'new' => $exam->only(array_keys($old))];
-                }
-            }
-            foreach ($this->entryPlan() as $key => [$examKey, $n]) {
-                $entry = DB::table('exam_entries')->where('id', $this->id('exam_entries', $key))->lockForUpdate()->first();
-                $exam = $exams->get($this->id('exams', $examKey));
-                if ((int) $entry->exam_id !== $exam->id || (int) $entry->student_id !== $this->id('students', $n)) {
-                    throw new DomainException('Un ingreso demo fue reasociado; no se modifica.');
-                }
-                $at = $this->entryTime($exam);
-                if ($entry->status === 'VALID' && $entry->entered_at !== $at) {
-                    DB::table('exam_entries')->where('id', $entry->id)->update(['entered_at' => $at, 'updated_at' => now()]);
-                    $changes['exam_entries'][$entry->id] = ['old' => $entry->entered_at, 'new' => $at];
-                }
-            }
-            if ($changes !== []) {
-                $this->audit('DEMO_TIMELINE_REFRESHED', self::DATASET, null, null, ['changes' => $changes]);
-            }
-        });
-    }
-
-    private function assertTargetRoomFree(Exam $exam, $exams): void
-    {
-        if (! in_array($exam->status, ExamEntryAvailability::STATES, true)) {
-            return;
-        }
-        if (\App\Models\Room::findOrFail($exam->room_id)->status !== 'ACTIVE') {
-            throw new DomainException('Un aula del escenario fue desactivada. No se reserva una nueva ventana sobre ella.');
-        }
-        $start = ExamEntryAvailability::startsAt($exam);
-        $end = ExamEntryAvailability::endsAt($exam);
-        if (app(RoomAvailabilityService::class)->overlaps($start, $end)->where('room_id', $exam->room_id)
-            ->whereNotIn('id', $exams->keys())->exists()) {
-            throw new DomainException('La nueva ventana demo colisiona con otra reserva. No se modifica la reserva existente.');
-        }
-        foreach ($this->examPlan() as $key => $plan) {
-            $other = $exams->get($this->id('exams', $key));
-            if ($other->id !== $exam->id && $other->room_id === $exam->room_id && in_array($other->status, ExamEntryAvailability::STATES, true)
-                && $plan[2]->lessThan($end) && $plan[2]->addMinutes($other->duration_minutes)->greaterThan($start)) {
-                throw new DomainException('Las ventanas destino demo se solapan tras una edicion manual de aula/duracion.');
+                $score = in_array($n, [2, 6], true) ? 20 : 70 + $n % 20;
+                $record = app(AcademicDataService::class)->validateRecord(['assessments' => [
+                    'FIRST_PARTIAL' => ['was_taken' => true, 'score' => $score], 'SECOND_PARTIAL' => ['was_taken' => true, 'score' => $score]],
+                    'attended_classes' => in_array($n, [2, 3], true) ? 10 : 18, 'total_classes' => 20]);
+                $row = AcademicRecord::create($record + ['course_offering_id' => $offering, 'student_id' => $this->id('students', $n),
+                    'updated_by' => $this->id('users', $teacher), 'revision' => 1]);
+                $this->remember('academic_records', $key.'-'.$n, $row->id);
             }
         }
     }
 
-    private function termPlan(): array
+    private function exams(): void
     {
-        return [
-            'CURRENT' => ['name' => 'FULLQA Periodo actual', 'start_date' => $this->now->subDays(30)->toDateString(),
-                'end_date' => $this->now->addDays(30)->toDateString(), 'status' => 'ACTIVE'],
-            'HISTORY' => ['name' => 'FULLQA Periodo historico', 'start_date' => $this->now->subDays(100)->toDateString(),
-                'end_date' => $this->now->subDays(50)->toDateString(), 'status' => 'INACTIVE'],
+        $slots = collect(ExamSchedulePolicy::ALLOWED_START_TIMES)->map(fn ($time) => $this->now->setTimeFromTimeString($time));
+        $live = $slots->filter(fn ($at) => $at->lessThanOrEqualTo($this->now))->last();
+        if (! $live || $this->now->format('H:i:s') >= ExamSchedulePolicy::DAY_END_TIME) {
+            $live = $this->now->format('H:i:s') < '06:45:00' ? $this->now->setTime(6, 45) : $this->now->addDay()->setTime(6, 45);
+        }
+        $duration = match ($live->format('H:i:s')) {
+            '20:15:00' => 90, '18:45:00' => 180, default => 270
+        };
+        $plans = [
+            'A-INGRESO' => ['MAIN', 'A', $live, $duration, $live->isFuture() ? 'SCHEDULED' : 'IN_PROGRESS', 'partial'],
+            'B-AUTOMATICO' => ['MAIN', 'B', $this->now->addDay()->setTime(8, 15), 90, 'SCHEDULED', 'partial'],
+            'C-FINAL' => ['MAIN', 'B', $this->now->addDays(3)->setTime(9, 45), 180, 'SCHEDULED', 'final'],
+            'D-FINALIZADO' => ['MAIN', 'A', $this->now->subDays(3)->setTime(8, 15), 90, 'COMPLETED', 'partial'],
+            'E-HISTORICO' => ['HISTORY', 'B', CarbonImmutable::parse(DB::table('academic_terms')->where('id', $this->id('academic_terms', 'HISTORY'))->value('end_date'), ExamEntryAvailability::TIMEZONE)->subDays(5)->setTime(9, 45), 90, 'COMPLETED', 'final'],
+            'F-CANCELADO' => ['MAIN', 'C', $this->now->addDays(2)->setTime(12, 45), 90, 'CANCELLED', 'partial'],
+            'G-OTRO-DOCENTE' => ['OTHER', 'C', $this->now->addDay()->setTime(14, 15), 90, 'SCHEDULED', 'partial'],
+            'H-LISTAS-EXCLUSIVAS' => ['MAIN', 'A', $this->now->addDays(2)->setTime(8, 15), 90, 'SCHEDULED', 'makeup'],
+            'I-PENDIENTES' => ['MAIN', 'C', $this->now->addDays(4)->setTime(8, 15), 90, 'SCHEDULED', 'final'],
         ];
+        foreach ($plans as $key => [$offering, $room, $at, $minutes, $status, $type]) {
+            if (! app(ExamSchedulePolicy::class)->fitsWithinInstitutionalDay($at->format('H:i:s'), $minutes)) {
+                throw new DomainException('Horario demo fuera de los bloques institucionales.');
+            }
+            $teacher = $this->user(match ($offering) {
+                'SECOND', 'HISTORY' => 'docente2', 'OTHER' => 'docente3', default => 'docente1'
+            });
+            app(RoomAvailabilityService::class)->ensureReservable($this->id('rooms', $room), $at->toDateString(), $at->format('H:i:s'), $minutes);
+            $exam = Exam::create(['course_offering_id' => $this->id('course_offerings', $offering), 'room_id' => $this->id('rooms', $room),
+                'name' => 'DEMO '.$key, 'exam_date' => $at->toDateString(), 'start_time' => $at->format('H:i:s'),
+                'duration_minutes' => $minutes, 'evaluation_type' => $type, 'status' => $status,
+                'rules' => 'Datos ficticios. Presentar CI y QR vigente; respetar la lista exclusiva.', 'created_by' => $teacher->id]);
+            $this->remember('exams', $key, $exam->id);
+            app(ExamRoomAssignmentService::class)->syncExamRooms($exam->id, [$exam->room_id]);
+            if ($key !== 'I-PENDIENTES') {
+                app(ExamEligibilityInitializer::class)->forExam($exam, $teacher->id);
+            }
+            if (in_array($key, ['A-INGRESO', 'B-AUTOMATICO', 'H-LISTAS-EXCLUSIVAS'], true)) {
+                ExamEligibility::where('exam_id', $exam->id)->where('student_id', $this->id('students', 4))->delete();
+                foreach ([3 => 'ELIGIBLE', 5 => 'INELIGIBLE'] as $n => $decision) {
+                    app(ExamEligibilityService::class)->save(ExamEligibility::where('exam_id', $exam->id)->where('student_id', $this->id('students', $n))->firstOrFail(),
+                        ['status' => $decision, 'reason_code' => 'INSTITUTIONAL_REQUIREMENT_PENDING', 'observations' => 'Documento ficticio pendiente.'], $this->request($teacher));
+                }
+                $configuration = app(ConfigurationService::class)->save($this->request($teacher, ['revision' => 0,
+                    'catalog_revision' => app(GlobalCriteriaCatalog::class)->revision(), 'criteria' => [
+                        ['code' => 'MIN_ATTENDANCE_PERCENTAGE', 'parameters' => ['minimum_percentage' => 75]],
+                        ['code' => 'MIN_ASSESSMENT_SCORE', 'parameters' => ['assessment_key' => 'FIRST_PARTIAL', 'minimum_score' => 51]],
+                    ]]), $exam->id);
+                $evaluation = app(EvaluationService::class)->preview($this->request($teacher, ['configuration_revision' => $configuration['revision'],
+                    'catalog_revision' => $configuration['catalog_revision']]), $exam->id);
+                app(EvaluationService::class)->confirm($this->request($teacher), $exam->id, $evaluation->preview_id);
+            }
+            if (in_array($key, ['A-INGRESO', 'H-LISTAS-EXCLUSIVAS'], true)) {
+                foreach (['colaborador1', 'colaborador2'] as $operator) {
+                    app(ExamCollaboratorService::class)->assignCollaborator($exam->id, $this->id('users', $operator), $this->request($teacher));
+                }
+            }
+            if ($key === 'B-AUTOMATICO') {
+                app(ExamCollaboratorService::class)->assignCollaborator($exam->id, $this->id('users', 'colaborador2'), $this->request($teacher));
+                app(ExamCollaboratorService::class)->revokeCollaborator($exam->id, $this->id('users', 'colaborador2'), $this->request($teacher));
+            }
+            if ($status === 'COMPLETED') {
+                // Real services create historical evidence at its original time, then close the exam.
+                $exam->update(['status' => 'IN_PROGRESS']);
+                $this->at($at->addMinutes(10), fn () => $this->activity($exam, $teacher));
+                $exam->update(['status' => 'COMPLETED']);
+            } elseif ($key === 'A-INGRESO' && ExamEntryAvailability::reason($exam) === null) {
+                $this->activity($exam, $teacher);
+            }
+            if (in_array($key, ['A-INGRESO', 'H-LISTAS-EXCLUSIVAS'], true)) {
+                app(OfflineAssignmentService::class)->prepare($exam->id, $this->request($teacher));
+            }
+        }
+        foreach (['exam_rooms', 'exam_eligibilities', 'exam_eligibility_criteria', 'exam_eligibility_configurations', 'eligibility_evaluations',
+            'student_criterion_results', 'exam_collaborators', 'exam_entries', 'student_qr_tokens', 'special_cases', 'infractions', 'discipline_cases',
+            'expulsions', 'exam_offline_distributions', 'exam_offline_members', 'exam_offline_sync_events'] as $table) {
+            $this->capture($table, 'exam_id', array_values($this->ids['exams']));
+        }
+        $this->capture('exam_offline_lists', 'distribution_id', array_values($this->ids['exam_offline_distributions']));
+        $this->capture('exam_offline_packages', 'list_id', array_values($this->ids['exam_offline_lists']));
     }
 
-    private function offeringPlan(): array
+    private function activity(Exam $exam, User $teacher): void
     {
-        return ['MAIN' => [1, 'TIS', 'CURRENT', 'ACTIVE'], 'SECOND' => [1, 'RED', 'CURRENT', 'ACTIVE'],
-            'OTHER' => [2, 'BD', 'CURRENT', 'ACTIVE'], 'HISTORY' => [1, 'TIS', 'HISTORY', 'INACTIVE'],
-            'OFF' => [2, 'RED', 'CURRENT', 'INACTIVE']];
+        $entries = app(QrEntryService::class);
+        $params = ['room_id' => $exam->room_id];
+        $qr = app(StudentQrService::class)->getOrGenerateForExam($this->id('students', 1), $exam->id, 3);
+        app(QrV3Factory::class)->makeVerifier()->verify($qr['token'], $this->id('students', 1), $exam->id, now()->timestamp);
+        $this->expectResult($entries->process($exam->id, $teacher, $params + ['qr_token' => $qr['token']]), 'AUTHORIZED');
+        foreach ([7, 8] as $n) {
+            $response = $entries->processManual($exam->id, $this->id('students', $n), $teacher, $params);
+            $this->expectResult($response, 'AUTHORIZED');
+            if ($n === 8) {
+                app(EntryAnnulmentService::class)->annul($exam->id, $response->getData(true)['data']['entry']['id'],
+                    'DEMO: corrección del registro; conserva historial.', $this->request($teacher));
+            }
+        }
+        $this->expectResult($entries->process($exam->id, $teacher, $params + ['qr_token' => $qr['token']]), 'ALREADY_REGISTERED');
+        app(DisciplineService::class)->create($exam->id, ['kind' => 'INCIDENT', 'type' => 'IDENTIFICATION',
+            'description' => 'DEMO: documento deteriorado, identidad pendiente de contraste.', 'student_id' => $this->id('students', 4),
+            'decision' => 'RECORD', 'request_key' => (string) Str::uuid()], $this->request($teacher));
+        app(DisciplineService::class)->create($exam->id, ['kind' => 'INCIDENT', 'type' => 'ENVIRONMENT',
+            'description' => 'DEMO: interrupción breve de iluminación.', 'student_id' => null,
+            'decision' => 'RECORD', 'request_key' => (string) Str::uuid()], $this->request($teacher));
+        app(DisciplineService::class)->create($exam->id, ['kind' => 'INFRACTION', 'type' => 'COPYING',
+            'description' => 'DEMO: uso de material no permitido constatado por el responsable.', 'student_id' => $this->id('students', 7),
+            'observations' => 'Evidencia enteramente ficticia.', 'decision' => 'EXPEL', 'reason' => 'DEMO: decisión justificada del responsable.',
+            'request_key' => (string) Str::uuid()], $this->request($teacher));
+        app(OfflineAssignmentService::class)->prepare($exam->id, $this->request($teacher));
+        $hasCollaborator = DB::table('exam_collaborators')->where('exam_id', $exam->id)->where('user_id', $this->id('users', 'colaborador2'))->where('status', 'ACTIVE')->exists();
+        $operator = $hasCollaborator ? $this->user('colaborador2') : $teacher;
+        $package = app(OfflinePackageService::class)->download($exam->id, $this->request($operator));
+        $student = collect($package['students'])->first(fn ($row) => $row['eligibility_status'] === 'ELIGIBLE' && $row['entry_status'] === 'PENDING' && $row['student_status'] === 'ACTIVE');
+        if ($student) {
+            $result = app(OfflineSyncService::class)->sync($exam->id, $package + ['events' => [[
+                'event_id' => (string) Str::uuid(), 'student_id' => $student['student_id'], 'method' => 'MANUAL', 'captured_at' => now()->toISOString(),
+            ]]], $this->request($operator));
+            if (($result['results'][0]['status'] ?? null) !== 'ACCEPTED') {
+                throw new DomainException('La sincronización demo no generó un resultado.');
+            }
+            $rejected = app(OfflineSyncService::class)->sync($exam->id, $package + ['events' => [[
+                'event_id' => (string) Str::uuid(), 'student_id' => $student['student_id'], 'method' => 'MANUAL', 'captured_at' => now()->toISOString(),
+            ]], 'protocol_version' => 1], $this->request($operator));
+            if (($rejected['results'][0]['status'] ?? null) !== 'DUPLICATE') {
+                throw new DomainException('El ingreso sincronizado no conservó su unicidad.');
+            }
+            $negative = app(OfflineSyncService::class)->sync($exam->id, array_replace($package, ['room_id' => $this->id('rooms', 'D'), 'events' => [[
+                'event_id' => (string) Str::uuid(), 'student_id' => $student['student_id'], 'method' => 'MANUAL', 'captured_at' => now()->toISOString(),
+            ]]]), $this->request($operator));
+            if (($negative['results'][0]['status'] ?? null) !== 'REJECTED') {
+                throw new DomainException('No se rechazó el ambiente incorrecto.');
+            }
+        }
+        if (str_contains($exam->name, 'D-FINALIZADO')) {
+            $target = Exam::findOrFail($this->id('exams', 'A-INGRESO'));
+            $this->expectResult($entries->process($target->id, $teacher, ['room_id' => $target->room_id, 'qr_token' => $qr['token']]), 'WRONG_EXAM');
+        }
+        if ($exam->course_offering_id === $this->id('course_offerings', 'MAIN') && str_contains($exam->name, 'A-INGRESO')) {
+            foreach ([2, 4] as $n) {
+                $this->expectResult($entries->processManual($exam->id, $this->id('students', $n), $teacher, $params), 'DENIED');
+            }
+        }
     }
 
-    private function enrollmentPlan(): array
+    private function portal(): void
     {
-        return ['MAIN' => range(1, 10), 'SECOND' => [1, 4, 7, 8], 'OTHER' => [11, 12], 'HISTORY' => [1, 2, 3, 4], 'OFF' => [12]];
+        $request = $this->request($this->admin);
+        $category = DB::table('portal_event_categories')->where('is_active', true)->orderBy('id')->value('id');
+        if (! $category) {
+            throw new DomainException('Se requiere una categoría activa de calendario.');
+        }
+        foreach (['PUBLIC', 'PRIVATE', 'PUBLIC'] as $i => $visibility) {
+            $event = app(PortalCalendarService::class)->save(['category_id' => $category, 'title' => 'DEMO '.['Jornada de exámenes', 'Coordinación docente', 'Taller de preparación'][$i],
+                'description' => 'Actividad ficticia para presentar el calendario institucional.', 'visibility' => $visibility,
+                'starts_at' => $this->now->addDays($i + 1)->setTime(10, 0)->toISOString(), 'ends_at' => $this->now->addDays($i + 1)->setTime(11, 0)->toISOString(),
+                'location' => 'DEMO Campus', 'all_day' => false], $request);
+            if ($i < 2) {
+                app(PortalCalendarService::class)->changeStatus($event->id, ['revision' => $event->revision, 'status' => 'PUBLISHED'], $request);
+            }
+            $this->remember('portal_events', $i, $event->id);
+        }
+        foreach (['Apertura de inscripciones', 'Guía de ingreso con QR', 'Borrador de comunicado'] as $i => $title) {
+            $news = app(PortalNewsService::class)->save(['title' => 'DEMO '.$title, 'summary' => 'Información ficticia para la demostración de EIDA.',
+                'content' => 'Consulta tus exámenes, revisa la habilitación y presenta tu identificación. Este contenido no constituye una comunicación institucional real.'], $request);
+            if ($i < 2) {
+                app(PortalNewsService::class)->changeStatus($news->id, ['revision' => $news->revision, 'status' => 'PUBLISHED'], $request);
+            }
+            $this->remember('portal_news', $i, $news->id);
+        }
+        foreach (['SECTION' => ['title' => 'DEMO Orientación de acceso', 'description' => 'Revisa tu habilitación y descarga el QR vigente. Las fotografías de estas cuentas están ausentes.', 'links' => [], 'sort_order' => 90],
+            'FAQ' => ['question' => 'DEMO: ¿cómo preparar una lista offline?', 'answer' => 'El responsable distribuye las listas; cada colaborador descarga su lista en la APK antes de desconectarse.', 'sort_order' => 90]] as $kind => $data) {
+            $content = app(PortalInformationService::class)->save($kind, $data, $request);
+            app(PortalInformationService::class)->publish($kind, $content->id, $content->revision, true, $request);
+            $this->remember('portal_information_contents', $kind, $content->id);
+        }
+        $domain = config('portal_services.allowed_domains')[0] ?? null;
+        if (! $domain) {
+            throw new DomainException('Configura EIDA_SERVICE_ALLOWED_DOMAINS para los enlaces institucionales.');
+        }
+        foreach (['ACTIVE', 'INACTIVE'] as $i => $status) {
+            $service = app(PortalServiceCatalog::class)->save(['name' => 'DEMO '.($i ? 'Servicio en preparación' : 'Portal institucional'),
+                'description' => 'Enlace de demostración a un dominio institucional permitido.', 'icon' => 'academic',
+                'url' => 'https://'.$domain.'/', 'display_order' => 90 + $i], $request);
+            if ($status === 'ACTIVE') {
+                app(PortalServiceCatalog::class)->changeStatus($service->id, ['revision' => $service->revision, 'status' => $status], $request);
+            }
+            $this->remember('portal_services', $i, $service->id);
+        }
     }
 
-    private function examPlan(): array
+    private function assertIntegrity(): void
     {
-        return [
-            'A-INGRESO' => ['MAIN', 'A', $this->now->subMinutes(15), 240, 'IN_PROGRESS', 'partial'],
-            'B-PROXIMO' => ['MAIN', 'A', $this->now->addHours(6), 90, 'SCHEDULED', 'partial'],
-            'C-FUTURO' => ['MAIN', 'B', $this->now->addDays(3), 90, 'SCHEDULED', 'final'],
-            'D-VENCIDO' => ['SECOND', 'B', $this->now->subDays(3), 90, 'SCHEDULED', 'partial'],
-            'E-HISTORICO' => ['HISTORY', 'A', $this->now->subDays(75), 90, 'COMPLETED', 'final'],
-            'F-CANCELADO' => ['MAIN', 'C', $this->now->addDays(2), 90, 'CANCELLED', 'makeup'],
-            'G-OTRO-DOCENTE' => ['OTHER', 'B', $this->now->addHours(8), 90, 'SCHEDULED', 'makeup'],
-        ];
+        $exam = Exam::findOrFail($this->id('exams', 'H-LISTAS-EXCLUSIVAS'));
+        $distribution = ExamOfflineDistribution::where('exam_id', $exam->id)->firstOrFail();
+        if (app(OfflineAssignmentService::class)->isStale($exam, $distribution)
+            || DB::table('exam_offline_members')->where('exam_id', $exam->id)->count() !== 17
+            || ! (app(ExamQrV3::class)->manifest(Exam::findOrFail($this->id('exams', 'A-INGRESO')))['available'] ?? false)) {
+            throw new DomainException('Falló integridad de listas o disponibilidad del QR v3.');
+        }
+        foreach ($this->ids['users'] as $id) {
+            $user = User::findOrFail($id);
+            if (! app(LoginUserResolver::class)->isValidEmail($user->email) || $user->must_change_password || $user->status !== 'ACTIVE') {
+                throw new DomainException('Cuenta demo incompatible con el inicio de sesión.');
+            }
+        }
     }
 
-    private function entryPlan(): array
+    private function ready(User $user, string $key): void
     {
-        return ['CURRENT' => ['A-INGRESO', 3, 'MANUAL'], 'ENDED' => ['D-VENCIDO', 4, 'MANUAL'], 'HISTORY' => ['E-HISTORICO', 1, 'QR']];
+        $user->forceFill(['password' => $this->passwordHash, 'email_verified_at' => now(), 'must_change_password' => false,
+            'active_session_id' => null, 'profile_photo' => null])->save();
+        $this->remember('users', $key, $user->id);
     }
 
-    private function entryTime(Exam $exam): string
+    private function restoreInstitutionalAccounts(): void
     {
-        return ExamEntryAvailability::startsAt($exam)->addMinutes(5)->setTimezone(config('app.timezone'))->format('Y-m-d H:i:s');
+        $keys = $this->accountKeys();
+        if (count($this->ids['users'] ?? []) !== count($keys) || array_diff($keys, array_keys($this->ids['users']))) {
+            throw new DomainException('El manifiesto no identifica las 26 cuentas previstas; no se adoptan usuarios por correo.');
+        }
+        $users = User::whereIn('id', array_values($this->ids['users']))->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+        // Preflight every target before changing any identity. A matching institutional address is never ownership.
+        foreach ($keys as $key) {
+            $user = $users->get($this->id('users', $key));
+            $email = $key.'@umss.edu.bo';
+            if (! $user || ! in_array(strtolower($user->email), [$email, $key.'@eida.test', $key.'@example.com'], true)) {
+                throw new DomainException('La identidad demo '.$key.' fue modificada; requiere revisión manual.');
+            }
+            if (User::whereRaw('LOWER(email) = ?', [$email])->whereKeyNot($user->id)->exists()) {
+                throw new DomainException('El correo '.$email.' pertenece a otra cuenta. No se sobrescribe ni se fusiona.');
+            }
+            if (str_starts_with($key, 'estudiante')) {
+                $n = (int) substr($key, strlen('estudiante'));
+                $validProfile = DB::table('students')->where('id', $this->id('students', $n))->where('user_id', $user->id)->exists();
+                $role = RoleName::ESTUDIANTE->value;
+            } elseif (str_starts_with($key, 'docente') || str_starts_with($key, 'colaborador')) {
+                $validProfile = DB::table('teachers')->where('id', $this->id('teachers', $key))->where('user_id', $user->id)->exists();
+                $role = RoleName::DOCENTE->value;
+            } else {
+                $validProfile = true;
+                $role = $key === 'admin' ? RoleName::ADMINISTRADOR->value : Role::findOrFail($this->id('roles', $key))->name;
+            }
+            if (! $validProfile || ! $user->hasRole($role)) {
+                throw new DomainException('El perfil o rol de '.$key.' ya no coincide con la demo; no se reasocian registros ajenos.');
+            }
+        }
+        foreach ($keys as $key) {
+            $user = $users[$this->id('users', $key)];
+            $email = $key.'@umss.edu.bo';
+            $resetPassword = ! Hash::check(self::DEMO_PASSWORD, $user->password);
+            if ($user->email === $email && $user->status === 'ACTIVE' && ! $user->must_change_password
+                && $user->email_verified_at && ! $resetPassword) {
+                continue;
+            }
+            $old = $user->only(['email', 'status', 'must_change_password']);
+            $values = ['email' => $email, 'status' => 'ACTIVE', 'email_verified_at' => $user->email_verified_at ?? now(),
+                'must_change_password' => false, 'remember_token' => null, 'active_session_id' => Str::random(40)];
+            if ($resetPassword) {
+                $values['password'] = $this->passwordHash;
+            }
+            $user->forceFill($values)->save();
+            $user->tokens()->delete();
+            AuditLog::create(['user_id' => $this->id('users', 'admin'), 'action' => 'DEMO_ACCOUNT_ACCESS_RESTORED',
+                'entity_type' => 'User', 'entity_id' => $user->id, 'old_values' => $old,
+                'new_values' => $user->only(['email', 'status', 'must_change_password']) + ['dataset' => self::DATASET, 'password_reset' => $resetPassword],
+                'user_agent' => self::DATASET]);
+        }
+    }
+
+    private function accountKeys(): array
+    {
+        return ['admin', 'docente1', 'docente2', 'docente3', 'colaborador1', 'colaborador2',
+            ...array_map(fn (int $n) => 'estudiante'.$n, range(1, 18)), 'secretaria1', 'secretaria2'];
+    }
+
+    private function at(CarbonImmutable $time, callable $callback): void
+    {
+        $old = Carbon::getTestNow();
+        $oldImmutable = CarbonImmutable::getTestNow();
+        try {
+            Carbon::setTestNow($time);
+            CarbonImmutable::setTestNow($time);
+            $callback();
+        } finally {
+            Carbon::setTestNow($old);
+            CarbonImmutable::setTestNow($oldImmutable);
+        }
+    }
+
+    private function expectResult(JsonResponse $response, string $expected): void
+    {
+        if (($response->getData(true)['result'] ?? null) !== $expected) {
+            throw new DomainException('Resultado inesperado al crear el escenario de ingreso: '.$expected);
+        }
+    }
+
+    private function capture(string $table, string $column, array $ids): void
+    {
+        foreach (DB::table($table)->whereIn($column, $ids)->pluck('id') as $id) {
+            $this->remember($table, (string) $id, $id);
+        }
     }
 
     private function insert(string $table, string $key, array $values, array $unique = []): int
@@ -463,27 +549,37 @@ class EidaFullDemoSeeder extends Seeder
         return $id;
     }
 
-    private function remember(string $table, string|int $key, int $id): void
+    private function vacant(string $table, array $values): void
+    {
+        foreach ($values as $field => $value) {
+            $query = DB::table($table);
+            $exists = $field === 'email' ? $query->whereRaw('LOWER(email) = ?', [strtolower($value)])->exists() : $query->where($field, $value)->exists();
+            if ($exists) {
+                throw new DomainException("Colisión en {$table}.{$field}; el registro existente no se adopta ni modifica.");
+            }
+        }
+    }
+
+    private function remember(string $table, string|int $key, int|string $id): void
     {
         $this->ids[$table][$key] = $id;
-        $this->pending[$table][$key] = $id;
     }
 
     private function id(string $table, string|int $key): int
     {
-        return $this->ids[$table][$key];
+        return (int) $this->ids[$table][$key];
     }
 
-    private function request(?User $actor = null): Request
+    private function user(string $key): User
     {
-        $request = Request::create('/demo/fullqa', 'POST', server: ['HTTP_USER_AGENT' => self::DATASET]);
-        $request->setUserResolver(fn () => $actor ?? $this->actor);
+        return User::findOrFail($this->id('users', $key));
+    }
+
+    private function request(User $actor, array $data = []): Request
+    {
+        $request = Request::create('/demo/sprint123', 'POST', $data, server: ['HTTP_USER_AGENT' => self::DATASET]);
+        $request->setUserResolver(fn () => $actor);
 
         return $request;
-    }
-
-    private function audit(string $action, string $type, ?int $id, ?array $old = null, ?array $new = null): void
-    {
-        app(AuditLogService::class)->log($this->request(), $this->actor?->id, $action, $type, $id, $old, $new);
     }
 }

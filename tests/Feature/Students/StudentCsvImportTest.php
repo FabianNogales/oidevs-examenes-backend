@@ -162,8 +162,9 @@ public function test_detects_non_existing_career(): void
         $result['rows'][0]['errors']
     );
 }
-public function test_detects_empty_profile_photo(): void
+public function test_allows_empty_profile_photo(): void
 {
+    Career::create(['code' => 'SIS', 'name' => 'Sistemas', 'status' => 'ACTIVE']);
     $csv = implode("\n", [
         'sis_code,identity_number,first_names,last_names,email,career,profile_photo',
         '20260001,1234567,Juan,Perez,juan.perez@umss.edu.bo,Sistemas,',
@@ -178,12 +179,8 @@ public function test_detects_empty_profile_photo(): void
 
     $result = $service->validate($file);
 
-    $this->assertFalse($result['valid']);
-
-    $this->assertContains(
-        'La foto de perfil es obligatoria.',
-        $result['rows'][0]['errors']
-    );
+    $this->assertTrue($result['valid']);
+    $this->assertSame([], $result['rows'][0]['errors']);
 }
 public function test_detects_duplicate_sis_in_csv(): void
 {
@@ -553,4 +550,4 @@ public function test_imports_valid_rows_and_skips_invalid_rows(): void
         'sis_code' => '20260002',
     ]);
 }
-}   
+}

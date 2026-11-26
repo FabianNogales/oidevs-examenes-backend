@@ -11,10 +11,6 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // Llama a tu seeder principal aquí
-        $this->call([
-            EidaFullDemoSeeder::class,
-            // RoleSeeder::class, (agrega otros si los tienes)
-        ]);
+        // Demo data is explicit: db:seed --class=EidaFullDemoSeeder --force.
     }
 }

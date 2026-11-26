@@ -14,6 +14,14 @@ class HistoricalPhotoRequest extends FormRequest
 
     public function rules(): array
     {
+        if ($this->routeIs('students.historical-photo.register')) {
+            return [
+                'photo' => ['required', 'file', 'image', new SafeRasterImage, 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+                'revision' => ['prohibited'],
+                'reason' => ['prohibited'],
+            ];
+        }
+
         return [
             'photo' => ['required', 'file', 'image', new SafeRasterImage, 'mimes:jpg,jpeg,png,webp', 'dimensions:min_width=1,min_height=1', 'max:5120'],
             'revision' => ['required', 'integer', 'min:0'],

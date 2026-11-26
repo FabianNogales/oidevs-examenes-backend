@@ -90,6 +90,27 @@ class MobileOfflinePackageTest extends TestCase
         $this->assertDatabaseCount('exam_offline_distributions', 1);
     }
 
+    public function test_student_registered_photo_reaches_entry_control_and_android_package(): void
+    {
+        $student = Student::findOrFail($this->fixture['studentId']);
+        $role = \App\Models\Role::firstOrCreate(['name' => 'ESTUDIANTE'], ['status' => 'ACTIVE']);
+        $student->user->roles()->syncWithoutDetaching([$role->id => ['status' => 'ACTIVE', 'assigned_at' => now()]]);
+        $student->user->forceFill(['must_change_password' => false])->save();
+        $this->actingAs($student->user)->postJson('/api/v1/students/initial-setup/historical-photo',
+            ['photo' => \Tests\Support\RasterImageFixture::image()])->assertCreated();
+        $this->actingAs($this->fixture['user'])->getJson('/api/v1/exams/'.$this->exam->id.'/entry-control/students/'.$student->id)
+            ->assertOk()->assertJsonPath('data.historical_photo_url', fn ($url) => is_string($url) && str_contains($url, 'historical-photo'));
+        $this->get('/api/v1/exams/'.$this->exam->id.'/entry-control/students/'.$student->id.'/historical-photo')->assertOk();
+        $this->app['auth']->forgetGuards();
+        $token = $this->bearer($this->fixture['user']);
+        $this->mobile($token, 'POST', '/prepare')->assertOk();
+        $manifest = $this->manifest($this->mobile($token, 'GET', '/package?schema_version=2'));
+        $photo = collect($manifest['students'][0]['photos'])->firstWhere('kind', 'historical');
+        $this->assertSame('PRESENT', $photo['state']);
+        $response = $this->mobile($token, 'GET', '/packages/'.$manifest['package_id'].'/photos/'.$student->id.'/historical')->assertOk();
+        $this->assertSame($photo['sha256'], hash('sha256', $response->streamedContent()));
+    }
+
     public function test_collaborator_cannot_prepare_or_inspect_other_lists_and_owner_can_supervise_without_package(): void
     {
         $a = $this->offlineCollaborator(); $this->offlineCollaborator(); $this->addOfflineStudent('Zeta');

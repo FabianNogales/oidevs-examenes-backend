@@ -43,6 +43,26 @@ class QrV3Factory
         }
 
         $key = $label === 'PRIVATE KEY' ? 'PRIVATE_KEY' : 'PUBLIC_KEY';
+        $configKey = strtolower($key);
+        if ($value === null) {
+            $value = config('qr_v3.'.$configKey);
+        }
+        if ($value === null && filled($path = config('qr_v3.'.$configKey.'_path'))) {
+            if (! is_string($path) || strlen($path) > 65536) {
+                throw new QrV3Exception('KEY_CONFIGURATION_INVALID', $key.'_MISSING_OR_EMPTY');
+            }
+            // Legacy *_PATH settings may hold the existing PEM/DER key rather than a filename.
+            // Normalize that representation only; OpenSSL and the key ring still validate the pair.
+            if (str_starts_with(trim($path), '-----BEGIN ')) {
+                $value = $path;
+            } elseif (preg_match('/\A[A-Za-z0-9+\/=]+\z/', $path) && base64_decode($path, true) !== false) {
+                $value = '-----BEGIN '.$label."-----\n".rtrim(chunk_split($path, 64, "\n"))."\n-----END ".$label.'-----';
+            } elseif (is_file($path) && is_readable($path) && filesize($path) <= 65536) {
+                $value = file_get_contents($path);
+            } else {
+                throw new QrV3Exception('KEY_CONFIGURATION_INVALID', $key.'_MISSING_OR_EMPTY');
+            }
+        }
         if ($value === null) {
             throw new QrV3Exception('KEY_CONFIGURATION_INVALID', $key.'_MISSING_OR_EMPTY');
         }

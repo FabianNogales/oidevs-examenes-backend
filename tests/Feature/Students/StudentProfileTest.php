@@ -63,6 +63,9 @@ class StudentProfileTest extends TestCase
             'last_names' => 'Pérez',
             'status' => 'ACTIVE',
         ]);
+        $image = DB::transaction(fn () => app(\App\Services\Images\DatabaseImageService::class)
+            ->store(RasterImageFixture::image(), 'historical', $this->student->id, $this->studentUser->id));
+        $this->student->forceFill(['historical_image_id' => $image])->save();
     }
 
     public function test_student_can_get_their_profile(): void

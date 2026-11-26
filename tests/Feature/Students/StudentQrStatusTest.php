@@ -79,6 +79,11 @@ class StudentQrStatusTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+        \Illuminate\Support\Facades\Storage::fake('local');
+        $historical = \Tests\Support\RasterImageFixture::image();
+        \Illuminate\Support\Facades\Storage::disk('local')->put('institutional-photos/setup.png',
+            file_get_contents($historical->getRealPath()));
+        DB::table('students')->where('id', $this->studentId)->update(['historical_photo' => 'institutional-photos/setup.png']);
 
         $teacherId = DB::table('teachers')->insertGetId([
             'user_id' => $this->teacherUser->id,

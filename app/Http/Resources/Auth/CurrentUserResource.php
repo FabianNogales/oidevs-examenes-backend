@@ -23,6 +23,7 @@ class CurrentUserResource extends JsonResource
             'email' => $this->email,
             'status' => $this->status,
             'must_change_password' => $this->must_change_password,
+            'must_upload_historical_photo' => app(\App\Services\Students\HistoricalPhotoService::class)->requiredFor($this->resource),
             'roles' => $this->whenLoaded(
                 'activeRoles',
                 fn () => $this->activeRoles->pluck('name')

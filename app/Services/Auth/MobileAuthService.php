@@ -31,6 +31,9 @@ class MobileAuthService
             if ($actor->must_change_password) {
                 $this->fail('PASSWORD_CHANGE_REQUIRED', 'Debe cambiar su contraseña en EIDA Web antes de continuar.', 403);
             }
+            if (app(\App\Services\Students\HistoricalPhotoService::class)->requiredFor($actor)) {
+                $this->fail('HISTORICAL_PHOTO_REQUIRED', 'Debe registrar su fotografía histórica en EIDA Web antes de continuar.', 403);
+            }
             if (! $this->access->allows($actor)) {
                 $this->fail('MOBILE_OPERATOR_REQUIRED', 'Se requiere un examen propio o una colaboración vigente.', 403);
             }

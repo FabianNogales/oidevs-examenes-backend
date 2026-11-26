@@ -56,10 +56,10 @@ class LoginUserResolver
             ->where('sis_code', $identifier)
             ->first()
             ?->user ?? Teacher::query()
-                ->with('user')
-                ->where('institutional_code', $identifier)
-                ->first()
-                ?->user;
+            ->with('user')
+            ->where('institutional_code', $identifier)
+            ->first()
+            ?->user;
     }
 
     public function isEmailIdentifier(string $identifier): bool

@@ -44,7 +44,7 @@ class StudentRegistrationService
                 'email' => $data['email'],
                 'password' => Str::random(40),
                 'status' => UserStatus::ACTIVE->value,
-                'profile_photo' => $data['profile_photo'] ?? null,
+                'profile_photo' => ($data['profile_photo'] ?? '') ?: null,
             ]);
 
             // Compartir la regla de credencial inicial CI y cambio obligatorio con HU05.
@@ -65,6 +65,12 @@ class StudentRegistrationService
                 'career_id' => $career->id,
                 'status' => UserStatus::ACTIVE->value,
             ]);
+
+            if (! empty($data['historical_photo'])) {
+                abort_unless($actor && $request, 403);
+                $photos = app(HistoricalPhotoService::class);
+                $photos->save($student->id, $photos->importFile($data['historical_photo']), 0, false, $request, 'INSTITUTIONAL_IMPORT');
+            }
 
             // La creación y su trazabilidad se confirman o revierten juntas.
             AuditLog::query()->create([

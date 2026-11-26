@@ -6,5 +6,9 @@ return [
     'kid' => env('EIDA_QR_V3_KID', ''),
     'issuer' => env('EIDA_QR_V3_ISSUER', ''),
     'audience' => env('EIDA_QR_V3_AUDIENCE', 'eida-control-qr'),
+    'public_key' => env('EIDA_QR_V3_PUBLIC_KEY'),
+    'private_key' => env('EIDA_QR_V3_PRIVATE_KEY'),
+    'public_key_path' => env('EIDA_QR_V3_PUBLIC_KEY_PATH'),
+    'private_key_path' => env('EIDA_QR_V3_PRIVATE_KEY_PATH'),
     'max_lifetime_seconds' => 172800,
 ];

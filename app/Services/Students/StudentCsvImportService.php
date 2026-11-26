@@ -20,7 +20,6 @@ class StudentCsvImportService
         'last_names',
         'email',
         'career',
-        'profile_photo',
     ];
 
     public function __construct(private readonly StudentRegistrationService $registration) {}
@@ -86,7 +85,8 @@ class StudentCsvImportService
             $headers
         );
 
-        if ($headers !== self::REQUIRED_COLUMNS) {
+        $optional = array_values(array_filter(['profile_photo', 'historical_photo'], fn ($column) => in_array($column, $headers, true)));
+        if ($headers !== [...self::REQUIRED_COLUMNS, ...$optional]) {
             fclose($handle);
 
             return [
@@ -119,15 +119,16 @@ class StudentCsvImportService
 
             if (count(array_filter($values, fn (string $value) => $value !== '')) === 0) {
                 $rowErrors[] = 'La fila está vacía.';
-            } elseif (count($values) !== count(self::REQUIRED_COLUMNS)) {
+            } elseif (count($values) !== count($headers)) {
                 $rowErrors[] = 'La fila no contiene la cantidad de columnas esperada.';
             }
 
             // Mantener las claves del contrato incluso en registros incompletos.
             $data = array_combine(
-                self::REQUIRED_COLUMNS,
-                array_slice(array_pad($values, count(self::REQUIRED_COLUMNS), ''), 0, count(self::REQUIRED_COLUMNS))
+                $headers,
+                array_slice(array_pad($values, count($headers), ''), 0, count($headers))
             );
+            $data += ['profile_photo' => '', 'historical_photo' => ''];
             $data['email'] = strtolower($data['email']);
 
             if ($rowErrors === []) {
@@ -227,8 +228,16 @@ return [
         $errors[] = 'La carrera indicada no existe.';
     }
 
-    if ($data['profile_photo'] === '') {
-        $errors[] = 'La foto de perfil es obligatoria.';
+    if ($data['profile_photo'] !== '' && ! preg_match('/\A(?:(?:avatars|profile-photos)\/)?[A-Za-z0-9][A-Za-z0-9_-]{0,199}\.(?:jpe?g|png|webp)\z/i', $data['profile_photo'])) {
+        $errors[] = 'La foto de perfil debe ser una referencia local JPEG, PNG o WebP; no se admiten URLs externas.';
+    }
+
+    if ($data['historical_photo'] !== '') {
+        try {
+            app(HistoricalPhotoService::class)->importFile($data['historical_photo']);
+        } catch (\Symfony\Component\HttpKernel\Exception\NotFoundHttpException|\Illuminate\Validation\ValidationException $error) {
+            $errors[] = 'La fotografía histórica no es válida: use un archivo JPEG, PNG o WebP existente en institutional-photos/ del almacenamiento privado, de hasta 5 MB.';
+        }
     }
 
     // Las columnas string correspondientes usan el límite predeterminado de 255.
@@ -240,6 +249,7 @@ return [
         'email' => 'El correo',
         'career' => 'La carrera',
         'profile_photo' => 'La referencia de la foto de perfil',
+        'historical_photo' => 'La referencia de la fotografía histórica',
     ];
 
     foreach ($fieldLabels as $field => $label) {

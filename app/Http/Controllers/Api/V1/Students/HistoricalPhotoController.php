@@ -15,6 +15,13 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class HistoricalPhotoController extends Controller
 {
+    public function register(HistoricalPhotoRequest $request, HistoricalPhotoService $service): JsonResponse
+    {
+        $service->register($request);
+
+        return response()->json(['success' => true, 'message' => 'Fotografía histórica registrada.'], 201);
+    }
+
     public function store(HistoricalPhotoRequest $request, Student $student, HistoricalPhotoService $service): JsonResponse
     {
         $correction = $request->routeIs('students.historical-photo.correct');
